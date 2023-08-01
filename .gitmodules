@@ -1,0 +1,9 @@
+[submodule "drivers.gpu.i915.drm-intel"]
+	path = drivers.gpu.i915.drm-intel
+	url = https://github.com/intel-innersource/drivers.gpu.i915.drm-intel.git
+[submodule "drivers.gpu.i915.internal-linux-firmware"]
+	path = drivers.gpu.i915.internal-linux-firmware
+	url = https://github.com/intel-innersource/drivers.gpu.i915.internal-linux-firmware
+[submodule "drivers.gpu.i915.igt-gpu-tools"]
+	path = drivers.gpu.i915.igt-gpu-tools
+	url = https://github.com/intel-innersource/drivers.gpu.i915.igt-gpu-tools.git
