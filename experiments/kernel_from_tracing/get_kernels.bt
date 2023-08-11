@@ -1,24 +1,27 @@
 #include <i915_drm.h>
 
-kprobe:i915_gem_execbuffer2_ioctl /comm == "bude"/
+kprobe:i915_gem_do_execbuffer /comm == "bude"/
 {
-  @execbuf_map[tid] = arg1;
+  @object_ptr_map[tid] = arg3;
+  @execbuf_ptr_map[tid] = arg2;
 }
 
-kretprobe:i915_gem_execbuffer2_ioctl /comm == "bude"/
+kretprobe:i915_gem_do_execbuffer /comm == "bude"/
 {
   printf("%d %d\n", tid, retval);
   
-  $execbuf = (struct drm_i915_gem_execbuffer2 *) @execbuf_map[tid];
+  $objects = (struct drm_i915_gem_exec_object2 *) @object_ptr_map[tid];
+  $execbuf = (struct drm_i915_gem_execbuffer2 *) @execbuf_ptr_map[tid];
   $count = $execbuf->buffer_count;
   $object_size = (uint64) sizeof(struct drm_i915_gem_exec_object2);
   
+  /* If I use $buffer_count instead of 18, here, the generated BPF program is too big. */
   $i = 0;
   $offset = (uint64) 0;
   printf("===== EXECBUFFER =====\n");
   while($i < 18) {
-    printf("Printing an object of size %llu at offset %llu\n", $object_size, $execbuf->buffers_ptr + $offset);
-    printf("Object: %r\n", buf($execbuf->buffers_ptr + $offset, $object_size));
+    printf("Printing an object of size %llu at offset %llu\n", $object_size, $objects + $offset);
+    printf("Object: %r\n", buf($objects + $offset, $object_size));
     
     $i++;
     $offset = $offset + $object_size;
