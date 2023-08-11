@@ -1,5 +1,7 @@
 #include <drm/i915_drm_prelim.h>
 
+#include "gpu_kernel_decoder.h"
+
 struct __attribute__ ((__packed__)) eustall_sample {
   unsigned int ip : 29;
   unsigned short active : 8;
@@ -59,6 +61,8 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
     if(sample.sbid) printf("  sbid: %u\n", sample.sbid);
     if(sample.sync) printf("  sync: %u\n", sample.sync);
     if(sample.inst_fetch) printf("  inst_fetch: %u\n", sample.inst_fetch);
+    
+    parse_origin(pid, (uint64_t) sample.ip);
     
     printf("=====\n");
   }

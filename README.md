@@ -5,5 +5,4 @@ This is a small C library which helps read profiling information from the i915 d
 
 Building
 --------
-Install the `libdrm` development package for your system. On Ubuntu, that's `libdrm-dev`. On Arch,
-it's `libdrm`. Then run `build.sh`.
+Be sure to clone the repository recursively, then run `build.sh`.
