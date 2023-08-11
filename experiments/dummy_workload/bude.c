@@ -25,7 +25,7 @@
 #define MAX_INFO_STRING 256
 #define MAX_STR_SIZE 4096
 
-#define DATA_DIR          "../data/bm1"
+#define DATA_DIR          "./data/bm1"
 #define FILE_LIGAND       "/ligand.in"
 #define FILE_PROTEIN      "/protein.in"
 #define FILE_FORCEFIELD   "/forcefield.in"
