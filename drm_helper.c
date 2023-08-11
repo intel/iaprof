@@ -10,7 +10,7 @@
 #include <sys/sysmacros.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <libdrm/drm.h>
+/* #include <libdrm/drm.h> */
 /* #include <linux/compiler_types.h> */
 #include <drm/i915_drm_prelim.h>
 

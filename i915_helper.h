@@ -214,7 +214,6 @@ int i915_query_engines(int fd, struct drm_i915_query_engine_info **qei) {
       /* Incrementing */ \
       iter__ += ((region__.memory_class != I915_MEMORY_CLASS_SYSTEM) && (region__.memory_class != I915_MEMORY_CLASS_DEVICE)) ? 2 : 1)
       
-      
 int i915_query_memory_regions(int fd, struct drm_i915_query_memory_regions **regions) {
   int ret;
   
