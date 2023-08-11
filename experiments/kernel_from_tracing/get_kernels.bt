@@ -1,0 +1,27 @@
+#include <i915_drm.h>
+
+kprobe:i915_gem_execbuffer2_ioctl /comm == "bude"/
+{
+  @execbuf_map[tid] = arg1;
+}
+
+kretprobe:i915_gem_execbuffer2_ioctl /comm == "bude"/
+{
+  printf("%d %d\n", tid, retval);
+  
+  $execbuf = (struct drm_i915_gem_execbuffer2 *) @execbuf_map[tid];
+  $count = $execbuf->buffer_count;
+  $object_size = (uint64) sizeof(struct drm_i915_gem_exec_object2);
+  
+  $i = 0;
+  $offset = (uint64) 0;
+  printf("===== EXECBUFFER =====\n");
+  while($i < 18) {
+    printf("Printing an object of size %llu at offset %llu\n", $object_size, $execbuf->buffers_ptr + $offset);
+    printf("Object: %r\n", buf($execbuf->buffers_ptr + $offset, $object_size));
+    
+    $i++;
+    $offset = $offset + $object_size;
+  }
+  printf("===== END EXECBUFFER =====\n");
+}
