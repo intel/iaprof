@@ -1,30 +1,53 @@
 #include <i915_drm.h>
 
-kprobe:i915_gem_do_execbuffer /comm == "bude"/
+kprobe:i915_gem_mmap_ioctl /comm == "gem_blt"/ 
 {
-  @object_ptr_map[tid] = arg3;
-  @execbuf_ptr_map[tid] = arg2;
+  $mmap_args = (struct drm_i915_gem_mmap *) arg1;
+  printf("Found an mmap for handle %lu, size %lu\n", $mmap_args->handle, $mmap_args->size);
+  @mmap_ioctl_handle[tid] = $mmap_args->handle;
+  @mmap_ioctl_size[tid] = $mmap_args->size;
 }
 
-kretprobe:i915_gem_do_execbuffer /comm == "bude"/
+/* Next, we intercept where the mmap ioctl returns, to get the return address */
+kretprobe:vm_mmap /comm == "gem_blt"/
 {
-  printf("%d %d\n", tid, retval);
+  $handle = @mmap_ioctl_handle[tid];
+  printf("Found the address for handle %lu: %p\n", $handle, uptr(retval));
+  @handle_addrs[$handle] = uptr(retval);
+  @handle_sizes[$handle] = @mmap_ioctl_size[tid];
+}
+
+kprobe:i915_gem_do_execbuffer /comm == "gem_blt"/
+{
+  $execs = arg3;
+  $execbuf = (struct drm_i915_gem_execbuffer2 *) arg2;
+  $execbuf_ptr = (uint64) arg2;
+  $len = $execbuf->batch_len;
+  $batch_start_offset = $execbuf->batch_start_offset;
+  $sizeof_object = sizeof(struct drm_i915_gem_exec_object2);
   
-  $objects = (struct drm_i915_gem_exec_object2 *) @object_ptr_map[tid];
-  $execbuf = (struct drm_i915_gem_execbuffer2 *) @execbuf_ptr_map[tid];
-  $count = $execbuf->buffer_count;
-  $object_size = (uint64) sizeof(struct drm_i915_gem_exec_object2);
-  
-  /* If I use $buffer_count instead of 18, here, the generated BPF program is too big. */
-  $i = 0;
-  $offset = (uint64) 0;
   printf("===== EXECBUFFER =====\n");
-  while($i < 18) {
-    printf("Printing an object of size %llu at offset %llu\n", $object_size, $objects + $offset);
-    printf("Object: %r\n", buf($objects + $offset, $object_size));
+  printf("Number of objects: %lu\n", $execbuf->buffer_count);
+  printf("Batch start offset: %p\n", $execbuf_ptr + $batch_start_offset);
+  printf("Length: %lu\n", $len);
+  printf("Buffer: %r\n", buf($execbuf_ptr + $batch_start_offset, $len));
+  
+  $i = (uint64) 0;
+  printf("Objects:\n");
+  while(($i < $execbuf->buffer_count) && ($i < 18)) {
+    $object = (struct drm_i915_gem_exec_object2 *) ($execs + ($sizeof_object * $i));
+    printf("  Handle: %lx\n", $object->handle);
+    printf("  Handle points to address: %p\n", @handle_addrs[$object->handle]);
+    printf("  Reading object offset from: %p\n", ($execs + ($sizeof_object * $i)));
+    printf("  Object offset: %llu\n", $object->offset);
+    
+    /* If the handle points to a valid address, we can print the memory that's there */
+    if(@handle_addrs[$object->handle] != 0) {
+      printf("  Handle buffer: %r\n", buf(@handle_addrs[$object->handle], @handle_sizes[$object->handle]));
+    }
     
     $i++;
-    $offset = $offset + $object_size;
   }
+  
   printf("===== END EXECBUFFER =====\n");
 }

@@ -7,3 +7,6 @@
 [submodule "drivers.gpu.i915.igt-gpu-tools"]
 	path = reference/drivers.gpu.i915.igt-gpu-tools
 	url = https://github.com/intel-innersource/drivers.gpu.i915.igt-gpu-tools.git
+[submodule "reference/igt-gpu-tools"]
+	path = reference/igt-gpu-tools
+	url = https://gitlab.freedesktop.org/drm/igt-gpu-tools.git
