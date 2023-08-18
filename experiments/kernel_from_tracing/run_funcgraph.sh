@@ -9,15 +9,26 @@ kill -STOP ${WORKLOAD_PID}
 cd ${BASE_DIR}
 
 # Start funcgraph
-sudo funcgraph -p ${WORKLOAD_PID} -m 10 i915_gem_execbuffer2_ioctl &>${BASE_DIR}/funcgraph.txt &
-FUNCGRAPH_PID="$!"
+# sudo funcgraph -p ${WORKLOAD_PID} i915_gem_pwrite_ioctl &> ${BASE_DIR}/funcgraph_pwrite.txt &
+# FUNCGRAPH_PWRITE_PID="$!"
+# sudo funcgraph -p ${WORKLOAD_PID} i915_gem_mmap_ioctl &> ${BASE_DIR}/funcgraph_mmap.txt &
+# FUNCGRAPH_MMAP_PID="$!"
+# sudo funcgraph -p ${WORKLOAD_PID} i915_gem_mmap_offset_ioctl &> ${BASE_DIR}/funcgraph_mmap_offset.txt &
+# FUNCGRAPH_MMAP_OFFSET_PID="$!"
+sudo funcgraph -p ${WORKLOAD_PID} i915_gem_do_execbuffer &> ${BASE_DIR}/funcgraph_do_execbuffer.txt &
+FUNCGRAPH_MMAP_OFFSET_PID="$!"
 
-sleep 2
+echo "I just started funcgraph, and the workload is paused."
+sleep 3
 
 # Wait for the workload to finish
 kill -CONT ${WORKLOAD_PID}
 wait ${WORKLOAD_PID}
 
 # Kill and wait for funcgraph to finish
-kill -TERM ${FUNCGRAPH_PID}
-wait ${FUNCGRAPH_PID}
+# kill -TERM ${FUNCGRAPH_PWRITE_PID}
+# kill -TERM ${FUNCGRAPH_MMAP_PID}
+kill -TERM ${FUNCGRAPH_MMAP_OFFSET_PID}
+# wait ${FUNCGRAPH_PWRITE_PID}
+# wait ${FUNCGRAPH_MMAP_PID}
+wait ${FUNCGRAPH_MMAP_OFFSET_PID}
