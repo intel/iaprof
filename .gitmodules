@@ -10,3 +10,24 @@
 [submodule "reference/igt-gpu-tools"]
 	path = reference/igt-gpu-tools
 	url = https://gitlab.freedesktop.org/drm/igt-gpu-tools.git
+[submodule "reference/intel-graphics-compiler"]
+	path = reference/intel-graphics-compiler
+	url = https://github.com/intel/intel-graphics-compiler.git
+[submodule "reference/compute-runtime"]
+	path = reference/compute-runtime
+	url = https://github.com/intel/compute-runtime.git
+[submodule "reference/applications.analyzers.gpa.backend.metrics"]
+	path = reference/applications.analyzers.gpa.backend.metrics
+	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.metrics.git
+[submodule "reference/applications.analyzers.gpa.backend.shader-profiler"]
+	path = reference/applications.analyzers.gpa.backend.shader-profiler
+	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.shader-profiler.git
+[submodule "reference/applications.analyzers.gpa.backend.framework"]
+	path = reference/applications.analyzers.gpa.backend.framework
+	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.framework.git
+[submodule "reference/libraries.isa.xed.xed"]
+	path = reference/libraries.isa.xed.xed
+	url = https://github.com/intel-innersource/libraries.isa.xed.xed.git
+[submodule "deps/bpftool"]
+	path = deps/bpftool
+	url = https://github.com/libbpf/bpftool.git

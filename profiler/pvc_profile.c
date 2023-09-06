@@ -22,6 +22,10 @@
 #include "i915_helper.h"
 #include "eustall_helper.h"
 
+#include "bpf/kernel_writes.h"
+#include "bpf/kernel_writes.skel.h"
+#include "get_kernels.h"
+
 /*******************
 * COMMANDLINE ARGS *
 *******************/
@@ -197,6 +201,7 @@ int main(int argc, char **argv) {
   
   read_opts(argc, argv);
   
+#if 0
   /* Grab the i915 driver file descriptor */
   devinfo = open_first_driver();
   if(!devinfo) {
@@ -216,17 +221,21 @@ int main(int argc, char **argv) {
   }
   
   printf("Device ID: 0x%X\n", devinfo->id);
+#endif
   
   /* Configure the i915 performance counter file descriptor */
-  perf_fd = configure_eustall(devinfo);
+/*   perf_fd = configure_eustall(devinfo); */
   
   /* Begin collecting results */
+  /*
   if(start_workload_thread() != 0) {
     fprintf(stderr, "Failed to start the collection thread. Aborting.\n");
     exit(1);
   }
+  */
   
   /* Poll for updates to the buffer */
+  #if 0
   perf_buf = malloc(p_user);
   while(stopping == 0) {
     struct pollfd pollfd = {
@@ -247,10 +256,17 @@ int main(int argc, char **argv) {
       handle_eustall_samples(perf_buf, ret);
     }
   }
+  #endif
+  
+  init_bpf_prog();
   printf("Finished\n");
   
+  /*
   pthread_kill(workload_thread_id, SIGTERM);
   pthread_join(workload_thread_id, NULL);
+  */
   
+  /*
   free_driver(devinfo);
+  */
 }
