@@ -5,6 +5,7 @@
   This is a small test program to play around with the i915 performance counter interface.
 */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -259,6 +260,15 @@ int main(int argc, char **argv) {
   #endif
   
   init_bpf_prog();
+  
+  struct timespec time;
+  time.tv_sec = 0;
+  time.tv_nsec = 100000000;
+  while(stopping == 0) {
+    ring_buffer__consume(bpf_info.rb);
+    nanosleep(&time, NULL);
+  }
+  
   printf("Finished\n");
   
   /*
