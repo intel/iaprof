@@ -2,9 +2,16 @@
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Start and suspend the workload
-cd ${BASE_DIR}/../dummy_workload
-./bude &
-WORKLOAD_PID="$!"
+# cd ${BASE_DIR}/../dummy_workload
+# ./bude &
+# WORKLOAD_PID="$!"
+# kill -STOP ${WORKLOAD_PID}
+# cd ${BASE_DIR}
+
+IGT_DIR="${BASE_DIR}/../../reference/drivers.gpu.i915.igt-gpu-tools/build/benchmarks/"
+cd ${IGT_DIR}
+./gem_blt &
+WORKLOAD_PID=$!
 kill -STOP ${WORKLOAD_PID}
 cd ${BASE_DIR}
 
@@ -15,7 +22,7 @@ cd ${BASE_DIR}
 # FUNCGRAPH_MMAP_PID="$!"
 # sudo funcgraph -p ${WORKLOAD_PID} i915_gem_mmap_offset_ioctl &> ${BASE_DIR}/funcgraph_mmap_offset.txt &
 # FUNCGRAPH_MMAP_OFFSET_PID="$!"
-sudo funcgraph -p ${WORKLOAD_PID} i915_gem_do_execbuffer &> ${BASE_DIR}/funcgraph_do_execbuffer.txt &
+sudo funcgraph -p ${WORKLOAD_PID} i915_gem_create_ioctl &> ${BASE_DIR}/funcgraph_gem_create.txt &
 FUNCGRAPH_MMAP_OFFSET_PID="$!"
 
 echo "I just started funcgraph, and the workload is paused."

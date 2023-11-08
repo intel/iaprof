@@ -1,0 +1,17 @@
+/* We want to grab the second argument from this function, and store it in a per-TID map to be later accessed by
+   our page fault probe. */
+uprobe:PATH_TO_EXE:"FUNCTION_NAME" {
+  @function_arguments[tid] = (uint64) arg1;
+}
+
+/* Now we've had a page fault happen. We only want to run this tracer if this thread previously set `@function_arguments[tid]`, because
+   that's how we know that this page fault is occurring in the user-level function that we're interested in. */
+software:page-faults /@function_arguments[tid]/
+{
+  /* Here, we construct a histogram relating buckets of argument values (e.g. matrix sizes) from 0 to 100, in steps of 1.
+     The left value, `@page_faults`, is the name of the new map that we should construct to store this information */
+  @page_faults = lhist(@function_arguments[tid], 0, 100, 1);
+  
+  /* Let's delete this breadcrumb so that this tracer can only be triggered immediately after FUNCTION_NAME is called. */
+  delete(@function_arguments[tid])
+}

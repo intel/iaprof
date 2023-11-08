@@ -1,0 +1,14 @@
+diff --git a/meson_options.txt b/meson_options.txt
+index e885ba61a8a..68b120ab0fd 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -485,7 +485,7 @@ option(
+ option(
+   'tools',
+   type : 'array',
+-  value : [],
++  value : ['intel', 'intel-ui'],
+   choices : ['drm-shim', 'etnaviv', 'freedreno', 'glsl', 'intel', 'intel-ui',
+              'nir', 'nouveau', 'lima', 'panfrost', 'asahi', 'imagination',
+              'all', 'dlclose-skip'],
+

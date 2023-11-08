@@ -41,7 +41,6 @@ int read_opts(int argc, char **argv) {
   int option_index;
   char c;
   
-  printf("About to set arguments\n");
   while(1) {
     option_index = 0;
     c = getopt_long(argc, argv, "p:", long_options, &option_index);

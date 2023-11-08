@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <drm/i915_drm_prelim.h>
+#include <drm/i915_drm.h>
 
 /*******************
 *    DISCOVERY     *

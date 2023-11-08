@@ -109,7 +109,7 @@ std::vector< std::pair<uint32_t, std::string> > Disassemble(
     uint8_t *binary, size_t binary_size) {
   std::vector< std::pair<uint32_t, std::string> > instruction_list;
 
-  KernelView kv(IGA_GEN11, binary, binary_size,
+  KernelView kv(IGA_GEN10, binary, binary_size,
                 iga::SWSB_ENCODE_MODE::SingleDistPipe);
   assert(kv.decodeSucceeded());
 
@@ -808,7 +808,6 @@ extern "C" void initCL()
 
   #define CL_KERNEL_BINARY_PROGRAM_INTEL 0x407D
 
-
   size_t binary_size = 0;
   err = clGetKernelInfo(cl.kernel, CL_KERNEL_BINARY_PROGRAM_INTEL,
                         0, NULL, &binary_size);
@@ -819,20 +818,30 @@ extern "C" void initCL()
                         binary_size, binary, NULL);
   checkError(err, "getting binary");
   
-  int n;
-  for(n = 0; n < binary_size; ++n) {
-    printf("%02x ", binary[n], ( n + 1 ) % 2 == 0 ? "\n" : " " );
-    if((n + 1) % 16 == 0) {
-      printf("\n");
-    } else if((n + 1) % 8 == 0) {
-      printf(" ");
-    }
-  }
-  FILE *file_ptr;
-  file_ptr = fopen("tmp", "wb");
-  fwrite(binary, binary_size, 1, file_ptr);
+/*   unsigned int *char_buf = (unsigned int *) binary; */
+/*   unsigned int offset = 0; */
+/*   int n; */
+/*   for(n = 0; n < (binary_size / sizeof(unsigned int)); ++n) { */
+/*     printf("%08x : %08x\n", offset, char_buf[n]); */
+/*     offset += 4; */
+/*   } */
+
+/*   FILE *file_ptr; */
+/*   file_ptr = fopen("tmp", "wb"); */
+/*   fwrite(binary, binary_size, 1, file_ptr); */
   
-/*   Disassemble(binary, binary_size); */
+/*   for(n = 0; n < (binary_size / sizeof(unsigned int)); ++n) { */
+/*     printf("%08x : %08x\n", offset, char_buf[n]); */
+/*     offset += 4; */
+/*   } */
+  unsigned int *char_buf = (unsigned int *) binary;
+  unsigned int offset = 0;
+  auto instruction_stream = Disassemble(binary, binary_size);
+/*   for(int n = 0; n < instruction_stream.size(); n++) { */
+/*     printf("%08x\n", instruction_stream[n].first); */
+/*     printf("  %08x\n", char_buf[instruction_stream[n].first]); */
+/*     printf("  %s\n", instruction_stream[n].second.c_str()); */
+/*   } */
 }
 
 #define RELEASE(func, obj) if (obj) {func(obj); obj=NULL;};

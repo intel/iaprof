@@ -1,0 +1,1 @@
+-f /home/tom/Desktop/bude/bude-1.2.10-release/BUDE-1.2.10/inputData/heavy_by-atom_2016-v1.bhff -p /home/tom/Desktop/bude/bude-1.2.10-release/example/virtual_screen/1GCZ/inputs/bude_1gcz_proA.mol2 -l /home/tom/Desktop/bude/bude-1.2.10-release/example/virtual_screen/1GCZ/inputs/bude_1gcz_proA.mol2 -o output -n 1048576 --force 

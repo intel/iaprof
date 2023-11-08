@@ -7,6 +7,10 @@
      3. i915_gem_pwrite_ioctl
 *******************/
 
+BEGIN
+{
+}
+
 /*******************
  MMAP OFFSET METHOD
 *******************/
@@ -18,6 +22,7 @@ kprobe:i915_gem_mmap_offset_ioctl /comm == "bude"/
   @__offset_arg[tid] = (uint64) arg1;
 }
 /* We can also go ahead and pick up the struct drm_i915_gem_object. */
+/* XXX: Explore getting this some other way */
 kprobe:i915_gem_object_has_struct_page /(comm == "bude") && (@__offset_arg[tid])/
 {
   $obj = arg0;
@@ -36,9 +41,11 @@ kretprobe:i915_gem_mmap_offset_ioctl /(comm == "bude") && @__offset_arg[tid] && 
 }
 
 /* Now that we have an offset identifier, find the mmap call that corresponds to that offset */
-kprobe:do_mmap /comm == "bude"/
+/* XXX: Change to i915_gem_mmap? */
+kprobe:i915_gem_mmap /comm == "bude"/
 {
-  $pgoff = arg5 * 4096;
+  $vma = (struct vm_area_struct *) arg1;
+  $pgoff = $vma->vm_pgoff * 4096;
   if($pgoff == 0) {
     return;
   }
@@ -54,14 +61,19 @@ kprobe:do_mmap /comm == "bude"/
   printf("SUCCESS: I found the mmap call for offset %llu, obj %p!\n", $pgoff, $obj);
   @mmap_pgoff[tid] = $pgoff;
   @mmap_obj[tid] = $obj;
+  @mmap_vma[tid] = $vma;
 }
 
+/* XXX: This needs to be changed to i915_gem_mmap, but we need a way to find the pointer that
+        represents the command stream. */
 /* If we made it this far, we've got the mmap call that relates to a GEM that's about to be written to.
    Let's store the pointer that mmap returns, so that we can read it later. */
-kretprobe:do_mmap /(comm == "bude") && (@mmap_pgoff[tid]) && (@mmap_obj[tid])/
+kretprobe:i915_gem_mmap /(comm == "bude") && (@mmap_pgoff[tid]) && (@mmap_obj[tid])/
 {
+  $vma = (struct vm_area_struct *) @mmap_vma[tid];
   $obj = @mmap_obj[tid];
-  @mmap_addr[$obj] = (uint64) retval;
+  
+  @mmap_addr[$obj] = (uint64) $vma->vm_start;
   delete(@mmap_pgoff[tid]);
 }
 
@@ -72,10 +84,16 @@ kprobe:i915_gem_do_execbuffer /comm == "bude"/
 }
 kprobe:i915_vma_instance /(comm == "bude") && @execbuffer_breadcrumb[tid]/
 {
-  $obj_arg = arg0;
-  if(@mmap_addr[$obj_arg]) {
+  @vma_instance_obj[tid] = arg0;
+}
+kretprobe:i915_vma_instance /(comm == "bude") && @execbuffer_breadcrumb[tid] && (@vma_instance_obj[tid])/
+{
+  $obj_arg = (uint64) @vma_instance_obj[tid];
+  $addr = (uint8 *) uptr(@mmap_addr[$obj_arg]);
+  if($addr != 0) {
     printf("SUCCESS: I found an object that we've mmap'd!\n");
-    printf("  Buffer: %r\n", buf(@mmap_addr[$obj_arg], 64));
+    printf("  Addr: %llx\n", uptr($addr));
+    printf("  Buffer: %r\n", buf($addr, 64));
   }
 }
 
