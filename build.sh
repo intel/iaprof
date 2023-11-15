@@ -39,7 +39,7 @@ cd ${PROFILER_DIR}/bpf
 ./build.sh
 cd ${PROFILER_DIR}
 ${CC} -g -c \
-  -I${KERN_HEADERS}/include -I${COMMON_DIR} \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/pvc_profile.c \
   -o ${PROFILER_DIR}/pvc_profile.o
 ${CC} ${LDFLAGS} \

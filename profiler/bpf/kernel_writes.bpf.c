@@ -177,7 +177,7 @@ int mmap_offset_ioctl_kprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_offset_ioctl_wait_for_ret, &cpu, &arg, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_offset_ioctl_kprobe on cpu %u", cpu);
+/*   bpf_printk("mmap_offset_ioctl_kprobe on cpu %u", cpu); */
   
   return 0;
 }
@@ -201,7 +201,7 @@ int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_offset_ioctl_wait_for_mmap, &fake_offset, &handle, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx handle=%u", fake_offset, handle);
+/*   bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx handle=%u", fake_offset, handle); */
   
   return 0;
 }
@@ -223,7 +223,7 @@ int mmap_kprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_wait_for_ret, &cpu, &val, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_kprobe file=0x%llx vma=0x%llx", file, vma);
+/*   bpf_printk("mmap_kprobe file=0x%llx vma=0x%llx", file, vma); */
   
   return 0;
 }
@@ -269,7 +269,7 @@ int mmap_kretprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_wait_for_exec, &key, &kinfo, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_kretprobe file=0x%llx vma=0x%llx handle=%u vm_pgoff=0x%lx vm_start=0x%lx vm_end=0x%lx", file, vma, handle, vm_pgoff, vm_start, vm_end);
+/*   bpf_printk("mmap_kretprobe file=0x%llx vma=0x%llx handle=%u vm_pgoff=0x%lx vm_start=0x%lx vm_end=0x%lx", file, vma, handle, vm_pgoff, vm_start, vm_end); */
   
   return 0;
 }
@@ -324,7 +324,7 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_wait_for_exec, &key, &kinfo, 0);
   
   /* DEBUG */
-  bpf_printk("userptr_ioctl_kretprobe pid=%u handle=%u data=0x%llx data_sz=%llu", kinfo.pid, kinfo.handle, kinfo.data, kinfo.data_sz);
+/*   bpf_printk("userptr_ioctl_kretprobe pid=%u handle=%u data=0x%llx data_sz=%llu", kinfo.pid, kinfo.handle, kinfo.data, kinfo.data_sz); */
 }
 
 /***************************************
