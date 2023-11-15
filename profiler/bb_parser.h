@@ -35,7 +35,9 @@ struct bb_parser {
   /* Instruction Base Address */
   uint64_t iba;
   
-  /* SIP, or System Instruction Pointer */
+  /* SIP, or System Instruction Pointer.
+     This is an offset from the iba,
+     or Instruction Base Address. */
   uint64_t sip;
 };
 
@@ -67,16 +69,20 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint64_t size)
             /* The tenth dword in STATE_BASE_ADDRESS
               stores 20 of the iba bits. */
             parser->iba |= (*ptr & 0xFFFFF000);
-            printf("First part of the IBA: %llx\n", parser->iba);
           } else if(in_cmd == 11) {
             /* The eleventh dword in STATE_BASE_ADDRESS
               stores the majority of the iba */
             tmp = *ptr;
             parser->iba |= tmp << 32;
-            printf("Second part of the IBA: %llx\n", parser->iba);
           }
           break;
         case STATE_SIP:
+          if(in_cmd == 1) {
+            parser->sip |= *ptr;
+          } else if(in_cmd == 2) {
+            tmp = *ptr;
+            parser->sip |= tmp << 32;
+          }
           break;
       }
       
@@ -106,19 +112,16 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint64_t size)
       
       switch(op) {
         case MI_BATCH_BUFFER_START:
-          printf("Found MI_BATCH_BUFFER_START: %x (%lu)\n", *ptr, i);
           in_cmd = 1;
           cur_cmd = MI_BATCH_BUFFER_START;
           num_cmd_dwords = MI_BATCH_BUFFER_START_DWORDS;
           break;
         case STATE_BASE_ADDRESS:
-          printf("Found STATE_BASE_ADDRESS: %x\n", *ptr);
           in_cmd = 1;
           cur_cmd = STATE_BASE_ADDRESS;
           num_cmd_dwords = STATE_BASE_ADDRESS_DWORDS;
           break;
         case STATE_SIP:
-          printf("Found STATE_SIP\n");
           in_cmd = 1;
           cur_cmd = STATE_SIP;
           num_cmd_dwords = STATE_SIP_DWORDS;
@@ -126,6 +129,5 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint64_t size)
       }
     }
     ptr++;
-    fflush(stdout);
   }
 }

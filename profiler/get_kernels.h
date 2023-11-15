@@ -109,6 +109,9 @@ static int handle_sample(void *ctx, void *data, size_t data_sz) {
 /*   printf("The offset is: %llx\n", kinfo->offset); */
   parser = bb_parser_init();
   bb_parser_parse(parser, kernel, kinfo->data_sz);
+  printf("Instruction Base Address:   %lx\n", parser->iba);
+  printf("System Instruction Pointer: %lx\n", parser->sip);
+  fflush(stdout);
   
 /*   sprintf(filename, "/tmp/kernel_%u.bb", kinfo->handle); */
 /*   FILE *tmpfile = fopen(filename, "w"); */
