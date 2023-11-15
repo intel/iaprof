@@ -1,48 +1,9 @@
 [submodule "drivers.gpu.i915.drm-intel"]
 	path = reference/drivers.gpu.i915.drm-intel
 	url = https://github.com/intel-innersource/drivers.gpu.i915.drm-intel.git
-[submodule "drivers.gpu.i915.internal-linux-firmware"]
-	path = reference/drivers.gpu.i915.internal-linux-firmware
-	url = https://github.com/intel-innersource/drivers.gpu.i915.internal-linux-firmware
-[submodule "drivers.gpu.i915.igt-gpu-tools"]
-	path = reference/drivers.gpu.i915.igt-gpu-tools
-	url = https://github.com/intel-innersource/drivers.gpu.i915.igt-gpu-tools.git
-[submodule "reference/igt-gpu-tools"]
-	path = reference/igt-gpu-tools
-	url = https://gitlab.freedesktop.org/drm/igt-gpu-tools.git
-[submodule "reference/intel-graphics-compiler"]
-	path = reference/intel-graphics-compiler
-	url = https://github.com/intel/intel-graphics-compiler.git
-[submodule "reference/compute-runtime"]
-	path = reference/compute-runtime
-	url = https://github.com/intel/compute-runtime.git
-[submodule "reference/applications.analyzers.gpa.backend.metrics"]
-	path = reference/applications.analyzers.gpa.backend.metrics
-	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.metrics.git
-[submodule "reference/applications.analyzers.gpa.backend.shader-profiler"]
-	path = reference/applications.analyzers.gpa.backend.shader-profiler
-	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.shader-profiler.git
-[submodule "reference/applications.analyzers.gpa.backend.framework"]
-	path = reference/applications.analyzers.gpa.backend.framework
-	url = https://github.com/intel-innersource/applications.analyzers.gpa.backend.framework.git
-[submodule "reference/libraries.isa.xed.xed"]
-	path = reference/libraries.isa.xed.xed
-	url = https://github.com/intel-innersource/libraries.isa.xed.xed.git
 [submodule "deps/bpftool"]
 	path = deps/bpftool
 	url = https://github.com/libbpf/bpftool.git
-[submodule "reference/applications.analyzers.profilingtoolsinterfaces.gpu"]
-	path = reference/applications.analyzers.profilingtoolsinterfaces.gpu
-	url = https://github.com/intel-innersource/applications.analyzers.profilingtoolsinterfaces.gpu.git
-[submodule "reference/libraries.compute.oneapi.level-zero-unified-runtime.loader"]
-	path = reference/libraries.compute.oneapi.level-zero-unified-runtime.loader
-	url = https://github.com/intel-innersource/libraries.compute.oneapi.level-zero-unified-runtime.loader.git
-[submodule "reference/applications.analyzers.components.level-zero"]
-	path = reference/applications.analyzers.components.level-zero
-	url = https://github.com/intel-innersource/applications.analyzers.components.level-zero.git
-[submodule "reference/drivers.gpu.compute.runtime"]
-	path = reference/drivers.gpu.compute.runtime
-	url = https://github.com/intel-innersource/drivers.gpu.compute.runtime.git
 [submodule "deps/mesa"]
 	path = deps/mesa
 	url = https://gitlab.freedesktop.org/mesa/mesa.git
