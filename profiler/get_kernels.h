@@ -74,9 +74,14 @@ static int handle_sample(void *ctx, void *data, size_t data_sz) {
   struct bb_parser *parser;
   
   kinfo = (struct kernel_info *) data;
-  printf("Got a sample: addr=%p size=%llu pid=%u comm=%s handle=%u\n", kinfo->data, kinfo->data_sz, kinfo->pid, kinfo->name, kinfo->handle);
   
   if(strcmp("a.out", kinfo->name) != 0) {
+    return 0;
+  }
+  
+  printf("Got a sample: addr=%llx size=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->data, kinfo->data_sz, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
+  
+  if(!(kinfo->is_bb) || !(kinfo->data) || !(kinfo->data_sz)) {
     return 0;
   }
   
@@ -105,8 +110,6 @@ static int handle_sample(void *ctx, void *data, size_t data_sz) {
   }
   fclose(mem_file);
   
-/*   printf("Successfully read %llu bytes\n", num_read); */
-/*   printf("The offset is: %llx\n", kinfo->offset); */
   parser = bb_parser_init();
   bb_parser_parse(parser, kernel, kinfo->data_sz);
   printf("Instruction Base Address:   %lx\n", parser->iba);
