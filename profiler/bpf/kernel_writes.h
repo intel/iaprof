@@ -11,8 +11,8 @@ struct kernel_info {
   __u64 data;
   __u64 data_sz;
   __u64 offset;
-  struct drm_file *file;
   char name[TASK_COMM_LEN];
+  char is_bb;
 };
 
 #endif
