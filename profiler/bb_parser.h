@@ -3,8 +3,14 @@
 #include <stdio.h>
 #include <stdint.h>
 
-/* We can use these to determine the type of command,
-   and how long the command should be */
+/* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
+/* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */
+
+/******************************************************************************
+* Commands
+* *********
+* These are constants that represent batch buffer commands
+******************************************************************************/
 #define CMD_TYPE(cmd)  (((cmd) >> 29) & 7)
 #define CMD_MI 0
 #define CMD_3D_MEDIA 3
@@ -31,6 +37,12 @@
 #define STATE_SIP OP_3D_MEDIA(0x0, 0x1, 0x02)
 #define STATE_SIP_DWORDS 3
 
+/******************************************************************************
+* bb_parser
+* *********
+* This structure stores all the information the parser wants to find.
+* The end goal here is to parse out all references to GPU kernel pointers.
+******************************************************************************/
 struct bb_parser {
   /* Instruction Base Address */
   uint64_t iba;
@@ -39,6 +51,8 @@ struct bb_parser {
      This is an offset from the iba,
      or Instruction Base Address. */
   uint64_t sip;
+  
+  /* Dynamics Base Address */
 };
 
 struct bb_parser *bb_parser_init() {

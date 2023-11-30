@@ -31,6 +31,63 @@ void print_map(pid_t pid) {
   fflush(stdout);
 }
 
+unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
+  size_t num_read;
+  FILE *mem_file;
+  char filename[256];
+  int retval;
+  unsigned char *data;
+  
+  /* Open the memory map */
+  sprintf(filename, "/proc/%ld/mem", pid);
+  mem_file = fopen(filename, "r");
+  if(!mem_file) {
+    fprintf(stderr, "Failed to open %s!\n", filename);
+    return NULL;
+  }
+  
+  /* Read the proper number of bytes */
+  retval = fseeko(mem_file, ptr, SEEK_SET);
+  if(retval != 0) {
+    fprintf(stderr, "Failed to seek in the memory map! Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  data = calloc(sizeof(unsigned char), size);
+  num_read = fread(data, sizeof(unsigned char), size, mem_file);
+  if(ferror(mem_file)) {
+    fprintf(stderr, "Failed to read %s at offset 0x%llx: %s\n", filename, ptr, strerror(errno));
+    return NULL;
+  } else if(feof(mem_file)) {
+    fprintf(stderr, "Hit the end of the file in %s at offset 0x%llx\n", filename, ptr);
+    return NULL;
+  }
+  fclose(mem_file);
+  
+  return data;
+}
+
+void dump_kernel(unsigned char *kernel, __u64 size, __u32 id) {
+  char filename[256];
+  FILE *tmpfile;
+  
+  sprintf(filename, "/tmp/kernel_%u.krn9", id);
+  if(fopen(filename, "r")) {
+    sprintf(filename, "/tmp/kernel_%u_2.krn9", id);
+    if(fopen(filename, "r")) {
+      fprintf(stderr, "Too many duplicate handles (%u) to dump!\n", id);
+      return;
+    }
+  }
+  
+  tmpfile = fopen(filename, "w");
+  if(!tmpfile) {
+    fprintf(stderr, "WARNING: Failed to open %s\n", filename);
+    return;
+  }
+  fwrite(kernel, sizeof(unsigned char), size, tmpfile);
+  fclose(tmpfile);
+}
+
 struct bpf_info_t {
   struct kernel_writes_bpf *obj;
   struct ring_buffer *rb;
@@ -62,107 +119,39 @@ struct bpf_info_t {
 };
 static struct bpf_info_t bpf_info = {};
 
-static int handle_sample(void *ctx, void *data, size_t data_sz) {
+static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   struct kernel_info *kinfo;
-  unsigned int *ptr;
-  int i, retval;
-  FILE *mem_file;
-  char filename[256];
-  unsigned char *kernel;
-  size_t num_read, size;
-  pid_t pid;
+  unsigned char *data;
   struct bb_parser *parser;
   
-  kinfo = (struct kernel_info *) data;
-  
-  if(strcmp("a.out", kinfo->name) != 0) {
-    return 0;
-  }
+  kinfo = (struct kernel_info *) data_arg;
   
   printf("Got a sample: addr=%llx size=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->data, kinfo->data_sz, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
   
-  if(!(kinfo->is_bb) || !(kinfo->data) || !(kinfo->data_sz)) {
+  if(strcmp(kinfo->name, "level_zero_test") == 0) {
+    data = copy_buffer(kinfo->pid, kinfo->data, kinfo->data_sz);
+    dump_kernel(data, kinfo->data_sz, kinfo->handle);
+  }
+  
+  /* We don't want to copy/parse anything but batch buffers */
+  if(!(kinfo->is_bb) ||
+     !(kinfo->data) ||
+     !(kinfo->data_sz) ||
+     !(kinfo->pid)) {
     return 0;
   }
   
-  /* Open the memory map */
-  sprintf(filename, "/proc/%ld/mem", kinfo->pid);
-  mem_file = fopen(filename, "r");
-  if(!mem_file) {
-    fprintf(stderr, "Failed to open %s!\n", filename);
-    return -1;
-  }
-  
-  /* Read the proper number of bytes */
-  retval = fseeko(mem_file, kinfo->data, SEEK_SET);
-  if(retval != 0) {
-    fprintf(stderr, "Failed to seek in the memory map! Error: %s\n", strerror(errno));
-    exit(1);
-  }
-  kernel = calloc(sizeof(unsigned char), kinfo->data_sz);
-  num_read = fread(kernel, sizeof(unsigned char), kinfo->data_sz, mem_file);
-  if(ferror(mem_file)) {
-    fprintf(stderr, "Failed to read %s at offset 0x%llx: %s\n", filename, kinfo->data, strerror(errno));
-    return -1;
-  } else if(feof(mem_file)) {
-    fprintf(stderr, "Hit the end of the file in %s at offset 0x%llx\n", filename, kinfo->data);
-    return -1;
-  }
-  fclose(mem_file);
-  
+  data = copy_buffer(kinfo->pid, kinfo->data, kinfo->data_sz);
   parser = bb_parser_init();
-  bb_parser_parse(parser, kernel, kinfo->data_sz);
+  bb_parser_parse(parser, data, kinfo->data_sz);
   printf("Instruction Base Address:   %lx\n", parser->iba);
   printf("System Instruction Pointer: %lx\n", parser->sip);
   fflush(stdout);
   
-/*   sprintf(filename, "/tmp/kernel_%u.bb", kinfo->handle); */
-/*   FILE *tmpfile = fopen(filename, "w"); */
-/*   if(!tmpfile) { */
-/*     fprintf(stderr, "Failed to open %s\n", filename); */
-/*     exit(1); */
-/*   } */
-/*   fwrite(kernel, sizeof(unsigned int), kinfo->data_sz / sizeof(unsigned int), tmpfile); */
-/*   fclose(tmpfile); */
-  
-/*   sprintf(filename, "/tmp/kernel_%u.txt", kinfo->handle); */
-/*   FILE *tmpfile = fopen(filename, "w"); */
-/*   if(!tmpfile) { */
-/*     fprintf(stderr, "Failed to open %s\n", filename); */
-/*     exit(1); */
-/*   } */
-/*   kernel_ptr = kernel; */
-/*   for(i = 0; i < kinfo->data_sz / sizeof(unsigned int); i++) { */
-/*     fprintf(tmpfile, "%08x : %08x\n", kernel_ptr - kernel, *((uint32_t *) kernel_ptr)); */
-/*     kernel_ptr += sizeof(unsigned int); */
-/*   } */
-/*   fclose(tmpfile); */
-/*   fflush(stdout); */
-  
-/*   size = kinfo->data_sz; */
-/*   if(size > 0x3b0) { */
-/*     size = 0x3b0; */
-/*   } */
-/*   size = 4; */
-/*   pid = (pid_t) kinfo->pid; */
-/*    */
-/*   struct iovec remote; */
-/*   struct iovec local; */
-/*   kernel = calloc(1, sizeof(unsigned int)); */
-/*   printf("Allocated kernel: %p\n", kernel); */
-/*   printf("About to read from: %p, pid %ld\n", kinfo->data, pid); */
-/*    */
-/*   local.iov_base = (void *) kernel; */
-/*   local.iov_len = size; */
-/*   remote.iov_base = (void *) kinfo->data; */
-/*   remote.iov_len = size; */
-/*   retval = process_vm_readv(pid, &local, 1, &remote, 1, 0); */
-/*   if(retval != remote.iov_len) { */
-/*     fprintf(stderr, "Failed to read bytes (succeeded reading %zd): %d, %s\n", retval, errno, strerror(errno)); */
-/*     exit(1); */
-/*   } */
-/*    */
-  
+  /* Once the parser finds a kernel pointer, here we should immediately
+     do a lookup on pointers we've seen before, and if we find it, 
+     call dump_kernel. */
+     
   return 0;
 }
 
