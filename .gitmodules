@@ -4,3 +4,9 @@
 [submodule "deps/bpftool"]
 	path = deps/bpftool
 	url = https://github.com/libbpf/bpftool.git
+[submodule "reference/drivers.gpu.i915.internal-linux-firmware"]
+	path = reference/drivers.gpu.i915.internal-linux-firmware
+	url = https://github.com/intel-innersource/drivers.gpu.i915.internal-linux-firmware.git
+[submodule "reference/linux-firmware"]
+	path = reference/linux-firmware
+	url = https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
