@@ -206,36 +206,3 @@ void free_driver(device_info *devinfo) {
   close(devinfo->fd);
   free(devinfo);
 }
-
-int configure_eustall(device_info *devinfo) {
-  int perf_fd;
-  
-  uint64_t properties[] = {
-		PRELIM_DRM_I915_EU_STALL_PROP_BUF_SZ, p_size,
-		PRELIM_DRM_I915_EU_STALL_PROP_SAMPLE_RATE, p_rate,
-		PRELIM_DRM_I915_EU_STALL_PROP_POLL_PERIOD, p_poll_period,
-		PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT, p_event_count,
-		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS, p_eng_class,
-		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, p_eng_inst,
-  };
-  
-	struct drm_i915_perf_open_param param = {
-		.flags = I915_PERF_FLAG_FD_CLOEXEC |
-			 PRELIM_I915_PERF_FLAG_FD_EU_STALL |
-			 I915_PERF_FLAG_DISABLED,
-		.num_properties = sizeof(properties) / 16,
-		.properties_ptr = (unsigned long long) properties,
-	};
-
-  /* Open the fd */
-  perf_fd = ioctl_do(devinfo->fd, DRM_IOCTL_I915_PERF_OPEN, &param);
-  if(perf_fd < 0) {
-    fprintf(stderr, "Failed to open the perf file descriptor.\n");
-    return -1;
-  }
-  
-  /* Enable the fd */
-  ioctl(perf_fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
-  
-  return perf_fd;
-}

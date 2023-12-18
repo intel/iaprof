@@ -58,9 +58,3 @@ bool read_sysfs(int sysfs_dir_fd, const char *file_path, uint64_t *out_value);
 int get_drm_device_info(device_info *devinfo);
 uint32_t get_drm_device_id(device_info *devinfo);
 void free_driver(device_info *devinfo);
-
-/*******************
-*   CONFIGURATION  *
-*******************/
-
-int configure_eustall(device_info *devinfo);

@@ -3,6 +3,14 @@
 
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 512*1024
+
+/* The maximum number of duplicate virtual addresses that are
+   associated with a single PID/handle combination. */
+#define MAX_DUPLICATES 8
+
+/* The maximum number of virtual addresses bound into a VM */
+#define MAX_VM_ADDRS 256
+
 #define I915_EXEC_BATCH_FIRST (1<<18)
 
 struct kernel_info {

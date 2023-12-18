@@ -14,7 +14,7 @@ PREFIX="${DEPS_DIR}/install"
 cd ${DEPS_DIR}
 git submodule init
 git submodule update
-./build.sh
+source build.sh
 
 # Produce the userspace headers from the kernel
 cd ${KERN}
@@ -36,7 +36,7 @@ mkdir -p ${BASE_DIR}/bin
 PROFILER_DIR="${BASE_DIR}/profiler"
 echo "Building ${PROFILER_DIR}..."
 cd ${PROFILER_DIR}/bpf
-./build.sh
+source build.sh
 cd ${PROFILER_DIR}
 ${CC} -g -c \
   -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
@@ -50,17 +50,17 @@ ${CC} ${LDFLAGS} \
 echo ""
 
 # Compile the benchmark
-# BENCHMARK_DIR="${BASE_DIR}/benchmark"
-# echo "Building ${BENCHMARK_DIR}..."
-# ${CC} -g -c \
-#   -I${KERN_HEADERS}/include -I${COMMON_DIR} \
-#   ${BENCHMARK_DIR}/gpgpu_fill.c \
-#   -o ${BENCHMARK_DIR}/gpgpu_fill.o
-# ${CC} ${LDFLAGS} \
-#   ${BENCHMARK_DIR}/gpgpu_fill.o \
-#   ${COMMON_DIR}/drm_helper.o \
-#   -o ${BASE_DIR}/bin/gpgpu_fill
-# echo ""
+BENCHMARK_DIR="${BASE_DIR}/benchmark"
+echo "Building ${BENCHMARK_DIR}..."
+${CC} -g -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} \
+  ${BENCHMARK_DIR}/gpgpu_fill.c \
+  -o ${BENCHMARK_DIR}/gpgpu_fill.o
+${CC} ${LDFLAGS} \
+  ${BENCHMARK_DIR}/gpgpu_fill.o \
+  ${COMMON_DIR}/drm_helper.o \
+  -o ${BASE_DIR}/bin/gpgpu_fill
+echo ""
   
 # Build the dummy workload
 # DUMMY_WORKLOAD_DIR="${BASE_DIR}/experiments/dummy_workload"

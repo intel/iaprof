@@ -16,10 +16,10 @@ cd ${BASEDIR}/drivers.gpu.i915.drm-intel
 scripts/config --disable SYSTEM_TRUSTED_KEYS
 scripts/config --disable SYSTEM_REVOCATION_KEYS
 make olddefconfig
-git apply ${BASEDIR}/pahole_fix.diff
+# git apply ${BASEDIR}/pahole_fix.diff
 make -j $(getconf _NPROCESSORS_ONLN) bindeb-pkg LOCALVERSION=-internal &> ${BASEDIR}/kernel_build_log.txt
 
 # Patch and install the firmware
-cd ${BASEDIR}/linux-firmware
-git am ${BASEDIR}/drivers.gpu.i915.internal-linux-firmware/0001-firmware*.patch
-sudo cp ${BASEDIR}/linux-firmware/i915/*.bin /lib/firmware/i915/
+# cd ${BASEDIR}/linux-firmware
+# git am ${BASEDIR}/drivers.gpu.i915.internal-linux-firmware/0001-firmware*.patch
+# sudo cp ${BASEDIR}/linux-firmware/i915/*.bin /lib/firmware/i915/

@@ -1,5 +1,10 @@
 *.o
 bin/
-reference/kernel_headers
 bude
 tags
+
+reference/kernel_headers
+reference/*.deb
+reference/*.buildinfo
+reference/*.changes
+reference/pkgs

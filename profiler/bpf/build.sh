@@ -10,20 +10,39 @@ LLVM_STRIP=${LLVM_STRIP:-llvm-strip}
 # Get this kernel's `vmlinux.h`
 echo "  Gathering BTF information for this kernel..."
 ${BPFTOOL} btf dump file /sys/kernel/btf/vmlinux format c > ${DIR}/vmlinux.h
-${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${DIR}/i915.h
 RETVAL="$?"
 if [ $RETVAL -ne 0 ]; then
   echo "    Your current kernel does not have BTF information."
   echo "    This is required for running eBPF programs."
-  echo "    For the purposes of compiling eBPF, though, we'll just use"
-  echo "    a pre-generated vmlinux.h."
-  cp ${DIR}/../vmlinux_505.h ${DIR}/vmlinux.h
+  exit 1
+fi
+
+# Also get i915's BTF information
+${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${DIR}/i915.h
+RETVAL="$?"
+if [ $RETVAL -ne 0 ]; then
+  echo "    I can't find the BTF information for i915! Trying to"
+  echo "    modprobe i915..."
+  sudo modprobe i915
+fi
+${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${DIR}/i915.h
+RETVAL="$?"
+if [ $RETVAL -ne 0 ]; then
+  echo "    I can't find the BTF information for i915! Bailing out."
+  exit 1
+fi
+
+${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${DIR}/drm.h
+RETVAL="$?"
+if [ $RETVAL -ne 0 ]; then
+  echo "    I can't find the BTF information for drm! Aborting."
+  exit 1
 fi
 
 # Compile the BPF object code
 echo "  Compiling the BPF program..."
 ${CLANG} ${BPF_CFLAGS} -target bpf -D__TARGET_ARCH_x86 -g \
-  -I${DIR} -I${PREFIX}/include -I/usr/include/libdrm -c ${DIR}/kernel_writes.bpf.c -o ${DIR}/kernel_writes.bpf.o
+  -I${DIR} -I${PREFIX}/include -c ${DIR}/kernel_writes.bpf.c -o ${DIR}/kernel_writes.bpf.o
 
 # Strip the object file (for a smaller filesize)
 echo "  Stripping the object file..."

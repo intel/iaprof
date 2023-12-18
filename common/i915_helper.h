@@ -927,6 +927,7 @@ int i915_batchbuf_exec(struct batchbuffer *bb, uint32_t end_offset,
   bb->objects[0]->handle = bb->handle;
   bb->objects[0]->offset = bb->batch_offset;
 
+  printf("Writing to bb->batch: %p\n", bb->batch);
   i915_gem_write(bb->fd, bb->handle, 0, bb->batch, bb->size);
 
   memset(&execbuf, 0, sizeof(execbuf));
