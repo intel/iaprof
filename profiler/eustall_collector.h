@@ -50,8 +50,8 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
     
     for(n = 0; n < gem_arr_used; n++) {
       gem = &gem_arr[n];
-      start = gem->kinfo.data & 0xffffffff;
-      end = start + gem->kinfo.data_sz;
+      start = gem->kinfo.gpu_addr & 0xffffffff;
+      end = start + gem->kinfo.size;
       if((addr >= start) && (addr < end)) {
         gem->active += sample.active;
         gem->other += sample.other;

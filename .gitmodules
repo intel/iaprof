@@ -10,3 +10,6 @@
 [submodule "reference/linux-firmware"]
 	path = reference/linux-firmware
 	url = https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+[submodule "deps/intel-graphics-compiler"]
+	path = deps/igc/igc
+	url = https://github.com/intel/intel-graphics-compiler.git

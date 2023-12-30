@@ -5,6 +5,7 @@
 #  This is NOT meant to be used standalone.
 ###################################################################
 BUILD_DEPS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PREFIX="${BUILD_DEPS_DIR}/install"
 
 ###################################################################
 #                            bpftool
@@ -17,7 +18,6 @@ BUILD_DEPS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 BPFTOOL=${BPFTOOL:-bpftool}
 BPFTOOL_SRC_DIR=${BUILD_DEPS_DIR}/bpftool/src
-PREFIX="${BUILD_DEPS_DIR}/install"
 cd ${BPFTOOL_SRC_DIR}
 
 git submodule update --init
@@ -42,3 +42,36 @@ if ! command -v ${BPFTOOL} &> /dev/null; then
 else
   echo "  Using system bpftool."
 fi
+
+###################################################################
+#                 Intel Graphics Compiler (IGC)
+###################################################################
+# IGC expects its dependencies in a specific directory structure,
+# so recreate that.
+IGC_DIR="${BUILD_DEPS_DIR}/igc/"
+IGC_LOG="${BUILD_DEPS_DIR}/igc/build.log"
+
+cd ${IGC_DIR}
+git clone https://github.com/intel/vc-intrinsics vc-intrinsics
+git clone -b release/14.x https://github.com/llvm/llvm-project llvm-project
+git clone -b ocl-open-140 https://github.com/intel/opencl-clang llvm-project/llvm/projects/opencl-clang
+git clone -b llvm_release_140 https://github.com/KhronosGroup/SPIRV-LLVM-Translator llvm-project/llvm/projects/llvm-spirv
+git clone https://github.com/KhronosGroup/SPIRV-Tools.git SPIRV-Tools
+git clone https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Headers
+
+# Now build IGC
+echo "Building IGC..."
+sudo rm -rf build
+mkdir -p build
+cd build
+cmake \
+  -DIGC_OPTION__LLVM_MODE=Source \
+  -DIGC_OPTION__LLVM_SOURCES_DIR=${IGC_DIR}/llvm-project \
+  -DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.6 \
+  -DCMAKE_INSTALL_PREFIX=${PREFIX} \
+  ../igc \
+  &> ${IGC_LOG}
+make -j$(nproc) \
+  &>> ${IGC_LOG}
+make install \
+  &>> ${IGC_LOG}

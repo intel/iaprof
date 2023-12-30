@@ -9,9 +9,9 @@
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 
-#include "bpf/kernel_writes.h"
-#include "bpf/kernel_writes.skel.h"
-#include "bb_parser.h"
+#include "bpf/gem_collector.h"
+#include "bpf/gem_collector.skel.h"
+/* #include "bb_parser.h" */
 
 void print_map(pid_t pid) {
   FILE *mem_file;
@@ -33,7 +33,7 @@ void print_map(pid_t pid) {
   fflush(stdout);
 }
 
-int store_sample(struct kernel_info *kinfo) {
+int store_sample(struct kernel_info *kinfo, unsigned char *data) {
   size_t old_size;
   
   if(pthread_rwlock_wrlock(&gem_lock) != 0) {
@@ -52,6 +52,7 @@ int store_sample(struct kernel_info *kinfo) {
   
   /* Place this new element */
   memcpy(&(gem_arr[gem_arr_used].kinfo), kinfo, sizeof(struct kernel_info));
+  gem_arr[gem_arr_used].buff = data;
   gem_arr_used++;
   
   if(pthread_rwlock_unlock(&gem_lock) != 0) {
@@ -100,13 +101,13 @@ void dump_gem(unsigned char *kernel, __u64 size, __u32 id) {
   unsigned int i;
   FILE *tmpfile;
   
-  for(i = 0; i < MAX_DUPLICATES; i++) {
+  for(i = 0; i < 10; i++) {
     sprintf(filename, "/tmp/kernel_%u_%u.bin", id, i);
     tmpfile = fopen(filename, "r");
     if(tmpfile) {
       /* This file already exists, so go to the next filename */
       fclose(tmpfile);
-      if(i == (MAX_DUPLICATES - 1)) {
+      if(i == (10 - 1)) {
         fprintf(stderr, "WARNING: Hit MAX_DUPLICATES for handle %u.\n", id);
         return;
       }
@@ -126,7 +127,7 @@ void dump_gem(unsigned char *kernel, __u64 size, __u32 id) {
 }
 
 struct bpf_info_t {
-  struct kernel_writes_bpf *obj;
+  struct gem_collector_bpf *obj;
   struct ring_buffer *rb;
   struct bpf_map **map;
   
@@ -148,8 +149,8 @@ struct bpf_info_t {
   struct bpf_program *mmap_ret_prog;
   
   /* i915_gem_userptr_ioctl */
-  struct bpf_program *userptr_ioctl_prog;
-  struct bpf_program *userptr_ioctl_ret_prog;
+/*   struct bpf_program *userptr_ioctl_prog; */
+/*   struct bpf_program *userptr_ioctl_ret_prog; */
   
   /* i915_gem_vm_bind_ioctl */
   struct bpf_program *vm_bind_ioctl_prog;
@@ -167,45 +168,36 @@ static struct bpf_info_t bpf_info = {};
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   struct kernel_info *kinfo;
   unsigned char *data;
-  struct bb_parser *parser;
+/*   struct bb_parser *parser; */
   
   kinfo = (struct kernel_info *) data_arg;
   
-  printf("Got a sample: addr=%llx size=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->data, kinfo->data_sz, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
-  store_sample(kinfo);
-  data = copy_buffer(kinfo->pid, kinfo->data, kinfo->data_sz);
-  if(!data) {
-    fprintf(stderr, "WARNING: Failed to copy the buffer for handle %u out. The process we were profiling is most likely gone.\n", kinfo->handle);
-    return 0;
-  }
-  dump_gem(data, kinfo->data_sz, kinfo->handle);
+  printf("Got a sample: addr=0x%llx gpu_addr=0x%llx size=%llu batch_start_offset=%u length=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->addr, kinfo->gpu_addr, kinfo->size, kinfo->batch_start_offset, kinfo->batch_len, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
   
-#if 0
-  data = copy_buffer(kinfo->pid, kinfo->data, kinfo->data_sz);
-  if(!data) {
-    fprintf(stderr, "WARNING: Failed to copy the buffer out. The process we were profiling is most likely gone.\n");
-    return 0;
+  data = NULL;
+  if(kinfo->is_bb) {
+    data = copy_buffer(kinfo->pid, kinfo->addr, kinfo->size);
+    if(!data) {
+      fprintf(stderr, "WARNING: Failed to copy the buffer for handle %u out. The process we were profiling is most likely gone.\n", kinfo->handle);
+      return 0;
+    }
   }
-  dump_gem(data, kinfo->data_sz, kinfo->handle);
+  store_sample(kinfo, data);
   
   /* We don't want to copy/parse anything but batch buffers */
-  if(!(kinfo->is_bb) ||
-     !(kinfo->data) ||
-     !(kinfo->data_sz) ||
-     !(kinfo->pid)) {
-    return 0;
-  }
+/*   if(!(kinfo->is_bb)) { */
+/*     return 0; */
+/*   } */
   
-  parser = bb_parser_init();
-  bb_parser_parse(parser, data, kinfo->data_sz);
-  printf("Instruction Base Address:   %lx\n", parser->iba);
-  printf("System Instruction Pointer: %lx\n", parser->sip);
-  fflush(stdout);
+/*   parser = bb_parser_init(); */
+/*   bb_parser_parse(parser, data, kinfo->batch_start_offset, kinfo->batch_len); */
+/*   printf("Instruction Base Address:   %lx\n", parser->iba); */
+/*   printf("System Instruction Pointer: %lx\n", parser->sip); */
+/*   fflush(stdout); */
   
   /* Once the parser finds a kernel pointer, here we should immediately
      do a lookup on pointers we've seen before, and if we find it, 
      call dump_gem. */
-#endif
      
   return 0;
 }
@@ -239,7 +231,7 @@ int init_bpf_prog() {
   }
   #endif
 
-  bpf_info.obj = kernel_writes_bpf__open_opts(&opts);
+  bpf_info.obj = gem_collector_bpf__open_opts(&opts);
   if(!bpf_info.obj) {
     fprintf(stderr, "ERROR: Failed to get BPF object.\n");
     fprintf(stderr, "       Most likely, one of two things are true:\n");
@@ -247,7 +239,7 @@ int init_bpf_prog() {
     fprintf(stderr, "       2. You don't have a kernel that supports BTF type information.\n");
     return -1;
   }
-  err = kernel_writes_bpf__load(bpf_info.obj);
+  err = gem_collector_bpf__load(bpf_info.obj);
   if(err) {
     fprintf(stderr, "Failed to load BPF object!\n");
     return -1;
@@ -263,8 +255,8 @@ int init_bpf_prog() {
   bpf_info.mmap_prog = (struct bpf_program *) bpf_info.obj->progs.mmap_kprobe;
   bpf_info.mmap_ret_prog = (struct bpf_program *) bpf_info.obj->progs.mmap_kretprobe;
   
-  bpf_info.userptr_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kprobe;
-  bpf_info.userptr_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kretprobe;
+/*   bpf_info.userptr_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kprobe; */
+/*   bpf_info.userptr_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kretprobe; */
   
   bpf_info.vm_bind_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kprobe;
   bpf_info.vm_bind_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kretprobe;
@@ -322,16 +314,16 @@ int init_bpf_prog() {
   }
   
   /* i915_gem_userptr_ioctl */
-  err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_prog, 0);
-  if(err != 0) {
-    fprintf(stderr, "Failed to attach a kprobe!\n");
-    return -1;
-  }
-  err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_ret_prog, 1);
-  if(err != 0) {
-    fprintf(stderr, "Failed to attach a kprobe!\n");
-    return -1;
-  }
+/*   err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_prog, 0); */
+/*   if(err != 0) { */
+/*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
+/*     return -1; */
+/*   } */
+/*   err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_ret_prog, 1); */
+/*   if(err != 0) { */
+/*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
+/*     return -1; */
+/*   } */
   
   /* i915_gem_vm_bind_ioctl */
   err = attach_kprobe("i915_gem_vm_bind_ioctl", bpf_info.vm_bind_ioctl_prog, 0);

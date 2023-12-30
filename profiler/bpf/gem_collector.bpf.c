@@ -1,0 +1,877 @@
+/***************************************
+* i915 GEM Tracer
+* 
+* The purpose of this eBPF program is to trace, and send to userspace,
+* all GEMs that are associated with an executing batchbuffer in the i915
+* driver.  This includes at a minimum the virtual address and size of the
+* buffer.
+* 
+* This program works by tracing a set of functions on the memory management
+* side (functions which are used to create, allocate, bind, and/or write to
+* buffers). Each of these callpaths eventually culminates in a virtual
+* address and size of a buffer which userspace wants to send to the GPU.
+* Once collected, we have no way of knowing if these buffers have actually
+* been written to. So, we simply wait until they're referred to by an
+* executing batchbuffer.
+*
+* Memory management is largely a matter of calling some mmap-like interface
+* to get an integer ID for the buffer, then later passing it to a call to
+* i915_gem_execbuffer2_ioctl. For discrete devices (like Ponte Vecchio),
+* this is supplemented by maintaining a separate virtual address space
+* (called a VM) using i915_gem_vm_bind_ioctl.
+*
+* From each function, we get:
+*
+* 1. i915_gem_mmap_ioctl
+*    - handle ID
+*    - CPU address
+*    - size
+*
+* 2. i915_gem_mmap_offset_ioctl
+*    - handle ID
+*    - file offset (later passed to i915_gem_mmap_ioctl)
+*
+* 3. i915_gem_pwrite_ioctl
+*    - handle ID
+*    - CPU address
+*    - size
+*
+* 4. i915_gem_userptr_ioctl
+*    - handle ID
+*    - CPU address
+*    - size
+*
+* For discrete devices, we also trace:
+* 
+* 1. i915_gem_vm_bind_ioctl
+*    - handle ID
+*    - GPU address
+*    - size
+*    - VM ID
+*
+* 2. i915_gem_context_create_ioctl
+*    - Context ID
+*    - VM ID
+***************************************/
+
+#include "i915.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
+#include "gem_collector.h"
+
+/***************************************
+* HACKY DECLARATIONS
+*
+* These are definitions of macros that aren't available from the BTF
+* dump of the i915 module; for example, those that are defined inside
+* structs. Many of these *are* included in the regular uapi headers,
+* but including those alongside BPF skeleton headers causes a host of
+* compile errors, so this is the path of least resistance.
+***************************************/
+
+#define MAX_ENGINE_INSTANCE 8
+#define I915_CONTEXT_CREATE_FLAGS_USE_EXTENSIONS  (1u << 0)
+#define I915_CONTEXT_CREATE_EXT_SETPARAM 0
+#define I915_CONTEXT_PARAM_VM    0x9
+
+/***************************************
+* OUTPUT MAP
+*
+* This is the "output" map, which userspace reads to get information
+* about GPU kernels running on the system. We fill it with `struct kernel_info`
+* values.
+***************************************/
+
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, MAX_ENTRIES);
+} rb SEC(".maps");
+
+
+/***************************************
+* mmap_wait_for_exec
+*
+* This map stores addresses and sizes that have been mapped
+* using the `mmap`, `mmap_offset`, or `userptr` ioctls. These
+* addresses, having simply been mapped, have not necessarily
+* been *written* to, so we must wait until they're executed
+* (e.g. being sent to the execbuffer ioctl) to know that data
+* has been written into them.
+*
+* This map stores those pointers so that they can be found
+* once executed, further down in this program.
+***************************************/
+
+struct mmap_wait_for_exec_key {
+  u64 file;
+  u32 handle;
+};
+
+struct mmap_wait_for_exec_val {
+  __u64 addr;
+  __u64 size;
+  __u64 offset;
+};
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         struct mmap_wait_for_exec_key);
+  __type(value,       struct mmap_wait_for_exec_val);
+} mmap_wait_for_exec SEC(".maps");
+
+int mmap_wait_for_exec_insert(u64 file, u32 handle, u64 addr, u64 size, u64 offset)
+{
+  struct mmap_wait_for_exec_key key;
+  struct mmap_wait_for_exec_val val;
+  struct mmap_wait_for_exec_val *val_ptr = NULL;
+  int retval;
+  unsigned int i;
+  
+  __builtin_memset(&key, 0, sizeof(struct mmap_wait_for_exec_key));
+  __builtin_memset(&val, 0, sizeof(struct mmap_wait_for_exec_val));
+  
+  key.file = file;
+  key.handle = handle;
+  
+  /* This file/handle combination has not been seen, so add it */
+  bpf_printk("Adding addr=%llx size=%llu to mmap_wait_for_exec", addr, size);
+  val.addr = addr;
+  val.size = size;
+  val.offset = offset;
+  retval = bpf_map_update_elem(&mmap_wait_for_exec, &key, &val, 0);
+  if(retval < 0) return -1;
+  
+  return 0;
+}
+
+/***************************************
+* i915_gem_mmap_ioctl
+*
+* The i915_gem_mmap_ioctl includes a GEM handle that the kernel
+* should map for a userspace application to read. All we have to do
+* is wait for this function to return, grab the pointer that it returns,
+* and pass that along to our userspace profiler.
+***************************************/
+
+struct mmap_ioctl_wait_for_ret_val {
+  struct drm_i915_gem_mmap *arg;
+  u64 file;
+};
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u32);
+  __type(value,       struct mmap_ioctl_wait_for_ret_val);
+} mmap_ioctl_wait_for_ret SEC(".maps");
+
+/* Capture any pointers that userspace has mmap'd. */
+SEC("kprobe/i915_gem_mmap_ioctl")
+int mmap_ioctl_kprobe(struct pt_regs *ctx)
+{
+  struct mmap_ioctl_wait_for_ret_val val;
+  u32 cpu;
+  
+  /* Pass two arguments to the kretprobe */
+  __builtin_memset(&val, 0, sizeof(struct mmap_ioctl_wait_for_ret_val));
+  val.arg = (struct drm_i915_gem_mmap *) PT_REGS_PARM2(ctx);
+  val.file = PT_REGS_PARM3(ctx);
+  cpu = bpf_get_smp_processor_id();
+  
+  bpf_map_update_elem(&mmap_ioctl_wait_for_ret, &cpu, &val, 0);
+}
+
+/* We have to wait for this function to return to read its address */
+SEC("kretprobe/i915_gem_mmap_ioctl")
+int mmap_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  int retval;
+  void *lookup;
+  u32 cpu, handle;
+  u64 addr, size, file, offset;
+  struct mmap_ioctl_wait_for_ret_val val;
+  struct drm_i915_gem_mmap *arg;
+  
+  /* Argument from the kprobe */
+  cpu = bpf_get_smp_processor_id();
+  lookup = bpf_map_lookup_elem(&mmap_ioctl_wait_for_ret, &cpu);
+  if(!lookup) return -1;
+  __builtin_memcpy(&val, lookup, sizeof(struct mmap_ioctl_wait_for_ret_val));
+  
+  arg = val.arg;
+  file = val.file;
+  
+  handle = BPF_CORE_READ(arg, handle);
+  addr = BPF_CORE_READ(arg, addr_ptr);
+  size = BPF_CORE_READ(arg, size);
+  offset = BPF_CORE_READ(arg, offset);
+  
+  /* DEBUG */
+  bpf_printk("mmap_ioctl_kretprobe file=%llx handle=%u addr=0x%llx", file, handle, addr);
+  bpf_printk("                     size=%llu", size);
+  
+  retval = mmap_wait_for_exec_insert(file, handle, addr, size, offset);
+  if(retval < 0) {
+    return -1;
+  }
+  
+  return 0;
+}
+
+/***************************************
+* i915_gem_mmap_offset_ioctl and i915_gem_mmap
+*
+* If we see that an application has mmap'd a GEM to write it later, let's record that in an
+* internal map, then output it to userspace after we know that it has been written (which is
+* when i915_gem_do_execbuffer is called).
+* This codepath differs from i915_gem_mmap_ioctl because it requires tracing i915_gem_mmap_offset_ioctl
+* to get the GEM's handle, then i915_gem_mmap to see it get mmap'd.
+***************************************/
+
+struct mmap_wait_for_ret_val {
+  struct vm_area_struct *vma;
+};
+
+struct mmap_offset_wait_for_ret_val {
+  struct drm_i915_gem_mmap_offset *arg;
+  u64 file;
+};
+
+struct mmap_offset_wait_for_mmap_val {
+  u64 file;
+  u32 handle;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key, u32);
+  __type(value, struct mmap_offset_wait_for_ret_val);
+} mmap_offset_wait_for_ret SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key, u64);
+  __type(value, struct mmap_offset_wait_for_mmap_val);
+} mmap_offset_wait_for_mmap SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key, u32);
+  __type(value, struct mmap_wait_for_ret_val);
+} mmap_wait_for_ret SEC(".maps");
+
+/* Capture any pointers that userspace has mmap'd. */
+SEC("kprobe/i915_gem_mmap_offset_ioctl")
+int mmap_offset_ioctl_kprobe(struct pt_regs *ctx)
+{
+  struct mmap_offset_wait_for_ret_val val;
+  
+  __builtin_memset(&val, 0, sizeof(struct mmap_offset_wait_for_ret_val));
+  val.arg = (struct drm_i915_gem_mmap_offset *) PT_REGS_PARM2(ctx);
+  val.file = PT_REGS_PARM3(ctx);
+  u32 cpu = bpf_get_smp_processor_id();
+  bpf_map_update_elem(&mmap_offset_wait_for_ret, &cpu, &val, 0);
+  
+  /* DEBUG */
+  bpf_printk("mmap_offset_ioctl_kprobe on cpu %u", cpu);
+  
+  return 0;
+}
+
+/* We have to wait for this function to return to read its address */
+SEC("kretprobe/i915_gem_mmap_offset_ioctl")
+int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  u32 cpu, handle;
+  u64 file, fake_offset;
+  void *lookup;
+  struct mmap_offset_wait_for_ret_val val;
+  struct mmap_offset_wait_for_mmap_val mmap_val;
+  struct drm_i915_gem_mmap_offset *arg;
+  
+  /* First, see if we've got the element from when this call first started */
+  cpu = bpf_get_smp_processor_id();
+  lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_ret, &cpu);
+  if(!lookup) return -1;
+  __builtin_memcpy(&val, lookup, sizeof(struct mmap_offset_wait_for_ret_val));
+  
+  /* At this point, this pointer to a drm_i915_gem_mmap_offset contains a handle
+     and a fake offset. Let's store them and read them when the mmap actually happens. */
+  arg = val.arg;
+  file = val.file;
+  fake_offset = BPF_CORE_READ(arg, offset);
+  handle = BPF_CORE_READ(arg, handle);
+  
+  __builtin_memset(&mmap_val, 0, sizeof(struct mmap_offset_wait_for_mmap_val));
+  mmap_val.file = file;
+  mmap_val.handle = handle;
+  bpf_map_update_elem(&mmap_offset_wait_for_mmap, &fake_offset, &mmap_val, 0);
+  
+  /* DEBUG */
+  bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle);
+  
+  return 0;
+}
+
+/* At this point we've seen the i915_gem_mmap_offset_ioctl call for this GEM, from
+   which we extracted the handle and the fake offset. Let's use the offset as a key,
+   and from i915_gem_mmap get the virtual address of the mapping. */
+SEC("kprobe/i915_gem_mmap")
+int mmap_kprobe(struct pt_regs *ctx)
+{
+  u32 cpu;
+  struct mmap_wait_for_ret_val val;
+  struct vm_area_struct *vma;
+  
+  /* We're just going to immediately send this to the kretprobe */
+  __builtin_memset(&val, 0, sizeof(struct mmap_wait_for_ret_val));
+  cpu = bpf_get_smp_processor_id();
+  vma = (struct vm_area_struct *) PT_REGS_PARM2(ctx);
+  val.vma = vma;
+  bpf_map_update_elem(&mmap_wait_for_ret, &cpu, &val, 0);
+  
+  /* DEBUG */
+  bpf_printk("mmap_kprobe vma=0x%llx", vma);
+  
+  return 0;
+}
+
+SEC("kretprobe/i915_gem_mmap")
+int mmap_kretprobe(struct pt_regs *ctx)
+{
+  int retval;
+  u32 cpu, page_shift, pid, handle;
+  u64 vm_pgoff, vm_start, vm_end, addr, size, file, offset;
+  void *lookup;
+  struct mmap_wait_for_ret_val val;
+  struct mmap_offset_wait_for_mmap_val offset_val;
+  struct vm_area_struct *vma;
+  
+  /* Get the vma from the kprobe */
+  cpu = bpf_get_smp_processor_id();
+  lookup = bpf_map_lookup_elem(&mmap_wait_for_ret, &cpu);
+  if(!lookup) return -1;
+  __builtin_memcpy(&val, lookup, sizeof(struct mmap_wait_for_ret_val));
+  
+  page_shift = 12;
+  vma = val.vma;
+  vm_pgoff = BPF_CORE_READ(vma, vm_pgoff);
+  vm_start = BPF_CORE_READ(vma, vm_start);
+  vm_end = BPF_CORE_READ(vma, vm_end);
+  vm_pgoff = vm_pgoff << page_shift;
+  
+  /* Get the GEM handle from the previous i915_gem_mmap_offset_ioctl call. */
+  lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
+  if(!lookup) return -1;
+  __builtin_memcpy(&offset_val, lookup, sizeof(struct mmap_offset_wait_for_mmap_val));
+  
+  pid = bpf_get_current_pid_tgid() >> 32;
+  handle = offset_val.handle;
+  file = offset_val.file;
+  addr = vm_start;
+  size = vm_end - vm_start;
+  
+  /* DEBUG */
+  bpf_printk("mmap_kretprobe file=0x%lx handle=%u vm_start=0x%lx", file, handle, vm_start);
+  
+  retval = mmap_wait_for_exec_insert(file, handle, addr, size, 0);
+  if(retval < 0) return -1;
+  
+  return 0;
+}
+
+/***************************************
+* vm_bind_wait_for_exec
+*
+* Similar to mmap_wait_for_exec above, this map stores
+* addresses that need to be "seen" at execution time before
+* they can be sent to userspace to be parsed. This map, though,
+* stores addresses and sizes keyed on the VM that they've been
+* bound to, so that later, a lookup can be done to obtain all
+* buffers associated with a particular VM ID.
+*
+* I'm a little wary about this implementation, since it requires
+* a static maximum number of addresses that can be bound into a VM.
+* Since I have no way of knowing how workloads are going to use this feature,
+* there's no good heuristic for determining a value here.
+***************************************/
+
+struct vm_bind_wait_for_exec_key {
+  u32 vm_id;
+  u64 gpu_addr;
+};
+
+struct vm_bind_wait_for_exec_val {
+  u64 size;
+  u64 file;
+  u32 handle;
+};
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         struct vm_bind_wait_for_exec_key);
+  __type(value,       struct vm_bind_wait_for_exec_val);
+} vm_bind_wait_for_exec SEC(".maps");
+
+int vm_bind_wait_for_exec_insert(u32 vm_id, u64 gpu_addr, u64 size, u64 file, u32 handle)
+{
+  struct vm_bind_wait_for_exec_val val;
+  struct vm_bind_wait_for_exec_key key;
+  int retval;
+  
+  __builtin_memset(&key, 0, sizeof(struct vm_bind_wait_for_exec_key));
+  __builtin_memset(&val, 0, sizeof(struct vm_bind_wait_for_exec_val));
+  
+  key.vm_id = vm_id;
+  key.gpu_addr = gpu_addr;
+  val.size = size;
+  val.file = file;
+  val.handle = handle;
+  
+  retval = bpf_map_update_elem(&vm_bind_wait_for_exec, &key, &val, 0);
+  if(retval < 0) return -1;
+  
+  return 0;
+}
+
+/***************************************
+* i915_gem_context_create_ioctl
+*
+* Look for gem contexts getting created, in order to see the association
+* between VM ID and context ID.
+***************************************/
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u32);
+  __type(value,       u64);
+} context_create_wait_for_ret SEC(".maps");
+
+/* The struct that execbuffer will use to lookup VM IDs */
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u32);
+  __type(value,       u32);
+} context_create_wait_for_exec SEC(".maps");
+
+SEC("kprobe/i915_gem_context_create_ioctl")
+int context_create_ioctl_kprobe(struct pt_regs *ctx)
+{
+  u64 arg = (u64) PT_REGS_PARM2(ctx);
+  u32 cpu = bpf_get_smp_processor_id();
+  
+  bpf_map_update_elem(&context_create_wait_for_ret, &cpu, &arg, 0);
+}
+
+SEC("kretprobe/i915_gem_context_create_ioctl")
+int context_create_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  u32 cpu, i, ctx_id, vm_id, name;
+  u64 param;
+  void *arg;
+  struct drm_i915_gem_context_create_ext *create_ext;
+  struct i915_user_extension *ext;
+  struct drm_i915_gem_context_create_ext_setparam *setparam_ext;
+
+  /* Get the pointer to the arguments from the kprobe */
+  cpu = bpf_get_smp_processor_id();
+  arg = bpf_map_lookup_elem(&context_create_wait_for_ret, &cpu);
+  if(!arg) {
+    return 1;
+  }
+  
+  /* Look for CONTEXT_CREATE extensions */
+  create_ext = *((struct drm_i915_gem_context_create_ext **) arg);
+  ctx_id = BPF_CORE_READ(create_ext, ctx_id);
+  
+  if(BPF_CORE_READ(create_ext, flags) & I915_CONTEXT_CREATE_FLAGS_USE_EXTENSIONS) {
+    ext = (struct i915_user_extension *) BPF_CORE_READ(create_ext, extensions);
+    
+    #pragma clang loop unroll(full)
+    for(i = 0; i < 64; i++) {
+      if(!ext) break;
+      
+      name = BPF_CORE_READ_USER(ext, name);
+      if(name == I915_CONTEXT_CREATE_EXT_SETPARAM) {
+        setparam_ext = (struct drm_i915_gem_context_create_ext_setparam *) ext;
+        param = BPF_CORE_READ_USER(setparam_ext, param).param;
+        if(param == I915_CONTEXT_PARAM_VM) {
+          /* Someone is trying to set the VM for this context, let's store it */
+          vm_id = BPF_CORE_READ_USER(setparam_ext, param).value;
+          bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id);
+          bpf_map_update_elem(&context_create_wait_for_exec, &ctx_id, &vm_id, 0);
+        }
+      }
+      
+      ext = (struct i915_user_extension *) BPF_CORE_READ_USER(ext, next_extension);
+    }
+  }
+}
+
+/***************************************
+* i915_gem_vm_bind_ioctl
+*
+* Look for virtual addresses that userspace is trying to [un]bind.
+***************************************/
+
+struct vm_bind_ioctl_wait_for_ret_val {
+  struct prelim_drm_i915_gem_vm_bind *arg;
+  u64 file;
+};
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u32);
+  __type(value,       struct vm_bind_ioctl_wait_for_ret_val);
+} vm_bind_ioctl_wait_for_ret SEC(".maps");
+
+SEC("kprobe/i915_gem_vm_bind_ioctl")
+int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
+{
+  u32 cpu;
+  struct vm_bind_ioctl_wait_for_ret_val val;
+  
+  __builtin_memset(&val, 0, sizeof(struct vm_bind_ioctl_wait_for_ret_val));
+  val.arg = (struct prelim_drm_i915_gem_vm_bind *) PT_REGS_PARM2(ctx);
+  val.file = PT_REGS_PARM3(ctx);
+  cpu = bpf_get_smp_processor_id();
+  
+  bpf_map_update_elem(&vm_bind_ioctl_wait_for_ret, &cpu, &val, 0);
+}
+
+SEC("kretprobe/i915_gem_vm_bind_ioctl")
+int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  u32 cpu, vm_id, handle;
+  u64 start, offset, length;
+  struct prelim_drm_i915_gem_vm_bind *arg;
+  u64 file;
+  struct vm_bind_ioctl_wait_for_ret_val val;
+  void *lookup;
+  
+  /* Grab the argument from the kprobe */
+  cpu = bpf_get_smp_processor_id();
+  lookup = bpf_map_lookup_elem(&vm_bind_ioctl_wait_for_ret, &cpu);
+  if(!lookup) return -1;
+  __builtin_memcpy(&val, lookup, sizeof(struct vm_bind_ioctl_wait_for_ret_val));
+  
+  arg = val.arg;
+  file = val.file;
+  vm_id = BPF_CORE_READ(arg, vm_id);
+  handle = BPF_CORE_READ(arg, handle);
+  start = BPF_CORE_READ(arg, start);
+  offset = BPF_CORE_READ(arg, offset);
+  length = BPF_CORE_READ(arg, length);
+  bpf_printk("vm_bind_ioctl_kretprobe vm_id=%u file=0x%lx handle=%u", vm_id, file, handle);
+  bpf_printk("                        start=0x%lx offset=0x%lx length=0x%lx", start, offset, length);
+  
+  /* Add this address to the map, to wait for execution */
+  int retval = vm_bind_wait_for_exec_insert(vm_id, start, length, file, handle);
+  if(retval < 0) return -1;
+}
+
+/* SEC("kprobe/i915_gem_vm_unbind_ioctl") */
+/* int vm_unbind_ioctl_kprobe(struct pt_regs *ctx) */
+/* { */
+/*    */
+/* } */
+
+/***************************************
+* i915_gem_do_execbuffer
+*
+* Now we've got a map of GEM handles that have been mmap'd. Look through the
+* GEM handles that are going to be executed, and send them to userspace.
+***************************************/
+
+struct batch_callback_ctx {
+  unsigned int batch_index;
+  struct drm_i915_gem_exec_object2 *exec;
+  u32 vm_id, pid, batch_start_offset;
+  u64 file;
+  u64 batch_len[MAX_ENGINE_INSTANCE + 1];
+};
+
+/* This function runs for each batch in the execbuffer.
+   It's formatted this way to allow for easy porting over to the
+   bpf_loop interface at a later date. */
+static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
+{
+  struct kernel_info *kinfo;
+  
+  struct mmap_wait_for_exec_val mmap_val;
+  struct vm_bind_wait_for_exec_val *vm_bind_val_ptr;
+  
+  struct vm_bind_wait_for_exec_key vm_bind_key;
+  struct mmap_wait_for_exec_key mmap_key;
+  
+  void *lookup;
+  struct drm_i915_gem_exec_object2 *exec;
+  unsigned int i, batch_index;
+  u64 addr, gpu_addr, size, offset, file, batch_len;
+  u32 handle, pid, batch_start_offset, to_copy;
+  
+  if(!ctx) return -1;
+  
+  exec = ctx->exec;
+  batch_index = ctx->batch_index;
+  batch_start_offset = ctx->batch_start_offset;
+  if(index < (MAX_ENGINE_INSTANCE + 1)) {
+    batch_len = ctx->batch_len[index];
+  }
+  pid = ctx->pid;
+  handle = BPF_CORE_READ(exec, handle);
+  offset = BPF_CORE_READ(exec, offset);
+  file = ctx->file;
+  
+  if(handle == 0) {
+    /* If the handle is zero, it should be bound into the VM associated with this context.
+       In this case, exec->offset should contain the address, but we'll have to lookup
+       the size of the buffer from the vm_bind family of functions. */
+    if((ctx->vm_id == 0) || (offset == 0)) {
+      return -1;
+    }
+    __builtin_memset(&vm_bind_key, 0, sizeof(struct vm_bind_wait_for_exec_key));
+    vm_bind_key.vm_id = ctx->vm_id;
+    vm_bind_key.gpu_addr = offset;
+    bpf_printk("Looking to see vm_id=%u gpu_addr=0x%lx", vm_bind_key.vm_id, vm_bind_key.gpu_addr);
+    vm_bind_val_ptr = bpf_map_lookup_elem(&vm_bind_wait_for_exec, &vm_bind_key);
+    if(!vm_bind_val_ptr) return -1;
+    
+    bpf_printk("Found gpu_addr=0x%lx", offset);
+    gpu_addr = offset;
+    size = vm_bind_val_ptr->size;
+    offset = 0;
+    handle = vm_bind_val_ptr->handle;
+    file = vm_bind_val_ptr->file;
+  }
+  
+  /* If the handle is valid, we can look it up in mmap_wait_for_exec. */
+  bpf_printk("Searching mmap_wait_for_exec for file=0x%lx handle=%u", file, handle);
+  __builtin_memset(&mmap_key, 0, sizeof(struct mmap_wait_for_exec_key));
+  mmap_key.handle = handle;
+  mmap_key.file = file;
+  lookup = bpf_map_lookup_elem(&mmap_wait_for_exec, &mmap_key);
+  if(!lookup) return -1;
+  __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val));
+  addr = mmap_val.addr;
+  size = mmap_val.size;
+  
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct kernel_info), 0);
+  if(!kinfo) return -1;
+
+  kinfo->pid = pid;
+  kinfo->file = file;
+  kinfo->handle = handle;
+  kinfo->addr = addr;
+  kinfo->gpu_addr = gpu_addr;
+  kinfo->size = size;
+  kinfo->offset = offset;
+  kinfo->is_bb = (index == batch_index);
+  kinfo->batch_len = batch_len;
+  if(kinfo->is_bb) {
+    kinfo->batch_start_offset = batch_start_offset;
+  } else {
+    kinfo->batch_start_offset = 0;
+  }
+  bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
+
+  bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
+  
+  return 0;
+}
+
+struct vm_callback_ctx {
+  u32 pid;
+};
+
+static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *key,
+                              struct vm_bind_wait_for_exec_val *val, struct vm_callback_ctx *ctx)
+{
+  struct kernel_info *kinfo;
+  struct mmap_wait_for_exec_key mmap_key;
+  struct mmap_wait_for_exec_val mmap_val;
+  u64 addr, offset;
+  void *lookup;
+  
+  /* We need to get the CPU-side address from the mmaps */
+  bpf_printk("Searching mmap_wait_for_exec for file=0x%lx handle=%u", val->file, val->handle);
+  __builtin_memset(&mmap_key, 0, sizeof(struct mmap_wait_for_exec_key));
+  mmap_key.handle = val->handle;
+  mmap_key.file = val->file;
+  lookup = bpf_map_lookup_elem(&mmap_wait_for_exec, &mmap_key);
+  if(!lookup) return 1;
+  __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val));
+  addr = mmap_val.addr;
+  offset = mmap_val.addr;
+  
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct kernel_info), 0);
+  if(!kinfo) return 1;
+
+  kinfo->pid = ctx->pid;
+  kinfo->file = val->file;
+  kinfo->handle = val->handle;
+  kinfo->addr = addr;
+  kinfo->gpu_addr = key->gpu_addr;
+  kinfo->size = val->size;
+  kinfo->offset = offset;
+  kinfo->is_bb = 0;
+  kinfo->batch_len = 0;
+  kinfo->batch_start_offset = 0;
+  bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
+
+  bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
+  
+  return 0;
+}
+
+SEC("kprobe/i915_gem_do_execbuffer")
+int do_execbuffer_kprobe(struct pt_regs *ctx)
+{
+  long err;
+  struct batch_callback_ctx batch_callback_ctx;
+  struct vm_callback_ctx vm_callback_ctx;
+  unsigned int num_batches, i;
+  struct drm_i915_gem_execbuffer2 *arg;
+  struct drm_i915_gem_exec_object2 *exec;
+  u32 ctx_id, vm_id;
+  u64 addr, size;
+  void *val_ptr;
+  struct vm_bind_wait_for_exec_val *vm_binds;
+  u64 file;
+  struct kernel_info *kinfo;
+  
+  file = PT_REGS_PARM2(ctx);
+  arg = (struct drm_i915_gem_execbuffer2 *) PT_REGS_PARM3(ctx);
+  exec = (struct drm_i915_gem_exec_object2 *) PT_REGS_PARM4(ctx);
+  
+  /* Look up the VM ID based on the context ID (which is in exec->rsvd1) */
+  ctx_id = (u32) BPF_CORE_READ(arg, rsvd1);
+  vm_id = 0;
+  if(ctx_id) {
+    val_ptr = bpf_map_lookup_elem(&context_create_wait_for_exec, &ctx_id);
+    if(val_ptr) {
+      vm_id = *((u32 *) val_ptr);
+    }
+  }
+  
+  num_batches = BPF_CORE_READ(arg, buffer_count);
+  err = bpf_core_read(&batch_callback_ctx.batch_len, sizeof(u64) * (MAX_ENGINE_INSTANCE + 1), &arg->batch_len);
+  batch_callback_ctx.vm_id = vm_id;
+  batch_callback_ctx.exec = exec;
+  batch_callback_ctx.pid = bpf_get_current_pid_tgid() >> 32;
+  batch_callback_ctx.batch_index = (BPF_CORE_READ(arg, flags) & I915_EXEC_BATCH_FIRST) ? 0 : BPF_CORE_READ(arg, buffer_count) - 1;
+  batch_callback_ctx.batch_start_offset = BPF_CORE_READ(arg, batch_start_offset);
+  batch_callback_ctx.file = file;
+  
+  /* DEBUG */
+  bpf_printk("do_execbuffer_kprobe pid=%u buffer_count=%u batch_start_offset=%u", batch_callback_ctx.pid, num_batches, BPF_CORE_READ(arg, batch_start_offset));
+  
+  /* First, loop over batches directly passed into the execbuffer2 */
+  #pragma clang loop unroll(full)
+  for(i = 0; i < 32; i++) {
+    if(i == num_batches)  break;
+    
+    if(batch_callback(i, &batch_callback_ctx) != 0) {
+      return -1;
+    }
+  }
+  
+  /* Now, if we're using the VM_BIND family of functions, iterate
+     over all buffers bound to this VM */
+  vm_callback_ctx.pid = batch_callback_ctx.pid;
+  if(bpf_for_each_map_elem(&vm_bind_wait_for_exec, vm_callback, &vm_callback_ctx, 0) != 0) {
+    return -1;
+  }
+  
+  return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+
+#if 0
+/***************************************
+* i915_gem_pwrite_ioctl
+*
+* The i915_gem_pwrite_ioctl system call includes a userspace pointer
+* from which the kernel should read, so we can immediately pass that along
+* to our userspace profiler to be read.
+***************************************/
+
+SEC("kprobe/i915_gem_pwrite_ioctl")
+int pwrite_kprobe(struct pt_regs *ctx)
+{
+  struct drm_i915_gem_pwrite *gem_pwrite = (struct drm_i915_gem_pwrite *) PT_REGS_PARM2(ctx);
+  struct kernel_info *kinfo;
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  
+  add_to_ringbuf(pid,
+                 BPF_CORE_READ(gem_pwrite, handle),
+                 BPF_CORE_READ(gem_pwrite, data_ptr),
+                 BPF_CORE_READ(gem_pwrite, size),
+                 0,
+                 0);
+  
+  return 0;
+}
+#endif
+
+#if 0
+/***************************************
+* i915_gem_userptr_ioctl
+*
+* Userspace can give the kernel driver a pointer (and size) to some allocated memory,
+* which the kernel will then create a GEM from.
+***************************************/
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key, u32);
+  __type(value, u64);
+} userptr_ioctl_wait_for_ret SEC(".maps");
+
+SEC("kprobe/i915_gem_userptr_ioctl")
+int userptr_ioctl_kprobe(struct pt_regs *ctx)
+{
+  u64 arg = (u64) PT_REGS_PARM2(ctx);
+  u32 cpu = bpf_get_smp_processor_id();
+  
+  bpf_map_update_elem(&userptr_ioctl_wait_for_ret, &cpu, &arg, 0);
+}
+
+SEC("kretprobe/i915_gem_userptr_ioctl")
+int userptr_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  /* Get the pointer to the arguments from the kprobe */
+  u32 cpu = bpf_get_smp_processor_id();
+  void *arg = bpf_map_lookup_elem(&userptr_ioctl_wait_for_ret, &cpu);
+  if(!arg) {
+    return 1;
+  }
+  struct drm_i915_gem_userptr *gem_userptr = *((struct drm_i915_gem_userptr **) arg);
+  
+  u32 pid = bpf_get_current_pid_tgid() >> 32;
+  u32 handle = BPF_CORE_READ(gem_userptr, handle);
+  u64 data = BPF_CORE_READ(gem_userptr, user_ptr);
+  u64 data_sz = BPF_CORE_READ(gem_userptr, user_size);
+  
+  /* DEBUG */
+  bpf_printk("userptr_ioctl_kretprobe handle=%u data=0x%llx data_sz=%llu", handle, data, data_sz);
+  
+  int retval = mmap_wait_for_exec_insert(pid, handle, data, data_sz);
+  if(retval < 0) {
+    return 1;
+  }
+  
+  return 0;
+}
+#endif

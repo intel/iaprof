@@ -1,0 +1,6 @@
+SPIRV-Headers/
+SPIRV-Tools/
+build.log
+build/
+llvm-project/
+vc-intrinsics/

@@ -42,12 +42,12 @@ fi
 # Compile the BPF object code
 echo "  Compiling the BPF program..."
 ${CLANG} ${BPF_CFLAGS} -target bpf -D__TARGET_ARCH_x86 -g \
-  -I${DIR} -I${PREFIX}/include -c ${DIR}/kernel_writes.bpf.c -o ${DIR}/kernel_writes.bpf.o
+  -I${DIR} -I${PREFIX}/include -c ${DIR}/gem_collector.bpf.c -o ${DIR}/gem_collector.bpf.o
 
 # Strip the object file (for a smaller filesize)
 echo "  Stripping the object file..."
-${LLVM_STRIP} -g ${DIR}/kernel_writes.bpf.o
+${LLVM_STRIP} -g ${DIR}/gem_collector.bpf.o
 
 # Compile the object file into the skeleton header
 echo "  Generating the BPF skeleton header..."
-${BPFTOOL} gen skeleton ${DIR}/kernel_writes.bpf.o > ${DIR}/kernel_writes.skel.h
+${BPFTOOL} gen skeleton ${DIR}/gem_collector.bpf.o > ${DIR}/gem_collector.skel.h

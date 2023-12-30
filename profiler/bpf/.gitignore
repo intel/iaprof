@@ -1,4 +1,4 @@
 drm.h
 i915.h
 vmlinux.h
-kernel_writes.skel.h
+gem_collector.skel.h

@@ -25,8 +25,8 @@
 #include "i915_helper.h"
 #include "eustall_collector.h"
 
-#include "bpf/kernel_writes.h"
-#include "bpf/kernel_writes.skel.h"
+#include "bpf/gem_collector.h"
+#include "bpf/gem_collector.skel.h"
 #include "gem_collector.h"
 
 /*******************
@@ -35,10 +35,12 @@
 
 int pid = 0;
 char bpf = 0;
+char verbose = 0;
 
 static struct option long_options[] = {
   {"pid", required_argument, 0, 'p'},
   {"bpf", no_argument, 0, 'b'},
+  {"verbose", no_argument, 0, 'v'},
 };
 
 int read_opts(int argc, char **argv) {
@@ -47,17 +49,19 @@ int read_opts(int argc, char **argv) {
   
   while(1) {
     option_index = 0;
-    c = getopt_long(argc, argv, "p:b", long_options, &option_index);
+    c = getopt_long(argc, argv, "p:bv", long_options, &option_index);
     if(c == -1) {
       break;
     }
     switch(c) {
       case 'p':
         pid = (int) strtol(optarg, NULL, 10);
-        printf("Setting PID to %d\n", pid);
         break;
       case 'b':
         bpf = 1;
+        break;
+      case 'v':
+        verbose = 1;
         break;
       case 0:
         printf("option %s\n", long_options[option_index].name);
