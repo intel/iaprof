@@ -434,6 +434,8 @@ int i915_query_memory_regions(int fd, struct drm_i915_query_memory_regions **reg
     fprintf(stderr, "Failed to get the memory regions.\n");
     return -1;
   }
+  
+  return 0;
 }
 
 int i915_gem_create_in_memory_regions(int fd, uint32_t *handle, uint64_t *size,

@@ -8,13 +8,28 @@ CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
 
+# Commandline arguments
+DO_DEPS=false
+while getopts ignlm flag
+do
+  case "${flag}" in
+    d) DO_DEPS=true;;
+  esac
+done
+
+
 # Build the dependencies
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
-cd ${DEPS_DIR}
-git submodule init
-git submodule update
-source build.sh
+
+if [ "${DO_DEPS}" = true ]; then
+  cd ${DEPS_DIR}
+  git submodule init
+  git submodule update
+  source build.sh
+else
+  echo "WARNING: Not building dependencies. Pass '-d' to build them."
+fi
 
 # Produce the userspace headers from the kernel
 cd ${KERN}
@@ -50,17 +65,17 @@ ${CC} ${LDFLAGS} \
 echo ""
 
 # Compile the benchmark
-BENCHMARK_DIR="${BASE_DIR}/benchmark"
-echo "Building ${BENCHMARK_DIR}..."
-${CC} -g -c \
-  -I${KERN_HEADERS}/include -I${COMMON_DIR} \
-  ${BENCHMARK_DIR}/gpgpu_fill.c \
-  -o ${BENCHMARK_DIR}/gpgpu_fill.o
-${CC} ${LDFLAGS} \
-  ${BENCHMARK_DIR}/gpgpu_fill.o \
-  ${COMMON_DIR}/drm_helper.o \
-  -o ${BASE_DIR}/bin/gpgpu_fill
-echo ""
+# BENCHMARK_DIR="${BASE_DIR}/benchmark"
+# echo "Building ${BENCHMARK_DIR}..."
+# ${CC} -g -c \
+#   -I${KERN_HEADERS}/include -I${COMMON_DIR} \
+#   ${BENCHMARK_DIR}/gpgpu_fill.c \
+#   -o ${BENCHMARK_DIR}/gpgpu_fill.o
+# ${CC} ${LDFLAGS} \
+#   ${BENCHMARK_DIR}/gpgpu_fill.o \
+#   ${COMMON_DIR}/drm_helper.o \
+#   -o ${BASE_DIR}/bin/gpgpu_fill
+# echo ""
   
 # Build the dummy workload
 # DUMMY_WORKLOAD_DIR="${BASE_DIR}/experiments/dummy_workload"

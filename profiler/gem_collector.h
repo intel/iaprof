@@ -33,7 +33,7 @@ void print_map(pid_t pid) {
   fflush(stdout);
 }
 
-int store_sample(struct kernel_info *kinfo, unsigned char *data) {
+int store_sample(struct gem_info *kinfo, unsigned char *data) {
   size_t old_size;
   
   if(pthread_rwlock_wrlock(&gem_lock) != 0) {
@@ -51,8 +51,7 @@ int store_sample(struct kernel_info *kinfo, unsigned char *data) {
   }
   
   /* Place this new element */
-  memcpy(&(gem_arr[gem_arr_used].kinfo), kinfo, sizeof(struct kernel_info));
-  gem_arr[gem_arr_used].buff = data;
+  memcpy(&(gem_arr[gem_arr_used].kinfo), kinfo, sizeof(struct gem_info));
   gem_arr_used++;
   
   if(pthread_rwlock_unlock(&gem_lock) != 0) {
@@ -69,7 +68,7 @@ unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
   unsigned char *data;
   
   /* Open the memory map */
-  sprintf(filename, "/proc/%ld/mem", pid);
+  sprintf(filename, "/proc/%u/mem", pid);
   mem_file = fopen(filename, "r");
   if(!mem_file) {
     return NULL;
@@ -166,22 +165,22 @@ struct bpf_info_t {
 static struct bpf_info_t bpf_info = {};
 
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
-  struct kernel_info *kinfo;
+  struct gem_info *kinfo;
   unsigned char *data;
 /*   struct bb_parser *parser; */
   
-  kinfo = (struct kernel_info *) data_arg;
+  kinfo = (struct gem_info *) data_arg;
   
   printf("Got a sample: addr=0x%llx gpu_addr=0x%llx size=%llu batch_start_offset=%u length=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->addr, kinfo->gpu_addr, kinfo->size, kinfo->batch_start_offset, kinfo->batch_len, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
   
   data = NULL;
-  if(kinfo->is_bb) {
-    data = copy_buffer(kinfo->pid, kinfo->addr, kinfo->size);
-    if(!data) {
-      fprintf(stderr, "WARNING: Failed to copy the buffer for handle %u out. The process we were profiling is most likely gone.\n", kinfo->handle);
-      return 0;
-    }
-  }
+/*   if(kinfo->is_bb) { */
+/*     data = copy_buffer(kinfo->pid, kinfo->addr, kinfo->size); */
+/*     if(!data) { */
+/*       fprintf(stderr, "WARNING: Failed to copy the buffer for handle %u out. The process we were profiling is most likely gone.\n", kinfo->handle); */
+/*       return 0; */
+/*     } */
+/*   } */
   store_sample(kinfo, data);
   
   /* We don't want to copy/parse anything but batch buffers */

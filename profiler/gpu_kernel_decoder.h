@@ -30,7 +30,7 @@ static void parse_origin(int pid, uint64_t origin_inst_addr) {
   FILE *p;
   unsigned long line_no;
   
-  printf("Trying to open the memory map for PID %d, reading %llx\n", pid, origin_inst_addr);
+  printf("Trying to open the memory map for PID %d, reading 0x%lx\n", pid, origin_inst_addr);
 
   snprintf(buff, sizeof(buff), "/proc/%d/maps", pid);
   f = fopen(buff, "r");

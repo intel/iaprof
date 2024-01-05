@@ -169,6 +169,8 @@ int main(int argc, char **argv) {
   };
   GEM_ARR_TYPE *gem;
   int i;
+  uint64_t n;
+  struct offset_profile **found;
   
   read_opts(argc, argv);
   
@@ -195,16 +197,20 @@ int main(int argc, char **argv) {
     printf("Interval results:\n");
     for(i = 0; i < gem_arr_used; i++) {
       gem = &gem_arr[i];
+      if(!gem->is_shader) continue;
       printf("  handle: %u\n", gem->kinfo.handle);
-      if(gem->active) printf("    active: %u\n", gem->active);
-      if(gem->other) printf("    other: %u\n", gem->other);
-      if(gem->control) printf("    control: %u\n", gem->control);
-      if(gem->pipestall) printf("    pipestall: %u\n", gem->pipestall);
-      if(gem->send) printf("    send: %u\n", gem->send);
-      if(gem->dist_acc) printf("    dist_acc: %u\n", gem->dist_acc);
-      if(gem->sbid) printf("    sbid: %u\n", gem->sbid);
-      if(gem->sync) printf("    sync: %u\n", gem->sync);
-      if(gem->inst_fetch) printf("    inst_fetch: %u\n", gem->inst_fetch);
+      hash_table_traverse(gem->shader_profile.counts, n, found) {
+        printf("    offset: 0x%lx\n", n);
+        if((*found)->active) printf("      active: %u\n", (*found)->active);
+        if((*found)->other) printf("      other: %u\n", (*found)->other);
+        if((*found)->control) printf("      control: %u\n", (*found)->control);
+        if((*found)->pipestall) printf("      pipestall: %u\n", (*found)->pipestall);
+        if((*found)->send) printf("      send: %u\n", (*found)->send);
+        if((*found)->dist_acc) printf("      dist_acc: %u\n", (*found)->dist_acc);
+        if((*found)->sbid) printf("      sbid: %u\n", (*found)->sbid);
+        if((*found)->sync) printf("      sync: %u\n", (*found)->sync);
+        if((*found)->inst_fetch) printf("      inst_fetch: %u\n", (*found)->inst_fetch);
+      }
     }
     
     if(pthread_rwlock_unlock(&gem_lock) != 0) {

@@ -178,7 +178,7 @@ int get_drm_device_info(device_info *devinfo) {
     struct drm_i915_getparam gp;
     memset(&gp, 0, sizeof(gp));
     gp.param = I915_PARAM_CHIPSET_ID;
-    gp.value = &devid;
+    gp.value = (int *) &devid;
     ioctl(devinfo->fd, DRM_IOCTL_I915_GETPARAM, &gp, sizeof(gp));
     devinfo->id = devid;
   } else {

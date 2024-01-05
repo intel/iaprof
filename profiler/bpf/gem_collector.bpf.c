@@ -79,7 +79,7 @@
 * OUTPUT MAP
 *
 * This is the "output" map, which userspace reads to get information
-* about GPU kernels running on the system. We fill it with `struct kernel_info`
+* about GPU kernels running on the system. We fill it with `struct gem_info`
 * values.
 ***************************************/
 
@@ -181,6 +181,8 @@ int mmap_ioctl_kprobe(struct pt_regs *ctx)
   cpu = bpf_get_smp_processor_id();
   
   bpf_map_update_elem(&mmap_ioctl_wait_for_ret, &cpu, &val, 0);
+  
+  return 0;
 }
 
 /* We have to wait for this function to return to read its address */
@@ -469,6 +471,8 @@ int context_create_ioctl_kprobe(struct pt_regs *ctx)
   u32 cpu = bpf_get_smp_processor_id();
   
   bpf_map_update_elem(&context_create_wait_for_ret, &cpu, &arg, 0);
+  
+  return 0;
 }
 
 SEC("kretprobe/i915_gem_context_create_ioctl")
@@ -514,6 +518,8 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
       ext = (struct i915_user_extension *) BPF_CORE_READ_USER(ext, next_extension);
     }
   }
+  
+  return 0;
 }
 
 /***************************************
@@ -546,6 +552,8 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
   cpu = bpf_get_smp_processor_id();
   
   bpf_map_update_elem(&vm_bind_ioctl_wait_for_ret, &cpu, &val, 0);
+  
+  return 0;
 }
 
 SEC("kretprobe/i915_gem_vm_bind_ioctl")
@@ -577,6 +585,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
   /* Add this address to the map, to wait for execution */
   int retval = vm_bind_wait_for_exec_insert(vm_id, start, length, file, handle);
   if(retval < 0) return -1;
+  return 0;
 }
 
 /* SEC("kprobe/i915_gem_vm_unbind_ioctl") */
@@ -605,7 +614,7 @@ struct batch_callback_ctx {
    bpf_loop interface at a later date. */
 static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 {
-  struct kernel_info *kinfo;
+  struct gem_info *kinfo;
   
   struct mmap_wait_for_exec_val mmap_val;
   struct vm_bind_wait_for_exec_val *vm_bind_val_ptr;
@@ -665,7 +674,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   addr = mmap_val.addr;
   size = mmap_val.size;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct kernel_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
   if(!kinfo) return -1;
 
   kinfo->pid = pid;
@@ -696,7 +705,7 @@ struct vm_callback_ctx {
 static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *key,
                               struct vm_bind_wait_for_exec_val *val, struct vm_callback_ctx *ctx)
 {
-  struct kernel_info *kinfo;
+  struct gem_info *kinfo;
   struct mmap_wait_for_exec_key mmap_key;
   struct mmap_wait_for_exec_val mmap_val;
   u64 addr, offset;
@@ -713,7 +722,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   addr = mmap_val.addr;
   offset = mmap_val.addr;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct kernel_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
   if(!kinfo) return 1;
 
   kinfo->pid = ctx->pid;
@@ -747,7 +756,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
   void *val_ptr;
   struct vm_bind_wait_for_exec_val *vm_binds;
   u64 file;
-  struct kernel_info *kinfo;
+  struct gem_info *kinfo;
   
   file = PT_REGS_PARM2(ctx);
   arg = (struct drm_i915_gem_execbuffer2 *) PT_REGS_PARM3(ctx);
@@ -810,7 +819,7 @@ SEC("kprobe/i915_gem_pwrite_ioctl")
 int pwrite_kprobe(struct pt_regs *ctx)
 {
   struct drm_i915_gem_pwrite *gem_pwrite = (struct drm_i915_gem_pwrite *) PT_REGS_PARM2(ctx);
-  struct kernel_info *kinfo;
+  struct gem_info *kinfo;
   u32 pid = bpf_get_current_pid_tgid() >> 32;
   
   add_to_ringbuf(pid,

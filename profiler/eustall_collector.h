@@ -29,10 +29,44 @@ struct __attribute__ ((__packed__)) eustall_sample {
   unsigned short inst_fetch : 8;
 };
 
+uint64_t uint64_t_hash(uint64_t i) { return i; }
+
+int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t offset) {
+  struct offset_profile **found;
+  struct offset_profile *profile;
+  
+  /* First, ensure that we've already initialized the shader-specific
+     data structures */
+  if(gem->is_shader == 0) {
+    gem->is_shader = 1;
+    gem->shader_profile.bin = copy_buffer(gem->kinfo.pid, gem->kinfo.addr, gem->kinfo.size);
+    gem->shader_profile.counts = hash_table_make(uint64_t, uint64_t, uint64_t_hash);
+  }
+  
+  /* Check if this offset has been seen yet */
+  found = (struct offset_profile **) hash_table_get_val(gem->shader_profile.counts, offset);
+  if(!found) {
+    /* We have to allocate a struct of counts */
+    profile = calloc(1, sizeof(struct offset_profile));
+    hash_table_insert(gem->shader_profile.counts, offset, (uint64_t) profile);
+    found = &profile;
+  }
+  (*found)->active += sample->active;
+  (*found)->other += sample->other;
+  (*found)->control += sample->control;
+  (*found)->pipestall += sample->pipestall;
+  (*found)->send += sample->send;
+  (*found)->dist_acc += sample->dist_acc;
+  (*found)->sbid += sample->sbid;
+  (*found)->sync += sample->sync;
+  (*found)->inst_fetch += sample->inst_fetch;
+  return 0;
+}
+
 void handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct prelim_drm_i915_stall_cntr_info info;
   int i, n;
-  uint64_t addr, start, end;
+  uint64_t addr, start, end, offset;
   struct eustall_sample sample;
   GEM_ARR_TYPE *gem;
   
@@ -53,15 +87,8 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
       start = gem->kinfo.gpu_addr & 0xffffffff;
       end = start + gem->kinfo.size;
       if((addr >= start) && (addr < end)) {
-        gem->active += sample.active;
-        gem->other += sample.other;
-        gem->control += sample.control;
-        gem->pipestall += sample.pipestall;
-        gem->send += sample.send;
-        gem->dist_acc += sample.dist_acc;
-        gem->sbid += sample.sbid;
-        gem->sync += sample.sync;
-        gem->inst_fetch += sample.inst_fetch;
+        offset = addr - start;
+        associate_sample(&sample, gem, offset);
         break;
       }
     }
