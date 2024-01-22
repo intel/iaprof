@@ -1,26 +1,119 @@
 #pragma once
 
 #include <dlfcn.h>
-#include <iga.h>
+#include <iga/iga.h>
 
-iga_context_t *iga_init() {
-  iga_context_options_t opts = {
-    cb = sizeof(iga_context_options_t),
-    gen = IGA_XE_HPC
-  };
+char *iga_status_to_str(iga_status_t status) {
+  switch(status) {
+    case IGA_SUCCESS:
+      return "IGA_SUCCESS";
+    case IGA_INVALID_ARG:
+      return "IGA_INVALID_ARG";
+    case IGA_INVALID_OBJECT:
+      return "IGA_INVALID_OBJECT";
+    case IGA_OUT_OF_MEM:
+      return "IGA_OUT_OF_MEM";
+    case IGA_ERROR:
+      return "IGA_ERROR";
+    case IGA_DECODE_ERROR:
+      return "IGA_DECODE_ERROR";
+    case IGA_ENCODE_ERROR:
+      return "IGA_ENCODE_ERROR";
+    case IGA_PARSE_ERROR:
+      return "IGA_PARSE_ERROR";
+    case IGA_VERSION_ERROR:
+      return "IGA_VERSION_ERROR";
+    case IGA_INVALID_STATE:
+      return "IGA_INVALID_STATE";
+    case IGA_UNSUPPORTED_PLATFORM:
+      return "IGA_UNSUPPORTED_PLATFORM";
+    case IGA_DIFF_FAILURE:
+      return "IGA_DIFF_FAILURE";
+  }
+  return "UNKNOWN";
 }
 
-/* void *get_iga() { */
-/*   void *retval; */
-/*    */
-/*   retval = dlopen("libiga64.so", RTLD_NOW); */
-/*   if(!retval) { */
-/*     fprintf(stderr, "Failed to open libiga64.so: %s\n", dlerror()); */
-/*     exit(1); */
-/*   } */
-/*   return retval; */
-/* } */
+iga_context_t *iga_init() {
+  iga_context_t *ctx;
+  iga_status_t status;
+  iga_context_options_t opts;
+  
+  opts.cb = sizeof(iga_context_options_t);
+  opts.gen = IGA_XE_HPC;
+  
+  ctx = malloc(sizeof(iga_context_t));
+  
+  status = iga_context_create(&opts, ctx);
+  if(status != IGA_SUCCESS) {
+    fprintf(stderr, "Failed to create an IGA context! Error: %s\n", iga_status_to_str(status));
+    fprintf(stderr, "Aborting.\n");
+    exit(1);
+  }
+  return ctx;
+}
 
-/* void *get_disasm() { */
-/*    */
-/* } */
+void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data, size_t data_sz) {
+  const char *buff;
+  iga_status_t status;
+  const iga_diagnostic_t *diag, *tmp;
+  uint32_t diag_len, i, offset, first_error_offset;
+  char *text;
+  
+  iga_disassemble_options_t opts = {
+    sizeof(iga_disassemble_options_t),
+    IGA_FORMATTING_OPTS_DEFAULT | IGA_FORMATTING_OPT_PRINT_PC | IGA_FORMATTING_OPT_NUMERIC_LABELS,
+    0,
+    0,
+    IGA_DECODING_OPTS_DEFAULT,
+  };
+  
+  status = iga_disassemble(*ctx, &opts, data, data_sz, NULL, NULL, &text);
+  if((status != IGA_SUCCESS) && (status != IGA_DECODE_ERROR)) {
+    fprintf(stderr, "IGA failed to disassemble a kernel! Error: %s\n", iga_status_to_str(status));
+  } else {
+    printf("Successfully disassembled a kernel!\n");
+  }
+  
+  first_error_offset = 0xFFFFFFFF;
+  status = iga_get_errors(*ctx, &diag, &diag_len);
+  if(status != IGA_SUCCESS) {
+    fprintf(stderr, "IGA failed to get errors! Error: %s\n", iga_status_to_str(status));
+  } else {
+    tmp = diag;
+    for(i = 0; i < diag_len; i++) {
+      status = iga_diagnostic_get_offset(tmp, &offset);
+      if(status != IGA_SUCCESS) continue;
+      status = iga_diagnostic_get_message(tmp, &buff);
+      if(status != IGA_SUCCESS) continue;
+      
+      /* Actually just break on the first error */
+      first_error_offset = offset;
+      break;
+      
+      /* What we would otherwise do if we knew where this buffer ended... */
+      fprintf(stderr, "ERROR (0x%x): %s\n", offset, buff);
+      tmp++;
+    }
+  }
+  
+  status = iga_get_warnings(*ctx, &diag, &diag_len);
+  if(status != IGA_SUCCESS) {
+    fprintf(stderr, "IGA failed to get warnings! Error: %s\n", iga_status_to_str(status));
+  } else {
+    tmp = diag;
+    for(i = 0; i < diag_len; i++) {
+      status = iga_diagnostic_get_offset(tmp, &offset);
+      if(status != IGA_SUCCESS) continue;
+      status = iga_diagnostic_get_message(tmp, &buff);
+      if(status != IGA_SUCCESS) continue;
+      
+      if(offset < first_error_offset) {
+        fprintf(stderr, "WARNING (0x%x): %s\n", offset, buff);
+      }
+      tmp++;
+    }
+  }
+  
+  printf("%s\n", text);
+  fflush(stdout);
+}

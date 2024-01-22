@@ -1,7 +1,9 @@
 #include <drm/i915_drm_prelim.h>
+#include <sys/ioctl.h>
 
 #include "gpu_kernel_decoder.h"
 #include "gem_collector.h"
+#include "shader_decoder.h"
 
 /** 101 bits
   * Bits    Field
@@ -34,13 +36,31 @@ uint64_t uint64_t_hash(uint64_t i) { return i; }
 int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t offset) {
   struct offset_profile **found;
   struct offset_profile *profile;
+  iga_context_t *ctx;
   
   /* First, ensure that we've already initialized the shader-specific
      data structures */
   if(gem->is_shader == 0) {
-    gem->is_shader = 1;
-    gem->shader_profile.bin = copy_buffer(gem->kinfo.pid, gem->kinfo.addr, gem->kinfo.size);
+    if((!gem->buff_sz) || (!gem->buff)) {
+      return -1;
+    }
+    
+    printf("associate_sample buff=0x%llx buff_sz=%llu size=%llu\n", (unsigned long long) gem->buff, (unsigned long long) gem->buff_sz, gem->kinfo.size);
+    fflush(stdout);
+    
     gem->shader_profile.counts = hash_table_make(uint64_t, uint64_t, uint64_t_hash);
+    if(!(gem->shader_profile.counts)) {
+      fprintf(stderr, "WARNING: Failed to create a hash table.\n");
+      return -1;
+    }
+    
+    /* TODO: only initialize per context */
+    ctx = iga_init();
+    iga_disassemble_shader(ctx, gem->buff, gem->kinfo.size);
+    
+    dump_buffer(gem->buff, gem->buff_sz, gem->kinfo.handle);
+    
+    gem->is_shader = 1;
   }
   
   /* Check if this offset has been seen yet */
@@ -70,54 +90,33 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct eustall_sample sample;
   GEM_ARR_TYPE *gem;
   
+  if(pthread_rwlock_rdlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to grab the gem_lock for reading.\n");
+    return;
+  }
+  
   for(i = 0; i < len; i += 64) {
     
     memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
     memcpy(&info, perf_buf + i + 48, sizeof(info));
-    
     addr = ((uint64_t) sample.ip) << 3;
-    
-    if(pthread_rwlock_rdlock(&gem_lock) != 0) {
-      fprintf(stderr, "Failed to grab the gem_lock for reading.\n");
-      return;
-    }
     
     for(n = 0; n < gem_arr_used; n++) {
       gem = &gem_arr[n];
       start = gem->kinfo.gpu_addr & 0xffffffff;
       end = start + gem->kinfo.size;
       if((addr >= start) && (addr < end)) {
-        offset = addr - start;
+        offset = ((uint64_t) sample.ip) - (start >> 3);
+        printf("associate_sample start=0x%lx start_shift=0x%lx sample.ip=0x%lx offset=0x%lx\n", start, start >> 3, (uint64_t) sample.ip, offset);
         associate_sample(&sample, gem, offset);
         break;
       }
     }
-    
-    if(pthread_rwlock_unlock(&gem_lock) != 0) {
-      fprintf(stderr, "Failed to unlock the gem_lock.\n");
-      return;
-    }
-    
-#if 0
-    printf("=====\n");
-    /* Print the fields that have values */
-    printf("Size: %lu\n", sizeof(struct eustall_sample));
-    printf("IP: 0x%08x\n", sample.ip);
-    printf("subslice: %" PRIu16 "\n", info.subslice);
-    if(sample.active) printf("  active: %u\n", sample.active);
-    if(sample.other) printf("  other: %u\n", sample.other);
-    if(sample.control) printf("  control: %u\n", sample.control);
-    if(sample.pipestall) printf("  pipestall: %u\n", sample.pipestall);
-    if(sample.send) printf("  send: %u\n", sample.send);
-    if(sample.dist_acc) printf("  dist_acc: %u\n", sample.dist_acc);
-    if(sample.sbid) printf("  sbid: %u\n", sample.sbid);
-    if(sample.sync) printf("  sync: %u\n", sample.sync);
-    if(sample.inst_fetch) printf("  inst_fetch: %u\n", sample.inst_fetch);
-    
-    parse_origin(pid, (uint64_t) sample.ip);
-    
-    printf("=====\n");
-#endif
+  }
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to unlock the gem_lock.\n");
+    return;
   }
 }
 

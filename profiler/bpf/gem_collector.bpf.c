@@ -88,7 +88,6 @@ struct {
   __uint(max_entries, MAX_ENTRIES);
 } rb SEC(".maps");
 
-
 /***************************************
 * mmap_wait_for_exec
 *
@@ -440,6 +439,61 @@ int vm_bind_wait_for_exec_insert(u32 vm_id, u64 gpu_addr, u64 size, u64 file, u3
   if(retval < 0) return -1;
   
   return 0;
+  
+#if 0
+  struct gem_info *kinfo;
+  struct mmap_wait_for_exec_key mmap_key;
+  struct mmap_wait_for_exec_val mmap_val;
+  u64 addr, offset;
+  void *lookup;
+  int err;
+  
+  /* We need to get the CPU-side address from the mmaps */
+  bpf_printk("Searching mmap_wait_for_exec for file=0x%lx handle=%u", file, handle);
+  __builtin_memset(&mmap_key, 0, sizeof(struct mmap_wait_for_exec_key));
+  mmap_key.handle = handle;
+  mmap_key.file = file;
+  lookup = bpf_map_lookup_elem(&mmap_wait_for_exec, &mmap_key);
+  if(!lookup) {
+    bpf_printk("WARNING: vm_callback failed to find handle=%u in mmap_wait_for_exec.", handle);
+    return 0;
+  }
+  __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val));
+  addr = mmap_val.addr;
+  offset = mmap_val.addr;
+  
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
+  if(!kinfo) {
+    bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", handle);
+    return 0;
+  }
+
+  kinfo->pid = bpf_get_current_pid_tgid() >> 32;
+  kinfo->file = file;
+  kinfo->handle = handle;
+  kinfo->addr = addr;
+  kinfo->gpu_addr = gpu_addr;
+  kinfo->size = size;
+  kinfo->offset = offset;
+  kinfo->is_bb = 0;
+  kinfo->batch_len = 0;
+  kinfo->batch_start_offset = 0;
+  bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
+  if(size > 64) {
+    size = 64;
+  }
+  err = bpf_core_read_user(kinfo->buff, size, addr);
+  if(!err) {
+    bpf_ringbuf_discard(kinfo, BPF_RB_NO_WAKEUP);
+    return 0;
+  }
+
+  bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
+  
+  bpf_printk("Finished vm_callback handle=%u\n", handle);
+  
+  return 0;
+#endif
 }
 
 /***************************************
@@ -588,11 +642,59 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
   return 0;
 }
 
-/* SEC("kprobe/i915_gem_vm_unbind_ioctl") */
-/* int vm_unbind_ioctl_kprobe(struct pt_regs *ctx) */
-/* { */
-/*    */
-/* } */
+/***************************************
+* vm_close
+*
+* Some GEMs are mapped, written, and immediately unmapped. For these,
+* we need to read and copy them before they are unmapped, and do so
+* synchronously with the kernel driver.
+***************************************/
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_PERCPU_ARRAY);
+  __uint(max_entries, 1);
+  __type(key,         int);
+  __type(value,       struct binary_info);
+} heap SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, MAX_BINARIES_IN_FLIGHT);
+} binary_rb SEC(".maps");
+
+SEC("tracepoint/syscalls/sys_enter_munmap")
+int munmap_tp(struct trace_event_raw_sys_enter *ctx)
+{
+  int err;
+  u64 size;
+  struct vm_area_struct *vma;
+  
+  /* For sending to execbuffer */
+  int zero = 0;
+  struct binary_info *bin;
+  
+  /* Copy the binary itself */
+  bin = bpf_map_lookup_elem(&heap, &zero);
+  if(!bin) {
+    return -1;
+  }
+  bin->start = ctx->args[0];
+  bin->end = ctx->args[0] + ctx->args[1];
+  size = bin->end - bin->start;
+  if(size > MAX_BINARY_SIZE) {
+    size = MAX_BINARY_SIZE;
+  }
+  if(!(bin->start)) {
+    return -1;
+  }
+  err = bpf_probe_read_user(bin->buff, size, (void *) bin->start);
+  if(err) {
+    return -1;
+  }
+  bpf_ringbuf_output(&binary_rb, bin, sizeof(*bin), 0);
+  
+  return 0;
+}
 
 /***************************************
 * i915_gem_do_execbuffer
@@ -695,6 +797,8 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 
   bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
   
+  bpf_printk("Finished batch_callback handle=%u\n", handle);
+  
   return 0;
 }
 
@@ -710,6 +814,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   struct mmap_wait_for_exec_val mmap_val;
   u64 addr, offset;
   void *lookup;
+  int err;
   
   /* We need to get the CPU-side address from the mmaps */
   bpf_printk("Searching mmap_wait_for_exec for file=0x%lx handle=%u", val->file, val->handle);
@@ -717,14 +822,20 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   mmap_key.handle = val->handle;
   mmap_key.file = val->file;
   lookup = bpf_map_lookup_elem(&mmap_wait_for_exec, &mmap_key);
-  if(!lookup) return 1;
+  if(!lookup) {
+    bpf_printk("WARNING: vm_callback failed to find handle=%u in mmap_wait_for_exec.", val->handle);
+    return 0;
+  }
   __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val));
   addr = mmap_val.addr;
   offset = mmap_val.addr;
   
   kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
-  if(!kinfo) return 1;
-
+  if(!kinfo) {
+    bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", val->handle);
+    return 0;
+  }
+  
   kinfo->pid = ctx->pid;
   kinfo->file = val->file;
   kinfo->handle = val->handle;
@@ -739,28 +850,30 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
 
   bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
   
+  bpf_printk("Finished vm_callback handle=%u", val->handle);
+  
   return 0;
 }
 
-SEC("kprobe/i915_gem_do_execbuffer")
-int do_execbuffer_kprobe(struct pt_regs *ctx)
+int parse_execbuffer(u64 file, u64 execbuffer, u64 objects)
 {
   long err;
   struct batch_callback_ctx batch_callback_ctx;
   struct vm_callback_ctx vm_callback_ctx;
   unsigned int num_batches, i;
-  struct drm_i915_gem_execbuffer2 *arg;
-  struct drm_i915_gem_exec_object2 *exec;
   u32 ctx_id, vm_id;
   u64 addr, size;
   void *val_ptr;
-  struct vm_bind_wait_for_exec_val *vm_binds;
-  u64 file;
   struct gem_info *kinfo;
   
-  file = PT_REGS_PARM2(ctx);
-  arg = (struct drm_i915_gem_execbuffer2 *) PT_REGS_PARM3(ctx);
-  exec = (struct drm_i915_gem_exec_object2 *) PT_REGS_PARM4(ctx);
+  struct drm_i915_gem_execbuffer2 *arg =
+    (struct drm_i915_gem_execbuffer2 *) execbuffer;
+  struct drm_i915_gem_exec_object2 *exec =
+    (struct drm_i915_gem_exec_object2 *) objects;
+  
+  if(!arg || !exec) {
+    return -1;
+  }
   
   /* Look up the VM ID based on the context ID (which is in exec->rsvd1) */
   ctx_id = (u32) BPF_CORE_READ(arg, rsvd1);
@@ -802,6 +915,57 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
   }
   
   return 0;
+}
+
+struct execbuffer_wait_for_ret_val {
+  u64 file;
+  u64 execbuffer;
+  u64 objects;
+};
+
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u32);
+  __type(value,       struct execbuffer_wait_for_ret_val);
+} execbuffer_wait_for_ret SEC(".maps");
+
+SEC("kprobe/i915_gem_do_execbuffer")
+int do_execbuffer_kprobe(struct pt_regs *ctx)
+{
+  u64 file = (u64) PT_REGS_PARM2(ctx);
+  u64 execbuffer = (u64) PT_REGS_PARM3(ctx);
+  u64 objects = (u64) PT_REGS_PARM4(ctx);
+  
+  struct execbuffer_wait_for_ret_val val;
+  __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
+  val.file = file;
+  val.execbuffer = execbuffer;
+  val.objects = objects;
+  u32 cpu = bpf_get_smp_processor_id();
+  bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
+  
+  return 0;
+}
+
+SEC("kretprobe/i915_gem_do_execbuffer")
+int do_execbuffer_kretprobe(struct pt_regs *ctx)
+{
+  struct execbuffer_wait_for_ret_val *val;
+  u32 cpu;
+  u64 file, execbuffer, objects;
+  
+  cpu = bpf_get_smp_processor_id();
+  void *arg = bpf_map_lookup_elem(&execbuffer_wait_for_ret, &cpu);
+  if(!arg) {
+    return -1;
+  }
+  val = (struct execbuffer_wait_for_ret_val *) arg;
+  
+  file = val->file;
+  execbuffer = val->execbuffer;
+  objects = val->objects;
+  return parse_execbuffer(file, execbuffer, objects);
 }
 
 char LICENSE[] SEC("license") = "GPL";

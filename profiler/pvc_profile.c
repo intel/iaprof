@@ -68,6 +68,8 @@ int read_opts(int argc, char **argv) {
         break;
     }
   }
+  
+  return 0;
 }
 
 /*******************
@@ -121,6 +123,9 @@ void *collect_thread_main(void *a) {
   };
   
   while(collect_thread_should_stop == 0) {
+    /* First, check if there are any binaries to copy out */
+    ring_buffer__poll(bpf_info.binary_rb, 0);
+    
     /* Quickly check if there are EU stall samples */
     retval = poll(&pollfd, 1, 1);
     if(retval < 0) {
@@ -135,7 +140,7 @@ void *collect_thread_main(void *a) {
     }
     /* If retval == 0, fall through */
     
-    /* If no EU stall samples, sit for a bit on the ringbuffer fd */
+    /* Sit for a bit on the GEM info ringbuffer */
     ring_buffer__poll(bpf_info.rb, 100);
   }
   
@@ -194,7 +199,6 @@ int main(int argc, char **argv) {
       continue;
     }
     
-    printf("Interval results:\n");
     for(i = 0; i < gem_arr_used; i++) {
       gem = &gem_arr[i];
       if(!gem->is_shader) continue;

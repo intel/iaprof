@@ -10,7 +10,7 @@ LDFLAGS=${LDFLAGS:-}
 
 # Commandline arguments
 DO_DEPS=false
-while getopts ignlm flag
+while getopts d flag
 do
   case "${flag}" in
     d) DO_DEPS=true;;
@@ -61,7 +61,10 @@ ${CC} ${LDFLAGS} \
   ${PROFILER_DIR}/pvc_profile.o \
   ${COMMON_DIR}/drm_helper.o \
   -o ${BASE_DIR}/bin/pvc_profile \
-  -lpthread ${PREFIX}/lib/libbpf.a -lelf -lz
+  -L${PREFIX}/lib -liga64 \
+  -lpthread \
+  ${PREFIX}/lib/libbpf.a \
+  -lelf -lz
 echo ""
 
 # Compile the benchmark

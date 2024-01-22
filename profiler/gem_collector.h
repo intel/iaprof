@@ -9,36 +9,31 @@
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 
+#include <iga/iga.h>
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
-/* #include "bb_parser.h" */
 
-void print_map(pid_t pid) {
-  FILE *mem_file;
-  char filename[256];
-
-  /* Open the memory map */
-  sprintf(filename, "/proc/%ld/maps", (long) pid);
-  mem_file = fopen(filename, "r");
-  if(!mem_file) {
-    fprintf(stderr, "Failed to open %s!\n", filename);
-    return;
-  }
-
-  char line[256];
-  while(fgets(line, sizeof(line), mem_file)) {
-    printf("%s", line);
-  }
-  fclose(mem_file);
-  fflush(stdout);
-}
-
-int store_sample(struct gem_info *kinfo, unsigned char *data) {
+int store_sample(struct gem_info *kinfo) {
   size_t old_size;
+  GEM_ARR_TYPE *gem;
+  uint64_t n;
   
   if(pthread_rwlock_wrlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to acquire the gem_lock!\n");
     return -1;
+  }
+  
+  /* Ensure it's not a duplicate */
+  for(n = 0; n < gem_arr_used; n++) {
+    gem = &gem_arr[n];
+    if((gem->kinfo.handle == kinfo->handle) &&
+       (gem->kinfo.file   == kinfo->file)) {
+      if(pthread_rwlock_unlock(&gem_lock) != 0) {
+        fprintf(stderr, "Failed to unlock the gem_lock!\n");
+        return -1;
+      }
+      return 0;
+    }
   }
   
   /* Ensure there's enough room in the array */
@@ -58,76 +53,68 @@ int store_sample(struct gem_info *kinfo, unsigned char *data) {
     fprintf(stderr, "Failed to unlock the gem_lock!\n");
     return -1;
   }
+  
+  return 0;
 }
 
-unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
-  size_t num_read;
-  FILE *mem_file;
-  char filename[256];
-  int retval;
+static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
+  struct gem_info *kinfo;
   unsigned char *data;
   
-  /* Open the memory map */
-  sprintf(filename, "/proc/%u/mem", pid);
-  mem_file = fopen(filename, "r");
-  if(!mem_file) {
-    return NULL;
-  }
+  kinfo = (struct gem_info *) data_arg;
   
-  /* Seek to the spot in the application's address space */
-  retval = fseeko(mem_file, ptr, SEEK_SET);
-  if(retval != 0) {
-    return NULL;
-  }
+  printf("handle_sample addr=0x%llx gpu_addr=0x%llx size=%llu batch_start_offset=%u length=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->addr, kinfo->gpu_addr, kinfo->size, kinfo->batch_start_offset, kinfo->batch_len, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
   
-  /* Allocate room */
-  data = calloc(sizeof(unsigned char), size);
+  store_sample(kinfo);
   
-  /* Read the data */
-  num_read = fread(data, sizeof(unsigned char), size, mem_file);
-  if(ferror(mem_file)) {
-    return NULL;
-  } else if(feof(mem_file)) {
-    return NULL;
-  }
-  fclose(mem_file);
-  
-  return data;
+  return 0;
 }
 
-void dump_gem(unsigned char *kernel, __u64 size, __u32 id) {
-  char filename[256];
-  unsigned int i;
-  FILE *tmpfile;
+static int handle_binary(void *ctx, void *data_arg, size_t data_sz) {
+  struct binary_info *binary_info;
+  GEM_ARR_TYPE *gem;
+  uint64_t n, start, end, size;
+  char found;
   
-  for(i = 0; i < 10; i++) {
-    sprintf(filename, "/tmp/kernel_%u_%u.bin", id, i);
-    tmpfile = fopen(filename, "r");
-    if(tmpfile) {
-      /* This file already exists, so go to the next filename */
-      fclose(tmpfile);
-      if(i == (10 - 1)) {
-        fprintf(stderr, "WARNING: Hit MAX_DUPLICATES for handle %u.\n", id);
-        return;
-      }
-    } else {
+  binary_info = (struct binary_info *) data_arg;
+  
+  printf("handle_binary start=0x%llx end=%llu\n", binary_info->start, binary_info->end);
+  
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
+  found = 0;
+  for(n = 0; n < gem_arr_used; n++) {
+    gem = &gem_arr[n];
+    start = gem->kinfo.addr;
+    end = gem->kinfo.addr + gem->kinfo.size;
+    if((binary_info->start >= start) && (binary_info->end <= end)) {
+      size = binary_info->end - binary_info->start;
+      gem->buff = calloc(size, sizeof(unsigned char));
+      gem->buff_sz = size;
+      memcpy(gem->buff, binary_info->buff, size);
+      found = 1;
       break;
     }
   }
   
-  printf("Writing handle %u to %s\n", id, filename);
-  tmpfile = fopen(filename, "w");
-  if(!tmpfile) {
-    fprintf(stderr, "WARNING: Failed to open %s\n", filename);
-    return;
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to unlock the gem_lock!\n");
+    return -1;
   }
-  fwrite(kernel, sizeof(unsigned char), size, tmpfile);
-  fclose(tmpfile);
+  
+  if(found == 0) {
+    return -1;
+  }
+  return 0;
 }
 
 struct bpf_info_t {
   struct gem_collector_bpf *obj;
   struct ring_buffer *rb;
+  struct ring_buffer *binary_rb;
   struct bpf_map **map;
   
   /* Links to the BPF programs */
@@ -161,45 +148,15 @@ struct bpf_info_t {
   
   /* i915_gem_do_execbuffer */
   struct bpf_program *do_execbuffer_prog;
+  struct bpf_program *do_execbuffer_ret_prog;
+  
+  /* munmap */
+  struct bpf_program *munmap_prog;
+  
+  /* vm_close */
+/*   struct bpf_program *vm_close_prog; */
 };
 static struct bpf_info_t bpf_info = {};
-
-static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
-  struct gem_info *kinfo;
-  unsigned char *data;
-/*   struct bb_parser *parser; */
-  
-  kinfo = (struct gem_info *) data_arg;
-  
-  printf("Got a sample: addr=0x%llx gpu_addr=0x%llx size=%llu batch_start_offset=%u length=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->addr, kinfo->gpu_addr, kinfo->size, kinfo->batch_start_offset, kinfo->batch_len, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
-  
-  data = NULL;
-/*   if(kinfo->is_bb) { */
-/*     data = copy_buffer(kinfo->pid, kinfo->addr, kinfo->size); */
-/*     if(!data) { */
-/*       fprintf(stderr, "WARNING: Failed to copy the buffer for handle %u out. The process we were profiling is most likely gone.\n", kinfo->handle); */
-/*       return 0; */
-/*     } */
-/*   } */
-  store_sample(kinfo, data);
-  
-  /* We don't want to copy/parse anything but batch buffers */
-/*   if(!(kinfo->is_bb)) { */
-/*     return 0; */
-/*   } */
-  
-/*   parser = bb_parser_init(); */
-/*   bb_parser_parse(parser, data, kinfo->batch_start_offset, kinfo->batch_len); */
-/*   printf("Instruction Base Address:   %lx\n", parser->iba); */
-/*   printf("System Instruction Pointer: %lx\n", parser->sip); */
-/*   fflush(stdout); */
-  
-  /* Once the parser finds a kernel pointer, here we should immediately
-     do a lookup on pointers we've seen before, and if we find it, 
-     call dump_gem. */
-     
-  return 0;
-}
 
 int attach_kprobe(const char *func, struct bpf_program *prog, int ret) {
   bpf_info.num_links++;
@@ -211,6 +168,24 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret) {
   bpf_info.links[bpf_info.num_links - 1] = bpf_program__attach_kprobe(prog, ret, func);
   if(libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
     fprintf(stderr, "Failed to attach the BPF program to a kprobe: %s\n", func);
+    /* Set this pointer to NULL, since it's undefined what it will be */
+    bpf_info.links[bpf_info.num_links - 1] = NULL;
+    return -1;
+  }
+  
+  return 0;
+}
+
+int attach_tracepoint(const char *category, const char *func, struct bpf_program *prog) {
+  bpf_info.num_links++;
+  bpf_info.links = realloc(bpf_info.links, sizeof(struct bpf_link *) * bpf_info.num_links);
+  if(!bpf_info.links) {
+    fprintf(stderr, "Failed to allocate memory for the BPF links! Aborting.\n");
+    return -1;
+  }
+  bpf_info.links[bpf_info.num_links - 1] = bpf_program__attach_tracepoint(prog, category, func);
+  if(libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
+    fprintf(stderr, "Failed to attach the BPF program to a tracepoint: %s:%s\n", category, func);
     /* Set this pointer to NULL, since it's undefined what it will be */
     bpf_info.links[bpf_info.num_links - 1] = NULL;
     return -1;
@@ -264,9 +239,20 @@ int init_bpf_prog() {
   bpf_info.context_create_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.context_create_ioctl_kretprobe;
   
   bpf_info.do_execbuffer_prog = (struct bpf_program *) bpf_info.obj->progs.do_execbuffer_kprobe;
+  bpf_info.do_execbuffer_ret_prog = (struct bpf_program *) bpf_info.obj->progs.do_execbuffer_kretprobe;
+  
+  bpf_info.munmap_prog = (struct bpf_program *) bpf_info.obj->progs.munmap_tp;
+  
+/*   bpf_info.vm_close_prog = (struct bpf_program *) bpf_info.obj->progs.vm_close_kprobe; */
   
   bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb), handle_sample, NULL, NULL);
   if(!(bpf_info.rb)) {
+    fprintf(stderr, "Failed to create a new ring buffer. You're most likely not root.\n");
+    return -1;
+  }
+  
+  bpf_info.binary_rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.binary_rb), handle_binary, NULL, NULL);
+  if(!(bpf_info.binary_rb)) {
     fprintf(stderr, "Failed to create a new ring buffer. You're most likely not root.\n");
     return -1;
   }
@@ -354,6 +340,25 @@ int init_bpf_prog() {
     fprintf(stderr, "Failed to attach a kprobe!\n");
     return -1;
   }
+  err = attach_kprobe("i915_gem_do_execbuffer", bpf_info.do_execbuffer_ret_prog, 1);
+  if(err != 0) {
+    fprintf(stderr, "Failed to attach a kprobe!\n");
+    return -1;
+  }
+  
+  /* munmap */
+  err = attach_tracepoint("syscalls", "sys_enter_munmap", bpf_info.munmap_prog);
+  if(err != 0) {
+    fprintf(stderr, "Failed to attach a tracepoint!\n");
+    return -1;
+  }
+  
+  /* vm_close */
+/*   err = attach_kprobe("vm_close", bpf_info.vm_close_prog, 0); */
+/*   if(err != 0) { */
+/*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
+/*     return -1; */
+/*   } */
   
   return 0;
 }
