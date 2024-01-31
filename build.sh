@@ -42,6 +42,12 @@ echo "Building ${COMMON_DIR}..."
 ${CC} -gdwarf-4 -c \
   -I${KERN_HEADERS}/include \
   ${COMMON_DIR}/drm_helper.c -o ${COMMON_DIR}/drm_helper.o
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include \
+  ${COMMON_DIR}/trace_helpers.c -o ${COMMON_DIR}/trace_helpers.o
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include \
+  ${COMMON_DIR}/uprobe_helpers.c -o ${COMMON_DIR}/uprobe_helpers.o
 echo ""
   
 # Create the bin directory
@@ -60,6 +66,8 @@ ${CC} -gdwarf-4 -c \
 ${CC} ${LDFLAGS} \
   ${PROFILER_DIR}/pvc_profile.o \
   ${COMMON_DIR}/drm_helper.o \
+  ${COMMON_DIR}/trace_helpers.o \
+  ${COMMON_DIR}/uprobe_helpers.o \
   -gdwarf-4 \
   -o ${BASE_DIR}/bin/pvc_profile \
   -L${PREFIX}/lib -liga64 \
