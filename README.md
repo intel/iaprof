@@ -1,7 +1,7 @@
-i915 Profiling
-==============
+GPU/AI/i915 Profiling
+=====================
 
-This is a small C library which helps read profiling information from the i915 driver.
+This is a small C library which helps read profiling information from the i915 driver. 
 
 Building
 --------
