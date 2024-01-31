@@ -17,6 +17,7 @@
 #include <inttypes.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "pvc_profile.h"
 
@@ -28,6 +29,8 @@
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
 #include "gem_collector.h"
+
+#include "printer.h"
 
 /*******************
 * COMMANDLINE ARGS *
@@ -78,6 +81,23 @@ int read_opts(int argc, char **argv) {
   return 0;
 }
 
+void sanity_checks() {
+  static_assert(sizeof(struct buffer_info) != sizeof(struct binary_info),
+                "buffer_info is the same size as binary_info");
+  static_assert(sizeof(struct buffer_info) != sizeof(struct execbuf_start_info),
+                "buffer_info is the same size as execbuf_start_info");
+  static_assert(sizeof(struct buffer_info) != sizeof(struct execbuf_end_info),
+                "buffer_info is the same size as execbuf_end_info");
+                
+  static_assert(sizeof(struct binary_info) != sizeof(struct execbuf_start_info),
+                "binary_info is the same size as execbuf_start_info");
+  static_assert(sizeof(struct binary_info) != sizeof(struct execbuf_end_info),
+                "binary_info is the same size as execbuf_end_info");
+                
+  static_assert(sizeof(struct execbuf_start_info) != sizeof(struct execbuf_end_info),
+                "execbuf_start_info is the same size as execbuf_end_info");
+}
+
 /*******************
 *     COLLECT      *
 *******************/
@@ -89,6 +109,7 @@ pthread_rwlock_t gem_lock = PTHREAD_RWLOCK_INITIALIZER;
 GEM_ARR_TYPE *gem_arr = NULL;
 size_t gem_arr_sz = 0, gem_arr_used = 0;
 
+struct bpf_info_t bpf_info = {};
 int perf_fd;
 pthread_t collect_thread_id;
 static int interval_num = 0;
@@ -152,7 +173,6 @@ void *collect_thread_main(void *a) {
   }
   
 cleanup:
-  printf("Calling deinit_bpf_prog()\n");
   free(perf_buf);
   close(perf_fd);
   deinit_bpf_prog();
@@ -190,6 +210,7 @@ int main(int argc, char **argv) {
   uint64_t n;
   struct offset_profile **found;
   
+  sanity_checks();
   read_opts(argc, argv);
   
   /* Begin collecting results */
@@ -206,7 +227,12 @@ int main(int argc, char **argv) {
     exit(1);
   }
   
+  /* This loop runs until the profiler gets a signal to stop. 
+     It prints out per-interval stats, then sleeps until the next
+     interval. */
+  print_header();
   while(!main_thread_should_stop) {
+    #if 0
     if(pthread_rwlock_rdlock(&gem_lock) != 0) {
       fprintf(stderr, "Failed to grab the gem_lock for reading.\n");
       continue;
@@ -234,6 +260,7 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Failed to unlock the gem_lock.\n");
       continue;
     }
+    #endif
     nanosleep(&request, &leftover);
   }
   

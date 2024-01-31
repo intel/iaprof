@@ -95,9 +95,6 @@ device_info *open_first_driver() {
     return NULL;
   }
   
-  /* Print out the name/version of the device */
-  printf("Found a driver called: %s\n", version.name);
-  
   /* Copy the final values into the struct */
   devinfo = calloc(1, sizeof(device_info));
   strcpy(devinfo->name, version.name);

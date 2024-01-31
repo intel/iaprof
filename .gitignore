@@ -1,5 +1,6 @@
 *.o
 bin/
+results/
 bude
 tags
 

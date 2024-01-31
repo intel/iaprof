@@ -62,9 +62,6 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t 
 /*     dump_buffer(gem->buff, gem->buff_sz, gem->kinfo.handle); */
   }
   
-  printf("associate_sample buff=0x%llx buff_sz=%llu size=%llu\n", (unsigned long long) gem->buff, (unsigned long long) gem->buff_sz, gem->kinfo.size);
-  fflush(stdout);
-  
   /* Check if this offset has been seen yet */
   found = (struct offset_profile **) hash_table_get_val(gem->shader_profile.counts, offset);
   if(!found) {
@@ -109,7 +106,6 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
       end = start + gem->kinfo.size;
       if((addr >= start) && (addr < end)) {
         offset = ((uint64_t) sample.ip) - (start >> 3);
-        printf("associate_sample start=0x%lx start_shift=0x%lx sample.ip=0x%lx offset=0x%lx\n", start, start >> 3, (uint64_t) sample.ip, offset);
         associate_sample(&sample, gem, offset);
         break;
       }
@@ -143,8 +139,6 @@ int configure_eustall() {
     fprintf(stderr, "Failed to get engine info. Aborting.\n");
     exit(1);
   }
-  
-  printf("Device ID: 0x%X\n", devinfo->id);
   
   uint64_t properties[] = {
 		PRELIM_DRM_I915_EU_STALL_PROP_BUF_SZ, p_size,

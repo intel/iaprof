@@ -17,7 +17,7 @@ struct binary_info {
   unsigned char buff[MAX_BINARY_SIZE];
 };
 
-struct gem_info {
+struct buffer_info {
   __u32 pid;
   __u32 handle;
   __u32 batch_start_offset;
@@ -30,6 +30,17 @@ struct gem_info {
   int stackid;
   char name[TASK_COMM_LEN];
   char is_bb;
+};
+
+struct execbuf_start_info {
+  __u32 cpu, pid, tid;
+  __u64 time;
+  int stackid;
+};
+
+struct execbuf_end_info {
+  __u32 cpu, pid, tid;
+  __u64 time;
 };
 
 #endif

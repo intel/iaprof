@@ -12,10 +12,10 @@
 #include <iga/iga.h>
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
+#include "printer.h"
 
 /* Ensure that we have enough room to place a newly-seen sample, and return
    the index in which we should place it. 
-   
    Does NOT grab the lock, so the caller should. */
 uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
   size_t old_size;
@@ -45,9 +45,23 @@ uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
   return gem_arr_used - 1;
 }
 
+/* Runs each time a sample from the ringbuffer is collected.
+   Samples can be one of four types:
+   1. struct buffer_info. This is a struct collected when an `execbuffer` call is made,
+      and represents a buffer that is either directly referenced by the `execbuffer`
+      call, or a buffer that's in the "VM" assigned to the context that's executing.
+   2. struct binary_info. This is a struct collected when `munmap` is called on a
+      VMA that was mapped by i915. Assuming we've seen the associated `mmap` call
+      from i915, the buffer is then copied into the ringbuffer (along with some
+      metadata).
+   3. struct execbuf_start_info. Basic metadata collected at the beginning of an
+      execbuffer call.
+   4. struct execbuffer_end_info. Basic metadata collected at the end of an
+      execbuffer call. */
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   struct binary_info *binary_info;
+  struct execbuf_start_info *start_info;
   unsigned char *data;
   uint64_t index, file, size;
   uint32_t handle;
@@ -58,23 +72,17 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
     return -1;
   }
   
-  if(data_sz == sizeof(struct gem_info)) {
-    kinfo = (struct gem_info *) data_arg;
+  if(data_sz == sizeof(struct buffer_info)) {
+    kinfo = (struct buffer_info *) data_arg;
     handle = kinfo->handle;
     file = kinfo->file;
-    if(verbose) {
-      printf("handle_sample addr=0x%llx gpu_addr=0x%llx\n", kinfo->addr, kinfo->gpu_addr);
-      printf("  size=%llu batch_start_offset=%u length=%llu\n", kinfo->size, kinfo->batch_start_offset, kinfo->batch_len);
-      printf("  pid=%u comm=%s handle=%u offset=%llx\n", kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
-    }
   } else if(data_sz == sizeof(struct binary_info)) {
     binary_info = (struct binary_info *) data_arg;
     handle = binary_info->handle;
     file = binary_info->file;
-    if(verbose) {
-      printf("handle_binary start=0x%llx handle=%u\n",
-             binary_info->start, binary_info->handle);
-    }
+  } else if(data_sz == sizeof(struct execbuf_start_info)) {
+    start_info = (struct execbuf_start_info *) data_arg;
+    print_execbuf_start(start_info);
   } else {
     if(pthread_rwlock_unlock(&gem_lock) != 0) {
       fprintf(stderr, "Failed to unlock the gem_lock!\n");
@@ -88,8 +96,8 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   index = grow_sample_arr(handle, file);
   gem = &gem_arr[index];
   
-  if(data_sz == sizeof(struct gem_info)) {
-    memcpy(&(gem->kinfo), kinfo, sizeof(struct gem_info));
+  if(data_sz == sizeof(struct buffer_info)) {
+    memcpy(&(gem->kinfo), kinfo, sizeof(struct buffer_info));
   } else if(data_sz == sizeof(struct binary_info)) {
     size = binary_info->end - binary_info->start;
     if(size > MAX_BINARY_SIZE) {
@@ -107,52 +115,6 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   
   return 0;
 }
-
-struct bpf_info_t {
-  struct gem_collector_bpf *obj;
-  struct ring_buffer *rb;
-  struct bpf_map **map;
-  
-  /* Links to the BPF programs */
-  struct bpf_link **links;
-  size_t num_links;
-  
-  /* i915_gem_pwrite_ioctl */
-/*   struct bpf_program *pwrite_ioctl_prog; */
-  
-  /* i915_gem_mmap_ioctl */
-  struct bpf_program *mmap_ioctl_prog;
-  struct bpf_program *mmap_ioctl_ret_prog;
-  
-  /* i915_gem_mmap_offset_ioctl and friends */
-  struct bpf_program *mmap_offset_ioctl_prog;
-  struct bpf_program *mmap_offset_ioctl_ret_prog;
-  struct bpf_program *mmap_prog;
-  struct bpf_program *mmap_ret_prog;
-  
-  /* i915_gem_userptr_ioctl */
-/*   struct bpf_program *userptr_ioctl_prog; */
-/*   struct bpf_program *userptr_ioctl_ret_prog; */
-  
-  /* i915_gem_vm_bind_ioctl */
-  struct bpf_program *vm_bind_ioctl_prog;
-  struct bpf_program *vm_bind_ioctl_ret_prog;
-  
-  /* i915_gem_context_create_ioctl */
-  struct bpf_program *context_create_ioctl_prog;
-  struct bpf_program *context_create_ioctl_ret_prog;
-  
-  /* i915_gem_do_execbuffer */
-  struct bpf_program *do_execbuffer_prog;
-  struct bpf_program *do_execbuffer_ret_prog;
-  
-  /* munmap */
-  struct bpf_program *munmap_prog;
-  
-  /* vm_close */
-/*   struct bpf_program *vm_close_prog; */
-};
-static struct bpf_info_t bpf_info = {};
 
 int attach_kprobe(const char *func, struct bpf_program *prog, int ret) {
   bpf_info.num_links++;

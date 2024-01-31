@@ -79,7 +79,7 @@
 * OUTPUT MAP
 *
 * This is the "output" map, which userspace reads to get information
-* about GPU kernels running on the system. We fill it with `struct gem_info`
+* about GPU kernels running on the system. We fill it with `struct buffer_info`
 * values.
 ***************************************/
 
@@ -464,7 +464,7 @@ int vm_bind_wait_for_exec_insert(u32 vm_id, u64 gpu_addr, u64 size, u64 file, u3
   return 0;
   
 #if 0
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   struct mmap_wait_for_exec_key mmap_key;
   struct mmap_wait_for_exec_val mmap_val;
   u64 addr, offset;
@@ -485,7 +485,7 @@ int vm_bind_wait_for_exec_insert(u32 vm_id, u64 gpu_addr, u64 size, u64 file, u3
   addr = mmap_val.addr;
   offset = mmap_val.addr;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
   if(!kinfo) {
     bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", handle);
     return 0;
@@ -762,7 +762,7 @@ struct batch_callback_ctx {
    bpf_loop interface at a later date. */
 static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 {
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   
   struct mmap_wait_for_exec_val mmap_val;
   struct vm_bind_wait_for_exec_val *vm_bind_val_ptr;
@@ -824,7 +824,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   addr = mmap_val.addr;
   size = mmap_val.size;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
   if(!kinfo) return -1;
 
   kinfo->pid = pid;
@@ -859,7 +859,7 @@ struct vm_callback_ctx {
 static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *key,
                               struct vm_bind_wait_for_exec_val *val, struct vm_callback_ctx *ctx)
 {
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   struct mmap_wait_for_exec_key mmap_key;
   struct mmap_wait_for_exec_val mmap_val;
   u64 addr, offset;
@@ -880,7 +880,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   addr = mmap_val.addr;
   offset = mmap_val.addr;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct gem_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
   if(!kinfo) {
     bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", val->handle);
     return 0;
@@ -915,7 +915,7 @@ int parse_execbuffer(int stackid, u64 file, u64 execbuffer, u64 objects)
   u32 ctx_id, vm_id;
   u64 addr, size;
   void *val_ptr;
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   
   struct drm_i915_gem_execbuffer2 *arg =
     (struct drm_i915_gem_execbuffer2 *) execbuffer;
@@ -986,17 +986,30 @@ struct {
 SEC("kprobe/i915_gem_do_execbuffer")
 int do_execbuffer_kprobe(struct pt_regs *ctx)
 {
+  struct execbuffer_wait_for_ret_val val;
+  u32 cpu;
+  struct execbuf_start_info *einfo;
   u64 file = (u64) PT_REGS_PARM2(ctx);
   u64 execbuffer = (u64) PT_REGS_PARM3(ctx);
   u64 objects = (u64) PT_REGS_PARM4(ctx);
   
-  struct execbuffer_wait_for_ret_val val;
+  /* Pass arguments to the kretprobe */
   __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
   val.file = file;
   val.execbuffer = execbuffer;
   val.objects = objects;
-  u32 cpu = bpf_get_smp_processor_id();
+  cpu = bpf_get_smp_processor_id();
   bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
+  
+  /* Output the start of an execbuffer to the ringbuffer */
+  einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
+  if(!einfo) return -1;
+  einfo->cpu = cpu;
+  einfo->pid = bpf_get_current_pid_tgid() >> 32;
+  einfo->tid = bpf_get_current_pid_tgid();
+  einfo->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  einfo->time = bpf_ktime_get_ns();
+  bpf_ringbuf_submit(einfo, BPF_RB_FORCE_WAKEUP);
   
   return 0;
 }
@@ -1038,7 +1051,7 @@ SEC("kprobe/i915_gem_pwrite_ioctl")
 int pwrite_kprobe(struct pt_regs *ctx)
 {
   struct drm_i915_gem_pwrite *gem_pwrite = (struct drm_i915_gem_pwrite *) PT_REGS_PARM2(ctx);
-  struct gem_info *kinfo;
+  struct buffer_info *kinfo;
   u32 pid = bpf_get_current_pid_tgid() >> 32;
   
   add_to_ringbuf(pid,
