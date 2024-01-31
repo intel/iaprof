@@ -41,12 +41,6 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t 
   /* First, ensure that we've already initialized the shader-specific
      data structures */
   if(gem->is_shader == 0) {
-    if((!gem->buff_sz) || (!gem->buff)) {
-      return -1;
-    }
-    
-    printf("associate_sample buff=0x%llx buff_sz=%llu size=%llu\n", (unsigned long long) gem->buff, (unsigned long long) gem->buff_sz, gem->kinfo.size);
-    fflush(stdout);
     
     gem->shader_profile.counts = hash_table_make(uint64_t, uint64_t, uint64_t_hash);
     if(!(gem->shader_profile.counts)) {
@@ -54,14 +48,22 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t 
       return -1;
     }
     
-    /* TODO: only initialize per context */
-    ctx = iga_init();
-    iga_disassemble_shader(ctx, gem->buff, gem->kinfo.size);
-    
-    dump_buffer(gem->buff, gem->buff_sz, gem->kinfo.handle);
-    
     gem->is_shader = 1;
+    
+/*     if((!gem->buff_sz) || (!gem->buff)) { */
+/*       fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet.\n"); */
+/*       return -1; */
+/*     } */
+    
+    /* TODO: only initialize per context */
+/*     ctx = iga_init(); */
+/*     iga_disassemble_shader(ctx, gem->buff, gem->kinfo.size); */
+/*      */
+/*     dump_buffer(gem->buff, gem->buff_sz, gem->kinfo.handle); */
   }
+  
+  printf("associate_sample buff=0x%llx buff_sz=%llu size=%llu\n", (unsigned long long) gem->buff, (unsigned long long) gem->buff_sz, gem->kinfo.size);
+  fflush(stdout);
   
   /* Check if this offset has been seen yet */
   found = (struct offset_profile **) hash_table_get_val(gem->shader_profile.counts, offset);

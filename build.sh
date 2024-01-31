@@ -39,7 +39,7 @@ make headers_install ARCH=x86_64 INSTALL_HDR_PATH=${KERN_HEADERS}
 # Build common code
 COMMON_DIR="${BASE_DIR}/common"
 echo "Building ${COMMON_DIR}..."
-${CC} -g -c \
+${CC} -gdwarf-4 -c \
   -I${KERN_HEADERS}/include \
   ${COMMON_DIR}/drm_helper.c -o ${COMMON_DIR}/drm_helper.o
 echo ""
@@ -53,13 +53,14 @@ echo "Building ${PROFILER_DIR}..."
 cd ${PROFILER_DIR}/bpf
 source build.sh
 cd ${PROFILER_DIR}
-${CC} -g -c \
+${CC} -gdwarf-4 -c \
   -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/pvc_profile.c \
   -o ${PROFILER_DIR}/pvc_profile.o
 ${CC} ${LDFLAGS} \
   ${PROFILER_DIR}/pvc_profile.o \
   ${COMMON_DIR}/drm_helper.o \
+  -gdwarf-4 \
   -o ${BASE_DIR}/bin/pvc_profile \
   -L${PREFIX}/lib -liga64 \
   -lpthread \

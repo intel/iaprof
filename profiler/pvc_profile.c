@@ -36,11 +36,14 @@
 int pid = 0;
 char bpf = 0;
 char verbose = 0;
+char debug = 0;
 
 static struct option long_options[] = {
   {"pid", required_argument, 0, 'p'},
   {"bpf", no_argument, 0, 'b'},
   {"verbose", no_argument, 0, 'v'},
+  {"debug", no_argument, 0, 'd'},
+  {0}
 };
 
 int read_opts(int argc, char **argv) {
@@ -49,11 +52,14 @@ int read_opts(int argc, char **argv) {
   
   while(1) {
     option_index = 0;
-    c = getopt_long(argc, argv, "p:bv", long_options, &option_index);
+    c = getopt_long(argc, argv, "p:bvd", long_options, &option_index);
     if(c == -1) {
       break;
     }
     switch(c) {
+      case 'd':
+        debug = 1;
+        break;
       case 'p':
         pid = (int) strtol(optarg, NULL, 10);
         break;
@@ -123,14 +129,11 @@ void *collect_thread_main(void *a) {
   };
   
   while(collect_thread_should_stop == 0) {
-    /* First, check if there are any binaries to copy out */
-    ring_buffer__poll(bpf_info.binary_rb, 0);
-    
     /* Quickly check if there are EU stall samples */
     retval = poll(&pollfd, 1, 1);
     if(retval < 0) {
       fprintf(stderr, "An error occurred while readin the EU stall file descriptor! Aborting.\n");
-      exit(1);
+      goto cleanup;
     } else if(retval > 0) {
       /* There are samples to read */
       retval = read(perf_fd, perf_buf, p_user);
@@ -142,7 +145,17 @@ void *collect_thread_main(void *a) {
     
     /* Sit for a bit on the GEM info ringbuffer */
     ring_buffer__poll(bpf_info.rb, 100);
+    
+    if(debug) {
+      print_ringbuf_stats();
+    }
   }
+  
+cleanup:
+  printf("Calling deinit_bpf_prog()\n");
+  free(perf_buf);
+  close(perf_fd);
+  deinit_bpf_prog();
   
   return NULL;
 }

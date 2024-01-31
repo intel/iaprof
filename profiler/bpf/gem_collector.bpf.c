@@ -113,6 +113,11 @@ struct mmap_wait_for_exec_val {
   __u64 offset;
 };
 
+struct mmap_wait_for_unmap_val {
+  u64 file;
+  u32 handle;
+};
+
 struct {
   __uint(type,        BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_ENTRIES);
@@ -120,26 +125,44 @@ struct {
   __type(value,       struct mmap_wait_for_exec_val);
 } mmap_wait_for_exec SEC(".maps");
 
+struct {
+  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key,         u64);
+  __type(value,       struct mmap_wait_for_unmap_val);
+} mmap_wait_for_unmap SEC(".maps");
+
 int mmap_wait_for_exec_insert(u64 file, u32 handle, u64 addr, u64 size, u64 offset)
 {
   struct mmap_wait_for_exec_key key;
-  struct mmap_wait_for_exec_val val;
+  struct mmap_wait_for_exec_val exec_val;
   struct mmap_wait_for_exec_val *val_ptr = NULL;
+  
+  struct mmap_wait_for_unmap_val unmap_val;
+  
   int retval;
   unsigned int i;
   
   __builtin_memset(&key, 0, sizeof(struct mmap_wait_for_exec_key));
-  __builtin_memset(&val, 0, sizeof(struct mmap_wait_for_exec_val));
+  __builtin_memset(&exec_val, 0, sizeof(struct mmap_wait_for_exec_val));
   
   key.file = file;
   key.handle = handle;
   
   /* This file/handle combination has not been seen, so add it */
   bpf_printk("Adding addr=%llx size=%llu to mmap_wait_for_exec", addr, size);
-  val.addr = addr;
-  val.size = size;
-  val.offset = offset;
-  retval = bpf_map_update_elem(&mmap_wait_for_exec, &key, &val, 0);
+  exec_val.addr = addr;
+  exec_val.size = size;
+  exec_val.offset = offset;
+  retval = bpf_map_update_elem(&mmap_wait_for_exec, &key, &exec_val, 0);
+  if(retval < 0) return -1;
+  
+  /* We also want to let munmap calls do a lookup with the address */
+  bpf_printk("Adding addr=%llx file=%llx handle=%u to mmap_wait_for_unmap", addr, file, handle);
+  __builtin_memset(&unmap_val, 0, sizeof(struct mmap_wait_for_unmap_val));
+  unmap_val.file = file;
+  unmap_val.handle = handle;
+  retval = bpf_map_update_elem(&mmap_wait_for_unmap, &addr, &unmap_val, 0);
   if(retval < 0) return -1;
   
   return 0;
@@ -643,7 +666,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 }
 
 /***************************************
-* vm_close
+* munmap
 *
 * Some GEMs are mapped, written, and immediately unmapped. For these,
 * we need to read and copy them before they are unmapped, and do so
@@ -657,11 +680,6 @@ struct {
   __type(value,       struct binary_info);
 } heap SEC(".maps");
 
-struct {
-  __uint(type, BPF_MAP_TYPE_RINGBUF);
-  __uint(max_entries, MAX_BINARIES_IN_FLIGHT);
-} binary_rb SEC(".maps");
-
 SEC("tracepoint/syscalls/sys_enter_munmap")
 int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 {
@@ -669,9 +687,21 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   u64 size;
   struct vm_area_struct *vma;
   
+  /* For checking */
+  struct mmap_wait_for_unmap_val *val;
+  u64 addr;
+  
   /* For sending to execbuffer */
   int zero = 0;
   struct binary_info *bin;
+  
+  /* First, make sure this is an i915 buffer */
+  addr = ctx->args[0];
+  val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &addr);
+  if(!val) {
+    bpf_printk("WARNING: munmap_tp failed to find addr=%lx in mmap_wait_for_unmap.", addr);
+    return -1;
+  }
   
   /* Copy the binary itself */
   bin = bpf_map_lookup_elem(&heap, &zero);
@@ -680,6 +710,8 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   }
   bin->start = ctx->args[0];
   bin->end = ctx->args[0] + ctx->args[1];
+  bin->file = val->file;
+  bin->handle = val->handle;
   size = bin->end - bin->start;
   if(size > MAX_BINARY_SIZE) {
     size = MAX_BINARY_SIZE;
@@ -691,7 +723,13 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   if(err) {
     return -1;
   }
-  bpf_ringbuf_output(&binary_rb, bin, sizeof(*bin), 0);
+  bpf_ringbuf_output(&rb, bin, sizeof(*bin), 0);
+  
+  /* NOTE: We actually don't want to remove this address from either
+     mmap_wait_for_exec or vm_bind_wait_for_exec. This is because
+     the address is still bound in the VM, and our BPF program for
+     i915_gem_do_execbuffer uses those maps to get information
+     about the buffer. */
   
   return 0;
 }
@@ -703,12 +741,20 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 * GEM handles that are going to be executed, and send them to userspace.
 ***************************************/
 
+struct {
+  __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+  __uint(key_size, sizeof(u32));
+  __uint(value_size, 127 * sizeof(unsigned long));
+  __uint(max_entries, 1024);
+} stackmap SEC(".maps");
+
 struct batch_callback_ctx {
   unsigned int batch_index;
   struct drm_i915_gem_exec_object2 *exec;
   u32 vm_id, pid, batch_start_offset;
   u64 file;
   u64 batch_len[MAX_ENGINE_INSTANCE + 1];
+  int stackid;
 };
 
 /* This function runs for each batch in the execbuffer.
@@ -729,6 +775,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   unsigned int i, batch_index;
   u64 addr, gpu_addr, size, offset, file, batch_len;
   u32 handle, pid, batch_start_offset, to_copy;
+  int stackid;
   
   if(!ctx) return -1;
   
@@ -738,6 +785,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   if(index < (MAX_ENGINE_INSTANCE + 1)) {
     batch_len = ctx->batch_len[index];
   }
+  stackid = ctx->stackid;
   pid = ctx->pid;
   handle = BPF_CORE_READ(exec, handle);
   offset = BPF_CORE_READ(exec, offset);
@@ -793,6 +841,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   } else {
     kinfo->batch_start_offset = 0;
   }
+  kinfo->stackid = stackid;
   bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
 
   bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
@@ -804,6 +853,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 
 struct vm_callback_ctx {
   u32 pid;
+  int stackid;
 };
 
 static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *key,
@@ -846,6 +896,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   kinfo->is_bb = 0;
   kinfo->batch_len = 0;
   kinfo->batch_start_offset = 0;
+  kinfo->stackid = ctx->stackid;
   bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
 
   bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
@@ -855,7 +906,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   return 0;
 }
 
-int parse_execbuffer(u64 file, u64 execbuffer, u64 objects)
+int parse_execbuffer(int stackid, u64 file, u64 execbuffer, u64 objects)
 {
   long err;
   struct batch_callback_ctx batch_callback_ctx;
@@ -893,6 +944,7 @@ int parse_execbuffer(u64 file, u64 execbuffer, u64 objects)
   batch_callback_ctx.batch_index = (BPF_CORE_READ(arg, flags) & I915_EXEC_BATCH_FIRST) ? 0 : BPF_CORE_READ(arg, buffer_count) - 1;
   batch_callback_ctx.batch_start_offset = BPF_CORE_READ(arg, batch_start_offset);
   batch_callback_ctx.file = file;
+  batch_callback_ctx.stackid = stackid;
   
   /* DEBUG */
   bpf_printk("do_execbuffer_kprobe pid=%u buffer_count=%u batch_start_offset=%u", batch_callback_ctx.pid, num_batches, BPF_CORE_READ(arg, batch_start_offset));
@@ -910,6 +962,7 @@ int parse_execbuffer(u64 file, u64 execbuffer, u64 objects)
   /* Now, if we're using the VM_BIND family of functions, iterate
      over all buffers bound to this VM */
   vm_callback_ctx.pid = batch_callback_ctx.pid;
+  vm_callback_ctx.stackid = stackid;
   if(bpf_for_each_map_elem(&vm_bind_wait_for_exec, vm_callback, &vm_callback_ctx, 0) != 0) {
     return -1;
   }
@@ -954,6 +1007,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
   struct execbuffer_wait_for_ret_val *val;
   u32 cpu;
   u64 file, execbuffer, objects;
+  int stackid;
   
   cpu = bpf_get_smp_processor_id();
   void *arg = bpf_map_lookup_elem(&execbuffer_wait_for_ret, &cpu);
@@ -965,7 +1019,8 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
   file = val->file;
   execbuffer = val->execbuffer;
   objects = val->objects;
-  return parse_execbuffer(file, execbuffer, objects);
+  stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  return parse_execbuffer(stackid, file, execbuffer, objects);
 }
 
 char LICENSE[] SEC("license") = "GPL";

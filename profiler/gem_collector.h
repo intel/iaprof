@@ -13,26 +13,22 @@
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
 
-int store_sample(struct gem_info *kinfo) {
+/* Ensure that we have enough room to place a newly-seen sample, and return
+   the index in which we should place it. 
+   
+   Does NOT grab the lock, so the caller should. */
+uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
   size_t old_size;
   GEM_ARR_TYPE *gem;
   uint64_t n;
   
-  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
-    fprintf(stderr, "Failed to acquire the gem_lock!\n");
-    return -1;
-  }
-  
-  /* Ensure it's not a duplicate */
+  /* First, search for it already being in here, and do some
+     sanity checks. */
   for(n = 0; n < gem_arr_used; n++) {
     gem = &gem_arr[n];
-    if((gem->kinfo.handle == kinfo->handle) &&
-       (gem->kinfo.file   == kinfo->file)) {
-      if(pthread_rwlock_unlock(&gem_lock) != 0) {
-        fprintf(stderr, "Failed to unlock the gem_lock!\n");
-        return -1;
-      }
-      return 0;
+    if((gem->kinfo.handle == handle) &&
+       (gem->kinfo.file   == file)) {
+      return n;
     }
   }
   
@@ -45,59 +41,63 @@ int store_sample(struct gem_info *kinfo) {
     memset(gem_arr + gem_arr_used, 0, (gem_arr_sz - old_size) * sizeof(GEM_ARR_TYPE));
   }
   
-  /* Place this new element */
-  memcpy(&(gem_arr[gem_arr_used].kinfo), kinfo, sizeof(struct gem_info));
   gem_arr_used++;
-  
-  if(pthread_rwlock_unlock(&gem_lock) != 0) {
-    fprintf(stderr, "Failed to unlock the gem_lock!\n");
-    return -1;
-  }
-  
-  return 0;
+  return gem_arr_used - 1;
 }
 
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   struct gem_info *kinfo;
-  unsigned char *data;
-  
-  kinfo = (struct gem_info *) data_arg;
-  
-  printf("handle_sample addr=0x%llx gpu_addr=0x%llx size=%llu batch_start_offset=%u length=%llu pid=%u comm=%s handle=%u offset=%llx\n", kinfo->addr, kinfo->gpu_addr, kinfo->size, kinfo->batch_start_offset, kinfo->batch_len, kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
-  
-  store_sample(kinfo);
-  
-  return 0;
-}
-
-static int handle_binary(void *ctx, void *data_arg, size_t data_sz) {
   struct binary_info *binary_info;
+  unsigned char *data;
+  uint64_t index, file, size;
+  uint32_t handle;
   GEM_ARR_TYPE *gem;
-  uint64_t n, start, end, size;
-  char found;
-  
-  binary_info = (struct binary_info *) data_arg;
-  
-  printf("handle_binary start=0x%llx end=%llu\n", binary_info->start, binary_info->end);
   
   if(pthread_rwlock_wrlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to acquire the gem_lock!\n");
     return -1;
   }
   
-  found = 0;
-  for(n = 0; n < gem_arr_used; n++) {
-    gem = &gem_arr[n];
-    start = gem->kinfo.addr;
-    end = gem->kinfo.addr + gem->kinfo.size;
-    if((binary_info->start >= start) && (binary_info->end <= end)) {
-      size = binary_info->end - binary_info->start;
-      gem->buff = calloc(size, sizeof(unsigned char));
-      gem->buff_sz = size;
-      memcpy(gem->buff, binary_info->buff, size);
-      found = 1;
-      break;
+  if(data_sz == sizeof(struct gem_info)) {
+    kinfo = (struct gem_info *) data_arg;
+    handle = kinfo->handle;
+    file = kinfo->file;
+    if(verbose) {
+      printf("handle_sample addr=0x%llx gpu_addr=0x%llx\n", kinfo->addr, kinfo->gpu_addr);
+      printf("  size=%llu batch_start_offset=%u length=%llu\n", kinfo->size, kinfo->batch_start_offset, kinfo->batch_len);
+      printf("  pid=%u comm=%s handle=%u offset=%llx\n", kinfo->pid, kinfo->name, kinfo->handle, kinfo->offset);
     }
+  } else if(data_sz == sizeof(struct binary_info)) {
+    binary_info = (struct binary_info *) data_arg;
+    handle = binary_info->handle;
+    file = binary_info->file;
+    if(verbose) {
+      printf("handle_binary start=0x%llx handle=%u\n",
+             binary_info->start, binary_info->handle);
+    }
+  } else {
+    if(pthread_rwlock_unlock(&gem_lock) != 0) {
+      fprintf(stderr, "Failed to unlock the gem_lock!\n");
+      return -1;
+    }
+    fprintf(stderr, "Unknown data size when handling a sample!\n");
+    return -1;
+  }
+  
+  /* Make room! */
+  index = grow_sample_arr(handle, file);
+  gem = &gem_arr[index];
+  
+  if(data_sz == sizeof(struct gem_info)) {
+    memcpy(&(gem->kinfo), kinfo, sizeof(struct gem_info));
+  } else if(data_sz == sizeof(struct binary_info)) {
+    size = binary_info->end - binary_info->start;
+    if(size > MAX_BINARY_SIZE) {
+      size = MAX_BINARY_SIZE;
+    }
+    gem->buff = calloc(size, sizeof(unsigned char));
+    gem->buff_sz = size;
+    memcpy(gem->buff, binary_info->buff, size);
   }
   
   if(pthread_rwlock_unlock(&gem_lock) != 0) {
@@ -105,16 +105,12 @@ static int handle_binary(void *ctx, void *data_arg, size_t data_sz) {
     return -1;
   }
   
-  if(found == 0) {
-    return -1;
-  }
   return 0;
 }
 
 struct bpf_info_t {
   struct gem_collector_bpf *obj;
   struct ring_buffer *rb;
-  struct ring_buffer *binary_rb;
   struct bpf_map **map;
   
   /* Links to the BPF programs */
@@ -194,6 +190,42 @@ int attach_tracepoint(const char *category, const char *func, struct bpf_program
   return 0;
 }
 
+int deinit_bpf_prog() {
+  uint64_t i;
+  int retval;
+  
+  for(i = 0; i < bpf_info.num_links; i++) {
+    retval = bpf_link__detach(bpf_info.links[i]);
+    if(retval == -1) {
+      return retval;
+    }
+  }
+  free(bpf_info.links);
+  
+  bpf_program__unload(bpf_info.mmap_ioctl_prog);
+  bpf_program__unload(bpf_info.mmap_ioctl_ret_prog);
+  
+  bpf_program__unload(bpf_info.mmap_offset_ioctl_prog);
+  bpf_program__unload(bpf_info.mmap_offset_ioctl_ret_prog);
+  bpf_program__unload(bpf_info.mmap_prog);
+  bpf_program__unload(bpf_info.mmap_ret_prog);
+  
+  bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
+  bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
+  
+  bpf_program__unload(bpf_info.context_create_ioctl_prog);
+  bpf_program__unload(bpf_info.context_create_ioctl_ret_prog);
+  
+  bpf_program__unload(bpf_info.do_execbuffer_prog);
+  bpf_program__unload(bpf_info.do_execbuffer_ret_prog);
+  
+  bpf_program__unload(bpf_info.munmap_prog);
+  
+  gem_collector_bpf__destroy(bpf_info.obj);
+  
+  return 0;
+}
+
 int init_bpf_prog() {
   int err;
   struct bpf_object_open_opts opts = {0};
@@ -247,12 +279,6 @@ int init_bpf_prog() {
   
   bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb), handle_sample, NULL, NULL);
   if(!(bpf_info.rb)) {
-    fprintf(stderr, "Failed to create a new ring buffer. You're most likely not root.\n");
-    return -1;
-  }
-  
-  bpf_info.binary_rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.binary_rb), handle_binary, NULL, NULL);
-  if(!(bpf_info.binary_rb)) {
     fprintf(stderr, "Failed to create a new ring buffer. You're most likely not root.\n");
     return -1;
   }
@@ -361,4 +387,15 @@ int init_bpf_prog() {
 /*   } */
   
   return 0;
+}
+
+/*******************
+*      DEBUG       *
+*******************/
+void print_ringbuf_stats() {
+  uint64_t size, avail;
+  
+  avail = ring__avail_data_size(ring_buffer__ring(bpf_info.rb, 0));
+  size = ring__size(ring_buffer__ring(bpf_info.rb, 0));
+  printf("GEM ringbuf usage: %lu / %lu\n", avail, size);
 }

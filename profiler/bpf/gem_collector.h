@@ -12,6 +12,8 @@
 
 struct binary_info {
   __u64 start, end;
+  __u64 file;
+  __u32 handle;
   unsigned char buff[MAX_BINARY_SIZE];
 };
 
@@ -25,6 +27,7 @@ struct gem_info {
   __u64 size;
   __u64 offset;
   __u64 file;
+  int stackid;
   char name[TASK_COMM_LEN];
   char is_bb;
 };

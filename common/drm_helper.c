@@ -204,5 +204,6 @@ int get_drm_device_info(device_info *devinfo) {
 
 void free_driver(device_info *devinfo) {
   close(devinfo->fd);
+  free(devinfo->engine_info);
   free(devinfo);
 }

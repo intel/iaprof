@@ -57,7 +57,29 @@ void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data, size_t data
   iga_status_t status;
   const iga_diagnostic_t *diag, *tmp;
   uint32_t diag_len, i, offset, first_error_offset;
+  uint64_t n, assumed_end;
+  uint8_t *ptr, num_zero_bytes;
   char *text;
+  
+  /* First, we need to discover the actual size of the kernel.
+     We do this by naively iterating over it, stopping at the first
+     full 16 bytes of zeroes. */
+  assumed_end = 0;
+  num_zero_bytes = 0;
+  ptr = data;
+  for(n = 0; n < data_sz; n++) {
+    if(*ptr == 0) {
+      num_zero_bytes++;
+      if(num_zero_bytes == 16) {
+        assumed_end = n;
+        break;
+      }
+    } else {
+      num_zero_bytes = 0;
+    }
+    ptr++;
+  }
+  printf("assumed_end=%lu\n", assumed_end);
   
   iga_disassemble_options_t opts = {
     sizeof(iga_disassemble_options_t),
@@ -67,7 +89,7 @@ void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data, size_t data
     IGA_DECODING_OPTS_DEFAULT,
   };
   
-  status = iga_disassemble(*ctx, &opts, data, data_sz, NULL, NULL, &text);
+  status = iga_disassemble(*ctx, &opts, data, assumed_end, NULL, NULL, &text);
   if((status != IGA_SUCCESS) && (status != IGA_DECODE_ERROR)) {
     fprintf(stderr, "IGA failed to disassemble a kernel! Error: %s\n", iga_status_to_str(status));
   } else {
