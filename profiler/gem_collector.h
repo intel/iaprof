@@ -62,6 +62,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   struct buffer_info *kinfo;
   struct binary_info *binary_info;
   struct execbuf_start_info *start_info;
+  struct execbuf_end_info *end_info;
   unsigned char *data;
   uint64_t index, file, size;
   uint32_t handle;
@@ -76,6 +77,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
     kinfo = (struct buffer_info *) data_arg;
     handle = kinfo->handle;
     file = kinfo->file;
+    print_buffer(kinfo);
   } else if(data_sz == sizeof(struct binary_info)) {
     binary_info = (struct binary_info *) data_arg;
     handle = binary_info->handle;
@@ -83,6 +85,9 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   } else if(data_sz == sizeof(struct execbuf_start_info)) {
     start_info = (struct execbuf_start_info *) data_arg;
     print_execbuf_start(start_info);
+  } else if(data_sz == sizeof(struct execbuf_end_info)) {
+    end_info = (struct execbuf_end_info *) data_arg;
+    print_execbuf_end(end_info);
   } else {
     if(pthread_rwlock_unlock(&gem_lock) != 0) {
       fprintf(stderr, "Failed to unlock the gem_lock!\n");

@@ -18,18 +18,24 @@ struct binary_info {
 };
 
 struct buffer_info {
-  __u32 pid;
+  /* callpath */
+  __u32 pid, tid, cpu;
+  __u64 time;
+  int stackid;
+  char name[TASK_COMM_LEN];
+  
+  /* buffer-specific */
+  __u64 file;
   __u32 handle;
-  __u32 batch_start_offset;
-  __u64 batch_len;
   __u64 addr;
   __u64 gpu_addr;
   __u64 size;
   __u64 offset;
-  __u64 file;
-  int stackid;
-  char name[TASK_COMM_LEN];
   char is_bb;
+  
+  /* execbuffer */
+  __u32 batch_start_offset;
+  __u64 batch_len;
 };
 
 struct execbuf_start_info {
@@ -41,6 +47,8 @@ struct execbuf_start_info {
 struct execbuf_end_info {
   __u32 cpu, pid, tid;
   __u64 time;
+  int stackid;
+  char pad[8];
 };
 
 #endif
