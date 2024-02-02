@@ -7,6 +7,34 @@
 
 use_hash_table(uint64_t, uint64_t);
 
+extern char debug;
+
+/** 101 bits
+  * Bits    Field
+  * 0  to 28  IP (addr)
+  * 29 to 36  active count
+  * 37 to 44  other count
+  * 45 to 52  control count
+  * 53 to 60  pipestall count
+  * 61 to 68  send count
+  * 69 to 76  dist_acc count
+  * 77 to 84  sbid count
+  * 85 to 92  sync count
+  * 93 to 100  inst_fetch count
+*/
+struct __attribute__ ((__packed__)) eustall_sample {
+  unsigned int ip : 29;
+  unsigned short active : 8;
+  unsigned short other : 8;
+  unsigned short control : 8;
+  unsigned short pipestall : 8;
+  unsigned short send : 8;
+  unsigned short dist_acc : 8;
+  unsigned short sbid : 8;
+  unsigned short sync : 8;
+  unsigned short inst_fetch : 8;
+};
+
 struct offset_profile {
   unsigned int active;
   unsigned int other;
@@ -25,17 +53,21 @@ struct shader_profile {
   hash_table(uint64_t, uint64_t) counts;
 };
 
-struct gem_profile {
-  struct buffer_info kinfo;
+struct buffer_profile {
+  struct vm_bind_info vm_bind_info;
+  struct mapping_info mapping_info;
+  struct execbuf_start_info exec_info;
   
+  /* A copy of the buffer bytes itself */
   uint64_t buff_sz;
   unsigned char *buff;
   
-  unsigned char is_shader;
+  /* Set if EU stalls are associated with this buffer */
+  unsigned char has_stalls;
   struct shader_profile shader_profile;
 } __attribute__((packed));
 
-#define GEM_ARR_TYPE struct gem_profile
+#define GEM_ARR_TYPE struct buffer_profile
 extern pthread_rwlock_t gem_lock;
 extern GEM_ARR_TYPE *gem_arr;
 extern size_t gem_arr_sz, gem_arr_used;
@@ -71,6 +103,9 @@ struct bpf_info_t {
   /* i915_gem_vm_bind_ioctl */
   struct bpf_program *vm_bind_ioctl_prog;
   struct bpf_program *vm_bind_ioctl_ret_prog;
+  
+  /* i915_gem_vm_unbind_ioctl */
+  struct bpf_program *vm_unbind_ioctl_prog;
   
   /* i915_gem_context_create_ioctl */
   struct bpf_program *context_create_ioctl_prog;

@@ -14,23 +14,27 @@
 #include "bpf/gem_collector.skel.h"
 #include "printer.h"
 
-/* Ensure that we have enough room to place a newly-seen sample, and return
-   the index in which we should place it. 
-   Does NOT grab the lock, so the caller should. */
-uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
-  size_t old_size;
+/* Return -1 if not found, otherwise the index of the buffer_profile */
+int get_buffer_profile(uint64_t file, uint32_t handle) {
+  int n;
   GEM_ARR_TYPE *gem;
-  uint64_t n;
   
-  /* First, search for it already being in here, and do some
-     sanity checks. */
   for(n = 0; n < gem_arr_used; n++) {
     gem = &gem_arr[n];
-    if((gem->kinfo.handle == handle) &&
-       (gem->kinfo.file   == file)) {
+    if((gem->mapping_info.handle == handle) &&
+       (gem->mapping_info.file   == file)) {
       return n;
     }
   }
+  
+  return -1;
+}
+
+/* Ensure that we have enough room to place a newly-seen sample, and place it.
+   Does NOT grab the lock, so the caller should. */
+uint64_t grow_sample_arr() {
+  size_t old_size;
+  GEM_ARR_TYPE *gem;
   
   /* Ensure there's enough room in the array */
   if(gem_arr_sz == gem_arr_used) {
@@ -45,9 +49,114 @@ uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
   return gem_arr_used - 1;
 }
 
+int handle_mapping(void *data_arg) {
+  GEM_ARR_TYPE *gem;
+  int index;
+  struct mapping_info *info;
+  
+  info = (struct mapping_info *) data_arg;
+  if(debug) {
+    print_mapping(info);
+  }
+  
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
+  index = get_buffer_profile(info->file, info->handle);
+  if(index == -1) {
+    index = grow_sample_arr();
+  } else {
+    printf("WARNING: Detected churn on file=0x%llx handle=%u\n", info->file, info->handle);
+  }
+  gem = &gem_arr[index];
+  memcpy(&(gem->mapping_info), info, sizeof(struct mapping_info));
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to unlock the gem_lock!\n");
+    return -1;
+  }
+  
+  return 0;
+}
+
+int handle_binary(void *data_arg) {
+  struct binary_info *info;
+  info = (struct binary_info *) data_arg;
+  if(debug) {
+    print_binary(info);
+  }
+  
+/*   } else if(data_sz == sizeof(struct binary_info)) { */
+/*     size = binary_info->end - binary_info->start; */
+/*     if(size > MAX_BINARY_SIZE) { */
+/*       size = MAX_BINARY_SIZE; */
+/*     } */
+/*     gem->buff = calloc(size, sizeof(unsigned char)); */
+/*     gem->buff_sz = size; */
+/*     memcpy(gem->buff, binary_info->buff, size); */
+/*   } */
+  
+  return 0;
+}
+
+int handle_vm_bind(void *data_arg) {
+  GEM_ARR_TYPE *gem;
+  int index;
+  struct vm_bind_info *info;
+  
+  info = (struct vm_bind_info *) data_arg;
+  if(debug) {
+    print_vm_bind(info);
+  }
+  
+  index = get_buffer_profile(info->file, info->handle);
+  if(index == -1) {
+    printf("WARNING: Got a vm_bind on file=0x%llx handle=%u which aren't mapped.\n", info->file, info->handle);
+    return 0;
+  }
+  gem = &(gem_arr[index]);
+  memcpy(&(gem->vm_bind_info), info, sizeof(struct vm_bind_info));
+  
+  return 0;
+}
+
+int handle_vm_unbind(void *data_arg) {
+  struct vm_unbind_info *info;
+  info = (struct vm_unbind_info *) data_arg;
+  if(debug) {
+    print_vm_unbind(info);
+  }
+  
+  return 0;
+}
+
+int handle_execbuf_start(void *data_arg) {
+  struct execbuf_start_info *info;
+  info = (struct execbuf_start_info *) data_arg;
+  if(debug) {
+    print_execbuf_start(info);
+  }
+  
+/*   memcpy(&(gem->exec_info), start_info, sizeof(struct execbuf_start_info)); */
+
+  return 0;
+}
+
+int handle_execbuf_end(void *data_arg) {
+  struct execbuf_end_info *info;
+  info = (struct execbuf_end_info *) data_arg;
+  if(debug) {
+    print_execbuf_end(info);
+  }
+  
+  return 0;
+}
+
 /* Runs each time a sample from the ringbuffer is collected.
    Samples can be one of four types:
-   1. struct buffer_info. This is a struct collected when an `execbuffer` call is made,
+   1. struct mapping_info. This is a struct collected when an `execbuffer` call is made,
       and represents a buffer that is either directly referenced by the `execbuffer`
       call, or a buffer that's in the "VM" assigned to the context that's executing.
    2. struct binary_info. This is a struct collected when `munmap` is called on a
@@ -59,62 +168,23 @@ uint64_t grow_sample_arr(uint32_t handle, uint64_t file) {
    4. struct execbuffer_end_info. Basic metadata collected at the end of an
       execbuffer call. */
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
-  struct buffer_info *kinfo;
-  struct binary_info *binary_info;
-  struct execbuf_start_info *start_info;
-  struct execbuf_end_info *end_info;
   unsigned char *data;
-  uint64_t index, file, size;
-  uint32_t handle;
-  GEM_ARR_TYPE *gem;
   
-  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
-    fprintf(stderr, "Failed to acquire the gem_lock!\n");
-    return -1;
-  }
   
-  if(data_sz == sizeof(struct buffer_info)) {
-    kinfo = (struct buffer_info *) data_arg;
-    handle = kinfo->handle;
-    file = kinfo->file;
-    print_buffer(kinfo);
+  if(data_sz == sizeof(struct mapping_info)) {
+    return handle_mapping(data_arg);
   } else if(data_sz == sizeof(struct binary_info)) {
-    binary_info = (struct binary_info *) data_arg;
-    handle = binary_info->handle;
-    file = binary_info->file;
+    return handle_binary(data_arg);
+  } else if(data_sz == sizeof(struct vm_bind_info)) {
+    return handle_vm_bind(data_arg);
+  } else if(data_sz == sizeof(struct vm_unbind_info)) {
+    return handle_vm_unbind(data_arg);
   } else if(data_sz == sizeof(struct execbuf_start_info)) {
-    start_info = (struct execbuf_start_info *) data_arg;
-    print_execbuf_start(start_info);
+    return handle_execbuf_start(data_arg);
   } else if(data_sz == sizeof(struct execbuf_end_info)) {
-    end_info = (struct execbuf_end_info *) data_arg;
-    print_execbuf_end(end_info);
+    return handle_execbuf_start(data_arg);
   } else {
-    if(pthread_rwlock_unlock(&gem_lock) != 0) {
-      fprintf(stderr, "Failed to unlock the gem_lock!\n");
-      return -1;
-    }
-    fprintf(stderr, "Unknown data size when handling a sample!\n");
-    return -1;
-  }
-  
-  /* Make room! */
-  index = grow_sample_arr(handle, file);
-  gem = &gem_arr[index];
-  
-  if(data_sz == sizeof(struct buffer_info)) {
-    memcpy(&(gem->kinfo), kinfo, sizeof(struct buffer_info));
-  } else if(data_sz == sizeof(struct binary_info)) {
-    size = binary_info->end - binary_info->start;
-    if(size > MAX_BINARY_SIZE) {
-      size = MAX_BINARY_SIZE;
-    }
-    gem->buff = calloc(size, sizeof(unsigned char));
-    gem->buff_sz = size;
-    memcpy(gem->buff, binary_info->buff, size);
-  }
-  
-  if(pthread_rwlock_unlock(&gem_lock) != 0) {
-    fprintf(stderr, "Failed to unlock the gem_lock!\n");
+    fprintf(stderr, "Unknown data size when handling a sample: %lu\n", data_sz);
     return -1;
   }
   
@@ -180,6 +250,8 @@ int deinit_bpf_prog() {
   bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
   bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
   
+  bpf_program__unload(bpf_info.vm_unbind_ioctl_prog);
+  
   bpf_program__unload(bpf_info.context_create_ioctl_prog);
   bpf_program__unload(bpf_info.context_create_ioctl_ret_prog);
   
@@ -233,6 +305,8 @@ int init_bpf_prog() {
   
   bpf_info.vm_bind_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kprobe;
   bpf_info.vm_bind_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kretprobe;
+  
+  bpf_info.vm_unbind_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.vm_unbind_ioctl_kprobe;
   
   bpf_info.context_create_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.context_create_ioctl_kprobe;
   bpf_info.context_create_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.context_create_ioctl_kretprobe;
@@ -310,6 +384,13 @@ int init_bpf_prog() {
     return -1;
   }
   err = attach_kprobe("i915_gem_vm_bind_ioctl", bpf_info.vm_bind_ioctl_ret_prog, 1);
+  if(err != 0) {
+    fprintf(stderr, "Failed to attach a kprobe!\n");
+    return -1;
+  }
+  
+  /* i915_gem_vm_unbind_ioctl */
+  err = attach_kprobe("i915_gem_vm_unbind_ioctl", bpf_info.vm_unbind_ioctl_prog, 0);
   if(err != 0) {
     fprintf(stderr, "Failed to attach a kprobe!\n");
     return -1;

@@ -79,7 +79,7 @@
 * OUTPUT MAP
 *
 * This is the "output" map, which userspace reads to get information
-* about GPU kernels running on the system. We fill it with `struct buffer_info`
+* about GPU kernels running on the system. We fill it with `struct mapping_info`
 * values.
 ***************************************/
 
@@ -96,7 +96,7 @@ struct {
 } stackmap SEC(".maps");
 
 /***************************************
-* mmap_wait_for_exec
+* mmap_wait_for_unmap
 *
 * This map stores addresses and sizes that have been mapped
 * using the `mmap`, `mmap_offset`, or `userptr` ioctls. These
@@ -109,21 +109,6 @@ struct {
 * once executed, further down in this program.
 ***************************************/
 
-struct mmap_wait_for_exec_key {
-  u64 file;
-  u32 handle;
-};
-
-struct mmap_wait_for_exec_val {
-  __u64 addr;
-  __u64 size;
-  __u64 offset;
-  
-  __u32 pid, tid, cpu;
-  __u64 time;
-  int stackid;
-};
-
 struct mmap_wait_for_unmap_val {
   u64 file;
   u32 handle;
@@ -132,41 +117,22 @@ struct mmap_wait_for_unmap_val {
 struct {
   __uint(type,        BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_ENTRIES);
-  __type(key,         struct mmap_wait_for_exec_key);
-  __type(value,       struct mmap_wait_for_exec_val);
-} mmap_wait_for_exec SEC(".maps");
-
-struct {
-  __uint(type,        BPF_MAP_TYPE_HASH);
-  __uint(max_entries, MAX_ENTRIES);
   __type(key,         u64);
   __type(value,       struct mmap_wait_for_unmap_val);
 } mmap_wait_for_unmap SEC(".maps");
 
-int mmap_wait_for_exec_insert(u64 file, u32 handle, struct mmap_wait_for_exec_val *exec_val)
+int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
 {
-  struct mmap_wait_for_exec_key key;
-  struct mmap_wait_for_exec_val *val_ptr = NULL;
-  
   struct mmap_wait_for_unmap_val unmap_val;
-  
   int retval;
-  unsigned int i;
-  
-  __builtin_memset(&key, 0, sizeof(struct mmap_wait_for_exec_key));
-  
-  key.file = file;
-  key.handle = handle;
-  
-  /* This file/handle combination has not been seen, so add it */
-  retval = bpf_map_update_elem(&mmap_wait_for_exec, &key, exec_val, 0);
-  if(retval < 0) return -1;
+  u64 addr;
   
   /* We also want to let munmap calls do a lookup with the address */
   __builtin_memset(&unmap_val, 0, sizeof(struct mmap_wait_for_unmap_val));
   unmap_val.file = file;
   unmap_val.handle = handle;
-  retval = bpf_map_update_elem(&mmap_wait_for_unmap, &(exec_val->addr), &unmap_val, 0);
+  addr = addr_arg;
+  retval = bpf_map_update_elem(&mmap_wait_for_unmap, &addr, &unmap_val, 0);
   if(retval < 0) return -1;
   
   return 0;
@@ -215,13 +181,13 @@ int mmap_ioctl_kprobe(struct pt_regs *ctx)
 SEC("kretprobe/i915_gem_mmap_ioctl")
 int mmap_ioctl_kretprobe(struct pt_regs *ctx)
 {
+  u32 cpu, handle;
+  u64 addr;
   int retval;
   void *lookup;
-  u32 cpu, handle;
-  u64 addr, size, file, offset;
   struct mmap_ioctl_wait_for_ret_val val;
   struct drm_i915_gem_mmap *arg;
-  struct mmap_wait_for_exec_val exec_val;
+  struct mapping_info *info;
   
   /* Argument from the kprobe */
   cpu = bpf_get_smp_processor_id();
@@ -229,30 +195,33 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
   if(!lookup) return -1;
   __builtin_memcpy(&val, lookup, sizeof(struct mmap_ioctl_wait_for_ret_val));
   
-  arg = val.arg;
-  file = val.file;
-  
-  handle = BPF_CORE_READ(arg, handle);
-  addr = BPF_CORE_READ(arg, addr_ptr);
-  size = BPF_CORE_READ(arg, size);
-  offset = BPF_CORE_READ(arg, offset);
-  
-  /* DEBUG */
-  bpf_printk("mmap_ioctl_kretprobe file=%llx handle=%u addr=0x%llx", file, handle, addr);
-  bpf_printk("                     size=%llu", size);
-  
-  __builtin_memset(&exec_val, 0, sizeof(struct mmap_wait_for_exec_val));
-  exec_val.addr = addr;
-  exec_val.size = size;
-  exec_val.offset = offset;
-  exec_val.pid = bpf_get_current_pid_tgid() >> 32;
-  exec_val.tid = bpf_get_current_pid_tgid();
-  exec_val.stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
-  exec_val.time = bpf_ktime_get_ns();
-  retval = mmap_wait_for_exec_insert(file, handle, &exec_val);
-  if(retval < 0) {
+  /* Reserve some space on the ringbuffer */
+  info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
+  if(!info) {
+    bpf_printk("WARNING: mmal_ioctl_kretprobe failed to reserve in the ringbuffer.");
     return -1;
   }
+  
+
+  /* mapping specific values */
+  arg = val.arg;
+  handle = BPF_CORE_READ(arg, handle);
+  addr = BPF_CORE_READ(arg, addr_ptr);
+  info->file     = val.file;
+  info->handle   = handle;
+  info->cpu_addr = addr;
+  info->size     = BPF_CORE_READ(arg, size);
+  info->offset   = BPF_CORE_READ(arg, offset);
+
+  info->cpu     = bpf_get_smp_processor_id();
+  info->pid     = bpf_get_current_pid_tgid() >> 32;
+  info->tid     = bpf_get_current_pid_tgid();
+  info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  info->time    = bpf_ktime_get_ns();
+
+  bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+  
+  mmap_wait_for_unmap_insert(val.file, handle, addr);
   
   return 0;
 }
@@ -382,13 +351,13 @@ SEC("kretprobe/i915_gem_mmap")
 int mmap_kretprobe(struct pt_regs *ctx)
 {
   int retval;
-  u32 cpu, page_shift, pid, handle;
-  u64 vm_pgoff, vm_start, vm_end, addr, size, file, offset;
+  u32 cpu, page_shift;
+  u64 vm_pgoff, vm_start, vm_end;
   void *lookup;
   struct mmap_wait_for_ret_val val;
   struct mmap_offset_wait_for_mmap_val offset_val;
   struct vm_area_struct *vma;
-  struct mmap_wait_for_exec_val exec_val;
+  struct mapping_info *info;
   
   /* Get the vma from the kprobe */
   cpu = bpf_get_smp_processor_id();
@@ -408,137 +377,31 @@ int mmap_kretprobe(struct pt_regs *ctx)
   if(!lookup) return -1;
   __builtin_memcpy(&offset_val, lookup, sizeof(struct mmap_offset_wait_for_mmap_val));
   
-  pid = bpf_get_current_pid_tgid() >> 32;
-  handle = offset_val.handle;
-  file = offset_val.file;
-  addr = vm_start;
-  size = vm_end - vm_start;
+  /* Reserve some space on the ringbuffer */
+  info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
+  if(!info) {
+    bpf_printk("WARNING: mmal_ioctl_kretprobe failed to reserve in the ringbuffer.");
+    return -1;
+  }
+
+  /* mapping specific values */
+  info->file     = offset_val.file;
+  info->handle   = offset_val.handle;
+  info->cpu_addr = vm_start;
+  info->size     = vm_end - vm_start;
+  info->offset   = 0;
+
+  info->cpu     = bpf_get_smp_processor_id();
+  info->pid     = bpf_get_current_pid_tgid() >> 32;
+  info->tid     = bpf_get_current_pid_tgid();
+  info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  info->time    = bpf_ktime_get_ns();
+
+  bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
   
-  /* DEBUG */
-  bpf_printk("mmap_kretprobe file=0x%lx handle=%u vm_start=0x%lx", file, handle, vm_start);
-  
-  __builtin_memset(&exec_val, 0, sizeof(struct mmap_wait_for_exec_val));
-  exec_val.addr = addr;
-  exec_val.size = size;
-  exec_val.offset = 0;
-  exec_val.pid = bpf_get_current_pid_tgid() >> 32;
-  exec_val.tid = bpf_get_current_pid_tgid();
-  exec_val.stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
-  exec_val.time = bpf_ktime_get_ns();
-  retval = mmap_wait_for_exec_insert(file, handle, &exec_val);
-  if(retval < 0) return -1;
+  mmap_wait_for_unmap_insert(offset_val.file, offset_val.handle, vm_start);
   
   return 0;
-}
-
-/***************************************
-* vm_bind_wait_for_exec
-*
-* Similar to mmap_wait_for_exec above, this map stores
-* addresses that need to be "seen" at execution time before
-* they can be sent to userspace to be parsed. This map, though,
-* stores addresses and sizes keyed on the VM that they've been
-* bound to, so that later, a lookup can be done to obtain all
-* buffers associated with a particular VM ID.
-*
-* I'm a little wary about this implementation, since it requires
-* a static maximum number of addresses that can be bound into a VM.
-* Since I have no way of knowing how workloads are going to use this feature,
-* there's no good heuristic for determining a value here.
-***************************************/
-
-struct vm_bind_wait_for_exec_key {
-  u32 vm_id;
-  u64 gpu_addr;
-};
-
-struct vm_bind_wait_for_exec_val {
-  u64 size;
-  u64 file;
-  u32 handle;
-};
-
-struct {
-  __uint(type,        BPF_MAP_TYPE_HASH);
-  __uint(max_entries, MAX_ENTRIES);
-  __type(key,         struct vm_bind_wait_for_exec_key);
-  __type(value,       struct vm_bind_wait_for_exec_val);
-} vm_bind_wait_for_exec SEC(".maps");
-
-int vm_bind_wait_for_exec_insert(u32 vm_id, u64 gpu_addr, u64 size, u64 file, u32 handle)
-{
-  struct vm_bind_wait_for_exec_val val;
-  struct vm_bind_wait_for_exec_key key;
-  int retval;
-  
-  __builtin_memset(&key, 0, sizeof(struct vm_bind_wait_for_exec_key));
-  __builtin_memset(&val, 0, sizeof(struct vm_bind_wait_for_exec_val));
-  
-  key.vm_id = vm_id;
-  key.gpu_addr = gpu_addr;
-  val.size = size;
-  val.file = file;
-  val.handle = handle;
-  
-  retval = bpf_map_update_elem(&vm_bind_wait_for_exec, &key, &val, 0);
-  if(retval < 0) return -1;
-  
-  return 0;
-  
-#if 0
-  struct buffer_info *kinfo;
-  struct mmap_wait_for_exec_key mmap_key;
-  struct mmap_wait_for_exec_val mmap_val;
-  u64 addr, offset;
-  void *lookup;
-  int err;
-  
-  /* We need to get the CPU-side address from the mmaps */
-  bpf_printk("Searching mmap_wait_for_exec for file=0x%lx handle=%u", file, handle);
-  __builtin_memset(&mmap_key, 0, sizeof(struct mmap_wait_for_exec_key));
-  mmap_key.handle = handle;
-  mmap_key.file = file;
-  lookup = bpf_map_lookup_elem(&mmap_wait_for_exec, &mmap_key);
-  if(!lookup) {
-    bpf_printk("WARNING: vm_callback failed to find handle=%u in mmap_wait_for_exec.", handle);
-    return 0;
-  }
-  __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val));
-  addr = mmap_val.addr;
-  offset = mmap_val.addr;
-  
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
-  if(!kinfo) {
-    bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", handle);
-    return 0;
-  }
-
-  kinfo->pid = bpf_get_current_pid_tgid() >> 32;
-  kinfo->file = file;
-  kinfo->handle = handle;
-  kinfo->addr = addr;
-  kinfo->gpu_addr = gpu_addr;
-  kinfo->size = size;
-  kinfo->offset = offset;
-  kinfo->is_bb = 0;
-  kinfo->batch_len = 0;
-  kinfo->batch_start_offset = 0;
-  bpf_get_current_comm(kinfo->name, sizeof(kinfo->name));
-  if(size > 64) {
-    size = 64;
-  }
-  err = bpf_core_read_user(kinfo->buff, size, addr);
-  if(!err) {
-    bpf_ringbuf_discard(kinfo, BPF_RB_NO_WAKEUP);
-    return 0;
-  }
-
-  bpf_ringbuf_submit(kinfo, BPF_RB_FORCE_WAKEUP);
-  
-  bpf_printk("Finished vm_callback handle=%u\n", handle);
-  
-  return 0;
-#endif
 }
 
 /***************************************
@@ -658,32 +521,77 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
 SEC("kretprobe/i915_gem_vm_bind_ioctl")
 int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 {
-  u32 cpu, vm_id, handle;
-  u64 start, offset, length;
+  u32 cpu;
   struct prelim_drm_i915_gem_vm_bind *arg;
-  u64 file;
   struct vm_bind_ioctl_wait_for_ret_val val;
   void *lookup;
+  struct vm_bind_info *info;
   
   /* Grab the argument from the kprobe */
   cpu = bpf_get_smp_processor_id();
   lookup = bpf_map_lookup_elem(&vm_bind_ioctl_wait_for_ret, &cpu);
   if(!lookup) return -1;
   __builtin_memcpy(&val, lookup, sizeof(struct vm_bind_ioctl_wait_for_ret_val));
-  
   arg = val.arg;
-  file = val.file;
-  vm_id = BPF_CORE_READ(arg, vm_id);
-  handle = BPF_CORE_READ(arg, handle);
-  start = BPF_CORE_READ(arg, start);
-  offset = BPF_CORE_READ(arg, offset);
-  length = BPF_CORE_READ(arg, length);
-  bpf_printk("vm_bind_ioctl_kretprobe vm_id=%u file=0x%lx handle=%u", vm_id, file, handle);
-  bpf_printk("                        start=0x%lx offset=0x%lx length=0x%lx", start, offset, length);
   
-  /* Add this address to the map, to wait for execution */
-  int retval = vm_bind_wait_for_exec_insert(vm_id, start, length, file, handle);
-  if(retval < 0) return -1;
+  /* Reserve some space on the ringbuffer */
+  info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
+  if(!info) {
+    bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.");
+    return -1;
+  }
+
+  /* vm_bind specific values */
+  info->file     = val.file;
+  info->handle   = BPF_CORE_READ(arg, handle);
+  info->vm_id    = BPF_CORE_READ(arg, vm_id);
+  info->gpu_addr = BPF_CORE_READ(arg, start);
+  info->size     = BPF_CORE_READ(arg, length);
+  info->offset   = BPF_CORE_READ(arg, offset);
+
+  info->cpu     = bpf_get_smp_processor_id();
+  info->pid     = bpf_get_current_pid_tgid() >> 32;
+  info->tid     = bpf_get_current_pid_tgid();
+  info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  info->time    = bpf_ktime_get_ns();
+
+  bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+  
+  return 0;
+}
+
+SEC("kprobe/i915_gem_vm_unbind_ioctl")
+int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
+{
+  struct vm_unbind_info *info;
+  struct prelim_drm_i915_gem_vm_bind *arg;
+  u64 file;
+  
+  arg = (struct prelim_drm_i915_gem_vm_bind *) PT_REGS_PARM2(ctx);
+  file = PT_REGS_PARM3(ctx);
+  
+  /* Reserve some space on the ringbuffer */
+  info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
+  if(!info) {
+    bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.");
+    return -1;
+  }
+
+  /* vm_unbind specific values */
+  info->file     = file;
+  info->handle   = BPF_CORE_READ(arg, handle);
+  info->vm_id    = BPF_CORE_READ(arg, vm_id);
+  info->gpu_addr = BPF_CORE_READ(arg, start);
+  info->size     = BPF_CORE_READ(arg, length);
+  info->offset   = BPF_CORE_READ(arg, offset);
+  
+  info->cpu = bpf_get_smp_processor_id();
+  info->pid = bpf_get_current_pid_tgid() >> 32;
+  info->tid = bpf_get_current_pid_tgid();
+  info->time = bpf_ktime_get_ns();
+
+  bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+  
   return 0;
 }
 
@@ -725,33 +633,33 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
     return -1;
   }
   
-  /* Copy the binary itself */
   bin = bpf_map_lookup_elem(&heap, &zero);
   if(!bin) {
     return -1;
   }
-  bin->start = ctx->args[0];
-  bin->end = ctx->args[0] + ctx->args[1];
+  
   bin->file = val->file;
   bin->handle = val->handle;
-  size = bin->end - bin->start;
+  bin->cpu_addr = ctx->args[0];
+  bin->size = ctx->args[1];
+  
+  bin->cpu = bpf_get_smp_processor_id();
+  bin->pid = bpf_get_current_pid_tgid() >> 32;
+  bin->tid = bpf_get_current_pid_tgid();
+  bin->time = bpf_ktime_get_ns();
+  
+  size = bin->size;
   if(size > MAX_BINARY_SIZE) {
     size = MAX_BINARY_SIZE;
   }
-  if(!(bin->start)) {
+  if(!(bin->cpu_addr)) {
     return -1;
   }
-  err = bpf_probe_read_user(bin->buff, size, (void *) bin->start);
+  err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
   if(err) {
     return -1;
   }
   bpf_ringbuf_output(&rb, bin, sizeof(*bin), 0);
-  
-  /* NOTE: We actually don't want to remove this address from either
-     mmap_wait_for_exec or vm_bind_wait_for_exec. This is because
-     the address is still bound in the VM, and our BPF program for
-     i915_gem_do_execbuffer uses those maps to get information
-     about the buffer. */
   
   return 0;
 }
@@ -763,6 +671,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 * GEM handles that are going to be executed, and send them to userspace.
 ***************************************/
 
+#if 0
 struct batch_callback_ctx {
   unsigned int batch_index;
   struct drm_i915_gem_exec_object2 *exec;
@@ -776,7 +685,7 @@ struct batch_callback_ctx {
    bpf_loop interface at a later date. */
 static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 {
-  struct buffer_info *kinfo;
+  struct mapping_info *kinfo;
   
   struct mmap_wait_for_exec_val *mmap_val;
   struct vm_bind_wait_for_exec_val *vm_bind_val_ptr;
@@ -834,7 +743,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
   mmap_val = (struct mmap_wait_for_exec_val *) lookup;
 /*   __builtin_memcpy(&mmap_val, lookup, sizeof(struct mmap_wait_for_exec_val)); */
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
   if(!kinfo) return -1;
 
   kinfo->pid = mmap_val->pid;
@@ -866,7 +775,7 @@ static long batch_callback(u32 index, struct batch_callback_ctx *ctx)
 static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *key,
                               struct vm_bind_wait_for_exec_val *val, void *ctx)
 {
-  struct buffer_info *kinfo;
+  struct mapping_info *kinfo;
   struct mmap_wait_for_exec_key mmap_key;
   struct mmap_wait_for_exec_val *mmap_val;
   void *lookup;
@@ -884,7 +793,7 @@ static u64 vm_callback(struct bpf_map *map, struct vm_bind_wait_for_exec_key *ke
   }
   mmap_val = (struct mmap_wait_for_exec_val *) lookup;
   
-  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct buffer_info), 0);
+  kinfo = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
   if(!kinfo) {
     bpf_printk("WARNING: vm_callback failed to reserve in the ringbuffer.", val->handle);
     return 0;
@@ -965,6 +874,7 @@ int parse_execbuffer(u64 file, u64 execbuffer, u64 objects)
   
   return 0;
 }
+#endif
 
 struct execbuffer_wait_for_ret_val {
   u64 file;
@@ -1026,18 +936,19 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
   }
   val = (struct execbuffer_wait_for_ret_val *) arg;
   
+  #if 0
   file = val->file;
   execbuffer = val->execbuffer;
   objects = val->objects;
   retval = parse_execbuffer(file, execbuffer, objects);
+  #endif
   
-  /* Output the start of an execbuffer to the ringbuffer */
+  /* Output the end of an execbuffer to the ringbuffer */
   einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
   if(!einfo) return -1;
   einfo->cpu = cpu;
   einfo->pid = bpf_get_current_pid_tgid() >> 32;
   einfo->tid = bpf_get_current_pid_tgid();
-  einfo->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
   einfo->time = bpf_ktime_get_ns();
   bpf_ringbuf_submit(einfo, BPF_RB_FORCE_WAKEUP);
   
@@ -1059,7 +970,7 @@ SEC("kprobe/i915_gem_pwrite_ioctl")
 int pwrite_kprobe(struct pt_regs *ctx)
 {
   struct drm_i915_gem_pwrite *gem_pwrite = (struct drm_i915_gem_pwrite *) PT_REGS_PARM2(ctx);
-  struct buffer_info *kinfo;
+  struct mapping_info *kinfo;
   u32 pid = bpf_get_current_pid_tgid() >> 32;
   
   add_to_ringbuf(pid,

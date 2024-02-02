@@ -20,13 +20,66 @@ int print_header() {
   return 0;
 }
 
-int print_execbuf_start(struct execbuf_start_info *sinfo) {
+int print_mapping(struct mapping_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "mmap");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  
+  /* ARGS */
+  printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu ",
+         info->file, info->handle, info->cpu_addr, info->size);
+  print_stack(info->pid, info->stackid);
+  printf("\n");
+  
+  return 0;
+}
+
+int print_binary(struct binary_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "binary");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n",
+         info->file, info->handle, info->cpu_addr, info->size);
+  
+  return 0;
+}
+
+int print_vm_bind(struct vm_bind_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "vm_bind");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
+         info->file, info->handle, info->vm_id, info->gpu_addr, info->size);
+  
+  return 0;
+}
+
+int print_vm_unbind(struct vm_unbind_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "vm_unbind");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
+         info->file, info->handle, info->vm_id, info->gpu_addr, info->size);
+  
+  return 0;
+}
+
+int print_execbuf_start(struct execbuf_start_info *info) {
   printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "execbuf_start");
-  printf(" %-*llu", TIME_LEN,             sinfo->time);
-  printf(" %-*u",   CPU_LEN,              sinfo->cpu);
-  printf(" %-*u",   PID_LEN,              sinfo->pid);
-  printf(" %-*u",   TID_LEN,              sinfo->tid);
-  print_stack(sinfo->pid, sinfo->stackid);
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" ");
+  print_stack(info->pid, info->stackid);
   printf("\n");
   
   return 0;
@@ -38,34 +91,52 @@ int print_execbuf_end(struct execbuf_end_info *einfo) {
   printf(" %-*u",   CPU_LEN,              einfo->cpu);
   printf(" %-*u",   PID_LEN,              einfo->pid);
   printf(" %-*u",   TID_LEN,              einfo->tid);
-  print_stack(einfo->pid, einfo->stackid);
-  printf("\n");
+  printf(" N/A\n");
   
   return 0;
 }
 
-int print_buffer(struct buffer_info *binfo) {
-  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "buffer");
-  printf(" %-*llu", TIME_LEN,             binfo->time);
-  printf(" %-*u",   CPU_LEN,              binfo->cpu);
-  printf(" %-*u",   PID_LEN,              binfo->pid);
-  printf(" %-*u",   TID_LEN,              binfo->tid);
-  print_stack(binfo->pid, binfo->stackid);
-  printf("\n");
-  
-  return 0;
-}
-
-#if 0
-int print_eustall() {
+int print_eustall(struct eustall_sample *sample,
+                  uint64_t gpu_addr,
+                  uint64_t offset,
+                  const char *insn) {
   printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall");
-  printf(" %-*llu", TIME_LEN,             einfo->time);
-  printf(" %-*u",   CPU_LEN,              einfo->cpu);
-  printf(" %-*u",   PID_LEN,              einfo->pid);
-  printf(" %-*u",   TID_LEN,              einfo->tid);
-  print_stack(einfo->pid, einfo->stackid);
+  printf(" %-*llu", TIME_LEN,             0);
+  printf(" %-*u",   CPU_LEN,              0);
+  printf(" %-*u",   PID_LEN,              0);
+  printf(" %-*u",   TID_LEN,              0);
+  printf(" gpu_addr=0x%lx offset=0x%lx insn='%s' ", gpu_addr, offset, insn);
+  
+  /* Now print the reasons if they're nonzero */
+  if(sample->active) {
+    printf("active=%u ", sample->active);
+  }
+  if(sample->other) {
+    printf("other=%u ", sample->other);
+  }
+  if(sample->control) {
+    printf("control=%u ", sample->control);
+  }
+  if(sample->pipestall) {
+    printf("pipestall=%u ", sample->pipestall);
+  }
+  if(sample->send) {
+    printf("send=%u ", sample->send);
+  }
+  if(sample->dist_acc) {
+    printf("dist_acc=%u ", sample->dist_acc);
+  }
+  if(sample->sbid) {
+    printf("sbid=%u ", sample->sbid);
+  }
+  if(sample->sync) {
+    printf("sync=%u ", sample->sync);
+  }
+  if(sample->inst_fetch) {
+    printf("inst_fetch=%u ", sample->inst_fetch);
+  }
+  
   printf("\n");
   
   return 0;
 }
-#endif

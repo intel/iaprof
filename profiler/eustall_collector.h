@@ -5,42 +5,16 @@
 #include "gem_collector.h"
 #include "shader_decoder.h"
 
-/** 101 bits
-  * Bits    Field
-  * 0  to 28  IP (addr)
-  * 29 to 36  active count
-  * 37 to 44  other count
-  * 45 to 52  control count
-  * 53 to 60  pipestall count
-  * 61 to 68  send count
-  * 69 to 76  dist_acc count
-  * 77 to 84  sbid count
-  * 85 to 92  sync count
-  * 93 to 100  inst_fetch count
-*/
-struct __attribute__ ((__packed__)) eustall_sample {
-  unsigned int ip : 29;
-  unsigned short active : 8;
-  unsigned short other : 8;
-  unsigned short control : 8;
-  unsigned short pipestall : 8;
-  unsigned short send : 8;
-  unsigned short dist_acc : 8;
-  unsigned short sbid : 8;
-  unsigned short sync : 8;
-  unsigned short inst_fetch : 8;
-};
-
 uint64_t uint64_t_hash(uint64_t i) { return i; }
 
-int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t offset) {
+int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
+                     uint64_t gpu_addr, uint64_t offset) {
   struct offset_profile **found;
   struct offset_profile *profile;
-  iga_context_t *ctx;
   
   /* First, ensure that we've already initialized the shader-specific
      data structures */
-  if(gem->is_shader == 0) {
+  if(gem->has_stalls == 0) {
     
     gem->shader_profile.counts = hash_table_make(uint64_t, uint64_t, uint64_t_hash);
     if(!(gem->shader_profile.counts)) {
@@ -48,18 +22,12 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t 
       return -1;
     }
     
-    gem->is_shader = 1;
+    gem->has_stalls = 1;
     
-/*     if((!gem->buff_sz) || (!gem->buff)) { */
-/*       fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet.\n"); */
-/*       return -1; */
-/*     } */
-    
-    /* TODO: only initialize per context */
-/*     ctx = iga_init(); */
-/*     iga_disassemble_shader(ctx, gem->buff, gem->kinfo.size); */
-/*      */
-/*     dump_buffer(gem->buff, gem->buff_sz, gem->kinfo.handle); */
+  }
+  
+  if(debug) {
+    print_eustall(sample, gpu_addr, offset, "");
   }
   
   /* Check if this offset has been seen yet */
@@ -79,19 +47,21 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem, uint64_t 
   (*found)->sbid += sample->sbid;
   (*found)->sync += sample->sync;
   (*found)->inst_fetch += sample->inst_fetch;
+  
   return 0;
 }
 
-void handle_eustall_samples(uint8_t *perf_buf, int len) {
+int handle_eustall_samples(uint8_t *perf_buf, int len, char only_print) {
   struct prelim_drm_i915_stall_cntr_info info;
   int i, n;
+  char found;
   uint64_t addr, start, end, offset;
   struct eustall_sample sample;
   GEM_ARR_TYPE *gem;
   
   if(pthread_rwlock_rdlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to grab the gem_lock for reading.\n");
-    return;
+    return -1;
   }
   
   for(i = 0; i < len; i += 64) {
@@ -100,22 +70,35 @@ void handle_eustall_samples(uint8_t *perf_buf, int len) {
     memcpy(&info, perf_buf + i + 48, sizeof(info));
     addr = ((uint64_t) sample.ip) << 3;
     
+    if(only_print) {
+      print_eustall(&sample, addr, 0, "");
+      continue;
+    }
+    
+    found = 0;
     for(n = 0; n < gem_arr_used; n++) {
       gem = &gem_arr[n];
-      start = gem->kinfo.gpu_addr & 0xffffffff;
-      end = start + gem->kinfo.size;
+      start = gem->vm_bind_info.gpu_addr & 0xffffffff;
+      end = start + gem->vm_bind_info.size;
+      
       if((addr >= start) && (addr < end)) {
         offset = ((uint64_t) sample.ip) - (start >> 3);
-        associate_sample(&sample, gem, offset);
+        associate_sample(&sample, gem, addr, offset);
+        found = 1;
         break;
       }
+    }
+    if(!found) {
+      return 1;
     }
   }
   
   if(pthread_rwlock_unlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to unlock the gem_lock.\n");
-    return;
+    return -1;
   }
+  
+  return 0;
 }
 
 int configure_eustall() {
