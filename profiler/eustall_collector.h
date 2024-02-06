@@ -7,6 +7,20 @@
 
 uint64_t uint64_t_hash(uint64_t i) { return i; }
 
+uint64_t max_bit_value(uint64_t n) {
+  return ((n == 64) ? 0xFFFFFFFFFFFFFFFF
+                    : ((((unsigned long long) 1) << n) - 1));
+}
+
+uint64_t canonize(uint64_t address) {
+  return (uint64_t) (address << (64 - 48)) >> (64 - 48);
+}
+
+uint64_t decanonize(uint64_t address) {
+  return (address & max_bit_value(48));
+}
+
+
 int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
                      uint64_t gpu_addr, uint64_t offset) {
   struct offset_profile **found;
@@ -15,19 +29,16 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
   /* First, ensure that we've already initialized the shader-specific
      data structures */
   if(gem->has_stalls == 0) {
-    
     gem->shader_profile.counts = hash_table_make(uint64_t, uint64_t, uint64_t_hash);
     if(!(gem->shader_profile.counts)) {
       fprintf(stderr, "WARNING: Failed to create a hash table.\n");
       return -1;
     }
-    
     gem->has_stalls = 1;
-    
   }
   
   if(debug) {
-    print_eustall(sample, gpu_addr, offset, "");
+    print_eustall(sample, gpu_addr, offset, gem->mapping_info.handle, "");
   }
   
   /* Check if this offset has been seen yet */
@@ -51,9 +62,9 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
   return 0;
 }
 
-int handle_eustall_samples(uint8_t *perf_buf, int len, char only_print) {
+int handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct prelim_drm_i915_stall_cntr_info info;
-  int i, n;
+  int i, n, num_not_found;
   char found;
   uint64_t addr, start, end, offset;
   struct eustall_sample sample;
@@ -64,16 +75,12 @@ int handle_eustall_samples(uint8_t *perf_buf, int len, char only_print) {
     return -1;
   }
   
+  num_not_found = 0;
   for(i = 0; i < len; i += 64) {
     
     memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
     memcpy(&info, perf_buf + i + 48, sizeof(info));
     addr = ((uint64_t) sample.ip) << 3;
-    
-    if(only_print) {
-      print_eustall(&sample, addr, 0, "");
-      continue;
-    }
     
     found = 0;
     for(n = 0; n < gem_arr_used; n++) {
@@ -82,14 +89,16 @@ int handle_eustall_samples(uint8_t *perf_buf, int len, char only_print) {
       end = start + gem->vm_bind_info.size;
       
       if((addr >= start) && (addr < end)) {
-        offset = ((uint64_t) sample.ip) - (start >> 3);
+/*         offset = ((uint64_t) sample.ip) - (start >> 3); */
+        offset = addr - start;
         associate_sample(&sample, gem, addr, offset);
         found = 1;
         break;
       }
     }
     if(!found) {
-      return 1;
+/*       print_eustall(&sample, addr, 0, 0, ""); */
+      num_not_found++;
     }
   }
   
@@ -98,7 +107,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len, char only_print) {
     return -1;
   }
   
-  return 0;
+  return num_not_found;
 }
 
 int configure_eustall() {

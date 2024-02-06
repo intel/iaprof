@@ -3,6 +3,9 @@ bin/
 results/
 bude
 tags
+*.svg
+*.txt
+core.*
 
 reference/kernel_headers
 reference/*.deb

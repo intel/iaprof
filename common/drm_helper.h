@@ -9,10 +9,10 @@
 *    DISCOVERY     *
 *******************/
 
-#define DEFAULT_SAMPL_RATE  1
+#define DEFAULT_SAMPL_RATE  7
 #define DEFAULT_DSS_BUF_SIZE  (128 * 1024)
 #define DEFAULT_USER_BUF_SIZE  (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS  100000
+#define DEFAULT_POLL_PERIOD_NS  1000000
 #define DEFAULT_EVENT_COUNT  1
 
 static uint64_t p_poll_period = DEFAULT_POLL_PERIOD_NS;

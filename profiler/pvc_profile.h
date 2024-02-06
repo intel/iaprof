@@ -1,6 +1,7 @@
 #pragma once
 
 #include <asm/types.h>
+#include <linux/bpf.h>
 #include "bpf/gem_collector.h"
 #include "utils/hash_table.h"
 #include "utils/utils.h"
@@ -21,7 +22,7 @@ extern char debug;
   * 77 to 84  sbid count
   * 85 to 92  sync count
   * 93 to 100  inst_fetch count
-*/
+**/
 struct __attribute__ ((__packed__)) eustall_sample {
   unsigned int ip : 29;
   unsigned short active : 8;
@@ -34,6 +35,27 @@ struct __attribute__ ((__packed__)) eustall_sample {
   unsigned short sync : 8;
   unsigned short inst_fetch : 8;
 };
+
+/**
+  * Reason     Description
+  ************************
+  * Active     At least one instruction is dispatching into a pipeline.
+  * Other      Other factors stalled the instruction's execution.
+  * Control    The instruction was waiting for a Branch unit to become
+  *            available.
+  * Pipestall  The instruction won arbitration but could not be dispatched
+  *            into a Floating-Point or Extended Math unit. This can occur
+  *            due to a bank conflict with the General Register File (GRF).
+  * Send       The instruction was waiting for a Send unit to become available.
+  * Dist/Acc   The instruction was waiting for a Distance or Architecture
+  *            Register File (ARF) dependency to resolve.
+  * SBID       The instruction was waiting for a Software Scoreboard
+  *            dependency to resolve.
+  * Sync       The instruction was waiting for a thread synchronization
+  *            dependency to resolve.
+  * Inst Fetch The XVE (Xe Vector Engine) was waiting for an instruction to 
+  *            be returned from the instruction cache.
+**/
 
 struct offset_profile {
   unsigned int active;
@@ -62,10 +84,13 @@ struct buffer_profile {
   uint64_t buff_sz;
   unsigned char *buff;
   
+  /* The stack where this buffer was execbuffer'd */
+  char *execbuf_stack_str;
+  
   /* Set if EU stalls are associated with this buffer */
   unsigned char has_stalls;
   struct shader_profile shader_profile;
-} __attribute__((packed));
+};
 
 #define GEM_ARR_TYPE struct buffer_profile
 extern pthread_rwlock_t gem_lock;

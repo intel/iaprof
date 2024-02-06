@@ -19,10 +19,18 @@ int init_syms_cache() {
   return 0;
 }
 
-void print_stack(uint32_t pid, int stackid) {
+void store_stack(uint32_t pid, int stackid, char **stack_str) {
   const struct syms *syms;
   const struct sym *sym;
   int sfd, i;
+  size_t len, cur_len, new_len;
+  const char *to_copy;
+  const char *unknown = "unknown";
+  
+  if(pid == 0) {
+    *stack_str = strdup("[unknown]");
+    return;
+  }
   
   sfd = bpf_map__fd(bpf_info.obj->maps.stackmap);
   if(sfd <= 0) {
@@ -36,17 +44,27 @@ void print_stack(uint32_t pid, int stackid) {
   syms = syms_cache__get_syms(syms_cache, pid);
   
   if (bpf_map_lookup_elem(sfd, &stackid, ip) != 0) {
-    printf("[unknown]");
+    *stack_str = strdup("[unknown]");
     return;
   }
   
   for(i = 0; i < MAX_STACK_DEPTH && ip[i]; i++) {
     sym = syms__map_addr(syms, ip[i]);
-    if(sym) {
-      printf("%s;", sym->name);
-    } else {
-      printf("unknown;");
+    cur_len = 0;
+    if(*stack_str) {
+      cur_len = strlen(*stack_str);
     }
+    if(sym) {
+      to_copy = sym->name;
+    } else {
+      to_copy = unknown;
+    }
+    len = strlen(to_copy);
+    new_len = cur_len + len + 2;
+    *stack_str = realloc(*stack_str, new_len);
+    memset(*stack_str + cur_len, 0, new_len - cur_len);
+    strcpy(*stack_str + cur_len, to_copy);
+    (*stack_str)[new_len - 2] = ';';
   }
 
   return;

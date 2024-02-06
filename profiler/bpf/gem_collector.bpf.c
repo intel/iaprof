@@ -85,7 +85,7 @@
 
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
-  __uint(max_entries, MAX_ENTRIES);
+  __uint(max_entries, RINGBUF_SIZE);
 } rb SEC(".maps");
 
 struct {
@@ -603,13 +603,6 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
 * synchronously with the kernel driver.
 ***************************************/
 
-struct {
-  __uint(type,        BPF_MAP_TYPE_PERCPU_ARRAY);
-  __uint(max_entries, 1);
-  __type(key,         int);
-  __type(value,       struct binary_info);
-} heap SEC(".maps");
-
 SEC("tracepoint/syscalls/sys_enter_munmap")
 int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 {
@@ -627,20 +620,25 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   
   /* First, make sure this is an i915 buffer */
   addr = ctx->args[0];
+  if(!addr) {
+    return -1;
+  }
   val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &addr);
   if(!val) {
     bpf_printk("WARNING: munmap_tp failed to find addr=%lx in mmap_wait_for_unmap.", addr);
     return -1;
   }
   
-  bin = bpf_map_lookup_elem(&heap, &zero);
+  /* Reserve some space on the ringbuffer */
+  bin = bpf_ringbuf_reserve(&rb, sizeof(struct binary_info), 0);
   if(!bin) {
+    bpf_printk("WARNING: munmap_tp failed to reserve in the ringbuffer.");
     return -1;
   }
   
   bin->file = val->file;
   bin->handle = val->handle;
-  bin->cpu_addr = ctx->args[0];
+  bin->cpu_addr = addr;
   bin->size = ctx->args[1];
   
   bin->cpu = bpf_get_smp_processor_id();
@@ -652,14 +650,13 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   if(size > MAX_BINARY_SIZE) {
     size = MAX_BINARY_SIZE;
   }
-  if(!(bin->cpu_addr)) {
-    return -1;
-  }
   err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
   if(err) {
+    bpf_ringbuf_discard(bin, 0);
+    bpf_printk("WARNING: munmap_tp failed to copy bytes from cpu_addr=0x%lx.", addr);
     return -1;
   }
-  bpf_ringbuf_output(&rb, bin, sizeof(*bin), 0);
+  bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
   
   return 0;
 }
@@ -893,11 +890,16 @@ SEC("kprobe/i915_gem_do_execbuffer")
 int do_execbuffer_kprobe(struct pt_regs *ctx)
 {
   struct execbuffer_wait_for_ret_val val;
-  u32 cpu;
-  struct execbuf_start_info *einfo;
-  u64 file = (u64) PT_REGS_PARM2(ctx);
-  u64 execbuffer = (u64) PT_REGS_PARM3(ctx);
-  u64 objects = (u64) PT_REGS_PARM4(ctx);
+  u32 cpu, ctx_id, vm_id;
+  u64 file, execbuffer, objects;
+  struct execbuf_start_info *info;
+  struct drm_i915_gem_execbuffer2 *arg;
+  void *val_ptr;
+  
+  /* Read arguments */
+  file = (u64) PT_REGS_PARM2(ctx);
+  execbuffer = (u64) PT_REGS_PARM3(ctx);
+  objects = (u64) PT_REGS_PARM4(ctx);
   
   /* Pass arguments to the kretprobe */
   __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
@@ -907,15 +909,35 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
   cpu = bpf_get_smp_processor_id();
   bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
   
+  /* Look up the VM ID based on the context ID (which is in arg->rsvd1) */
+  arg = (struct drm_i915_gem_execbuffer2 *) execbuffer;
+  if(!arg) {
+    return -1;
+  }
+  ctx_id = (u32) BPF_CORE_READ(arg, rsvd1);
+  vm_id = 0;
+  if(ctx_id) {
+    val_ptr = bpf_map_lookup_elem(&context_create_wait_for_exec, &ctx_id);
+    if(val_ptr) {
+      vm_id = *((u32 *) val_ptr);
+    }
+  }
+  
   /* Output the start of an execbuffer to the ringbuffer */
-  einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
-  if(!einfo) return -1;
-  einfo->cpu = cpu;
-  einfo->pid = bpf_get_current_pid_tgid() >> 32;
-  einfo->tid = bpf_get_current_pid_tgid();
-  einfo->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
-  einfo->time = bpf_ktime_get_ns();
-  bpf_ringbuf_submit(einfo, BPF_RB_FORCE_WAKEUP);
+  info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
+  if(!info) return -1;
+  
+  /* execbuffer-specific stuff */
+  info->vm_id = vm_id;
+  info->ctx_id = ctx_id;
+  
+  info->cpu = cpu;
+  info->pid = bpf_get_current_pid_tgid() >> 32;
+  info->tid = bpf_get_current_pid_tgid();
+  info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+  info->time = bpf_ktime_get_ns();
+  bpf_get_current_comm(info->name, sizeof(info->name));
+  bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
   
   return 0;
 }

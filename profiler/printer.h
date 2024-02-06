@@ -21,6 +21,8 @@ int print_header() {
 }
 
 int print_mapping(struct mapping_info *info) {
+  char *stack_str = NULL;
+  
   printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "mmap");
   printf(" %-*llu", TIME_LEN,             info->time);
   printf(" %-*u",   CPU_LEN,              info->cpu);
@@ -28,9 +30,10 @@ int print_mapping(struct mapping_info *info) {
   printf(" %-*u",   TID_LEN,              info->tid);
   
   /* ARGS */
-  printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu ",
-         info->file, info->handle, info->cpu_addr, info->size);
-  print_stack(info->pid, info->stackid);
+  printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu offset=%llu ",
+         info->file, info->handle, info->cpu_addr, info->size, info->offset);
+  store_stack(info->pid, info->stackid, &stack_str);
+  printf("%s", stack_str);
   printf("\n");
   
   return 0;
@@ -73,13 +76,16 @@ int print_vm_unbind(struct vm_unbind_info *info) {
 }
 
 int print_execbuf_start(struct execbuf_start_info *info) {
+  char *stack_str = NULL;
+  
   printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "execbuf_start");
   printf(" %-*llu", TIME_LEN,             info->time);
   printf(" %-*u",   CPU_LEN,              info->cpu);
   printf(" %-*u",   PID_LEN,              info->pid);
   printf(" %-*u",   TID_LEN,              info->tid);
   printf(" ");
-  print_stack(info->pid, info->stackid);
+  store_stack(info->pid, info->stackid, &stack_str);
+  printf("%s", stack_str);
   printf("\n");
   
   return 0;
@@ -99,13 +105,14 @@ int print_execbuf_end(struct execbuf_end_info *einfo) {
 int print_eustall(struct eustall_sample *sample,
                   uint64_t gpu_addr,
                   uint64_t offset,
+                  uint32_t handle,
                   const char *insn) {
   printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall");
   printf(" %-*llu", TIME_LEN,             0);
   printf(" %-*u",   CPU_LEN,              0);
   printf(" %-*u",   PID_LEN,              0);
   printf(" %-*u",   TID_LEN,              0);
-  printf(" gpu_addr=0x%lx offset=0x%lx insn='%s' ", gpu_addr, offset, insn);
+  printf(" handle=%u gpu_addr=0x%lx offset=0x%lx insn='%s' ", handle, gpu_addr, offset, insn);
   
   /* Now print the reasons if they're nonzero */
   if(sample->active) {

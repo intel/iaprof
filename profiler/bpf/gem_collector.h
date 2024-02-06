@@ -2,11 +2,11 @@
 #define GEM_COLLECTOR_H
 
 #define TASK_COMM_LEN 16
-#define MAX_ENTRIES 512*1024
+#define MAX_ENTRIES 1024*1024
+#define RINGBUF_SIZE 4096*4096
 
 /* GEN binary copying maximums */
-#define MAX_BINARY_SIZE 1024
-#define MAX_BINARIES_IN_FLIGHT 16
+#define MAX_BINARY_SIZE 1024*500
 
 #define I915_EXEC_BATCH_FIRST (1<<18)
 
@@ -67,6 +67,9 @@ struct vm_unbind_info {
 
 /* Collected from the start of an execbuffer */
 struct execbuf_start_info {
+  __u32 ctx_id, vm_id;
+  
+  char name[TASK_COMM_LEN];
   __u32 cpu, pid, tid;
   __u64 time;
   int stackid;

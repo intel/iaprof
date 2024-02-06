@@ -82,13 +82,6 @@ int read_opts(int argc, char **argv) {
 }
 
 void sanity_checks() {
-  printf("sizeof(struct mapping_info) = %lu\n", sizeof(struct mapping_info));
-  printf("sizeof(struct binary_info) = %lu\n", sizeof(struct binary_info));
-  printf("sizeof(struct vm_bind_info) = %lu\n", sizeof(struct vm_bind_info));
-  printf("sizeof(struct vm_unbind_info) = %lu\n", sizeof(struct vm_unbind_info));
-  printf("sizeof(struct execbuf_start_info) = %lu\n", sizeof(struct execbuf_start_info));
-  printf("sizeof(struct execbuf_end_info) = %lu\n", sizeof(struct execbuf_end_info));
-  
   static_assert(sizeof(struct mapping_info) != sizeof(struct binary_info),
                 "mapping_info is the same size as binary_info");
   static_assert(sizeof(struct mapping_info) != sizeof(struct vm_bind_info),
@@ -189,9 +182,11 @@ void *collect_thread_main(void *a) {
       /* There are samples to read */
       len = read(perf_fd, perf_buf, p_user);
       if(len > 0) {
-        retry_eustalls = handle_eustall_samples(perf_buf, len, 0);
+        retry_eustalls = handle_eustall_samples(perf_buf, len);
         if(retry_eustalls == -1) {
           return NULL;
+        } else if(retry_eustalls >= 1) {
+          fprintf(stderr, "WARNING: Dropping %d eustalls on the floor.\n", retry_eustalls);
         }
       }
     }
@@ -199,19 +194,10 @@ void *collect_thread_main(void *a) {
     
     /* Sit for a bit on the GEM info ringbuffer */
     ring_buffer__poll(bpf_info.rb, 100);
-    
-    if(retry_eustalls == 1) {
-      retry_eustalls = handle_eustall_samples(perf_buf, len, 0);
-      if(retry_eustalls == -1) {
-        return NULL;
-      }
-      if(retry_eustalls == 1) {
-        printf("WARNING: Dropping %d bytes of eustalls on the floor.\n", len);
-        handle_eustall_samples(perf_buf, len, 1);
-      }
-      retry_eustalls = 0;
-    }
   }
+  
+  /* Once we've been told to clean up, check one last time */
+  ring_buffer__poll(bpf_info.rb, 100);
   
 cleanup:
   free(perf_buf);
@@ -247,11 +233,12 @@ int main(int argc, char **argv) {
     1, 0
   };
   GEM_ARR_TYPE *gem;
-  int i;
-  uint64_t n;
+  int i, n;
   struct offset_profile **found;
   iga_context_t *ctx;
-  uint64_t *tmp;
+  uint64_t tmp_offset, *tmp;
+  char *insn_text;
+  const char *failed_decode = "[failed_decode]";
   
   sanity_checks();
   read_opts(argc, argv);
@@ -287,66 +274,90 @@ int main(int argc, char **argv) {
   
   /* Print out the final results */
   #define PRINT_FRONT_STACK() \
+    printf("%s;", gem->exec_info.name); \
     printf("%u;", gem->exec_info.pid); \
-    printf("[STACK TODO];");
-    printf(";"); \
-    printf("mov;");
-/*     print_stack(gem->exec_info.pid, gem->exec_info.stackid); \ */
+    if(gem->execbuf_stack_str) { \
+      printf("%s", gem->execbuf_stack_str); \
+    } else { \
+      printf("[unknown];"); \
+    } \
+    printf("-;"); \
+    printf("%s_[g];", insn_text); \
+    printf("0x%lx_[g];", tmp_offset);
   
   ctx = iga_init();
   for(i = 0; i < gem_arr_used; i++) {
     gem = &gem_arr[i];
     if(!gem->has_stalls) continue;
     if(gem->exec_info.pid == 0) {
-      printf("WARNING: PID for handle %u is zero!\n", gem->mapping_info.handle);
+      fprintf(stderr, "WARNING: PID for handle %u is zero!\n", gem->mapping_info.handle);
     }
-    hash_table_traverse(gem->shader_profile.counts, n, tmp) {
+    hash_table_traverse(gem->shader_profile.counts, tmp_offset, tmp) {
       found = (struct offset_profile **) tmp;
       
       /* First, disassemble the instruction */
       if((!gem->buff_sz) || (!gem->buff)) {
-        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet.\n");
-        return -1;
+        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n", gem->mapping_info.handle);
+        continue;
       }
-      iga_disassemble_shader(ctx, gem->buff, gem->mapping_info.size);
+      if(gem->mapping_info.handle == 2) {
+        dump_buffer(gem->buff, gem->buff_sz, gem->mapping_info.handle);
+      }
+      if(tmp_offset > gem->buff_sz) {
+        fprintf(stderr, "WARNING: Got an EU stall past the end of a buffer. ");
+        fprintf(stderr, "handle=%u cpu_addr=0x%lx offset=0x%lx buff_sz=%lu\n",
+                gem->mapping_info.handle, gem->buff, tmp_offset, gem->buff_sz);
+      }
+      insn_text = iga_disassemble_single(ctx, gem->buff + tmp_offset);
+      if(insn_text == NULL) {
+        insn_text = failed_decode;
+        fprintf(stderr, "Failed disassembly happened at handle=%u offset=0x%lx\n",
+                gem->mapping_info.handle, tmp_offset);
+/*         printf("Disassembling offset=0x%lx in this size=%lu kernel:\n", tmp_offset, gem->buff_sz); */
+/*         iga_disassemble_shader(ctx, gem->buff, gem->buff_sz); */
+      }
+      for(n = 0; n < strlen(insn_text); n++) {
+        if(insn_text[n] == ';') {
+          insn_text[n] = ',';
+        }
+      }
       
       if((*found)->active) {
         PRINT_FRONT_STACK();
-        printf("active %u", (*found)->active);
+        printf("active_[g] %u\n", (*found)->active);
       }
       if((*found)->other) {
         PRINT_FRONT_STACK();
-        printf("other %u", (*found)->other);
+        printf("other_[g] %u\n", (*found)->other);
       }
       if((*found)->control) {
         PRINT_FRONT_STACK();
-        printf("control %u", (*found)->control);
+        printf("control_[g] %u\n", (*found)->control);
       }
       if((*found)->pipestall) {
         PRINT_FRONT_STACK();
-        printf("pipestall %u", (*found)->pipestall);
+        printf("pipestall_[g] %u\n", (*found)->pipestall);
       }
       if((*found)->send) {
         PRINT_FRONT_STACK();
-        printf("send %u", (*found)->send);
+        printf("send_[g] %u\n", (*found)->send);
       }
       if((*found)->dist_acc) {
         PRINT_FRONT_STACK();
-        printf("dist_acc %u", (*found)->dist_acc);
+        printf("dist_acc_[g] %u\n", (*found)->dist_acc);
       }
       if((*found)->sbid) {
         PRINT_FRONT_STACK();
-        printf("sbid %u", (*found)->sbid);
+        printf("sbid_[g] %u\n", (*found)->sbid);
       }
       if((*found)->sync) {
         PRINT_FRONT_STACK();
-        printf("sync %u", (*found)->sync);
+        printf("sync_[g] %u\n", (*found)->sync);
       }
       if((*found)->inst_fetch) {
         PRINT_FRONT_STACK();
-        printf("inst_fetch %u", (*found)->inst_fetch);
+        printf("inst_fetch_[g] %u\n", (*found)->inst_fetch);
       }
-      printf("\n");
     }
   }
 }

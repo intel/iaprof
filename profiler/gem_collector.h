@@ -54,21 +54,21 @@ int handle_mapping(void *data_arg) {
   int index;
   struct mapping_info *info;
   
-  info = (struct mapping_info *) data_arg;
-  if(debug) {
-    print_mapping(info);
-  }
-  
   if(pthread_rwlock_wrlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to acquire the gem_lock!\n");
     return -1;
+  }
+  
+  info = (struct mapping_info *) data_arg;
+  if(debug) {
+    print_mapping(info);
   }
   
   index = get_buffer_profile(info->file, info->handle);
   if(index == -1) {
     index = grow_sample_arr();
   } else {
-    printf("WARNING: Detected churn on file=0x%llx handle=%u\n", info->file, info->handle);
+    fprintf(stderr, "WARNING: Detected churn on file=0x%llx handle=%u\n", info->file, info->handle);
   }
   gem = &gem_arr[index];
   memcpy(&(gem->mapping_info), info, sizeof(struct mapping_info));
@@ -83,20 +83,42 @@ int handle_mapping(void *data_arg) {
 
 int handle_binary(void *data_arg) {
   struct binary_info *info;
+  uint64_t size;
+  int index;
+  GEM_ARR_TYPE *gem;
+  
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
   info = (struct binary_info *) data_arg;
   if(debug) {
     print_binary(info);
   }
   
-/*   } else if(data_sz == sizeof(struct binary_info)) { */
-/*     size = binary_info->end - binary_info->start; */
-/*     if(size > MAX_BINARY_SIZE) { */
-/*       size = MAX_BINARY_SIZE; */
-/*     } */
-/*     gem->buff = calloc(size, sizeof(unsigned char)); */
-/*     gem->buff_sz = size; */
-/*     memcpy(gem->buff, binary_info->buff, size); */
-/*   } */
+  index = get_buffer_profile(info->file, info->handle);
+  if(index == -1) {
+    fprintf(stderr, "WARNING: handle_binary called on a mapping that hasn't happened yet.\n");
+    if(pthread_rwlock_unlock(&gem_lock) != 0) {
+      fprintf(stderr, "Failed to acquire the gem_lock!\n");
+      return -1;
+    }
+    return 0;
+  }
+  gem = &(gem_arr[index]);
+  size = info->size;
+  if(size > MAX_BINARY_SIZE) {
+    size = MAX_BINARY_SIZE;
+  }
+  gem->buff = calloc(size, sizeof(unsigned char));
+  gem->buff_sz = size;
+  memcpy(gem->buff, info->buff, size);
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
   
   return 0;
 }
@@ -106,6 +128,11 @@ int handle_vm_bind(void *data_arg) {
   int index;
   struct vm_bind_info *info;
   
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
   info = (struct vm_bind_info *) data_arg;
   if(debug) {
     print_vm_bind(info);
@@ -113,11 +140,20 @@ int handle_vm_bind(void *data_arg) {
   
   index = get_buffer_profile(info->file, info->handle);
   if(index == -1) {
-    printf("WARNING: Got a vm_bind on file=0x%llx handle=%u which aren't mapped.\n", info->file, info->handle);
+    fprintf(stderr, "WARNING: Got a vm_bind on file=0x%llx handle=%u which aren't mapped.\n", info->file, info->handle);
+    if(pthread_rwlock_unlock(&gem_lock) != 0) {
+      fprintf(stderr, "Failed to acquire the gem_lock!\n");
+      return -1;
+    }
     return 0;
   }
   gem = &(gem_arr[index]);
   memcpy(&(gem->vm_bind_info), info, sizeof(struct vm_bind_info));
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
   
   return 0;
 }
@@ -133,13 +169,42 @@ int handle_vm_unbind(void *data_arg) {
 }
 
 int handle_execbuf_start(void *data_arg) {
+  GEM_ARR_TYPE *gem;
+  uint32_t vm_id;
+  int n;
   struct execbuf_start_info *info;
+  
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
   info = (struct execbuf_start_info *) data_arg;
   if(debug) {
     print_execbuf_start(info);
   }
   
-/*   memcpy(&(gem->exec_info), start_info, sizeof(struct execbuf_start_info)); */
+  /* This execbuffer call needs to be associated with all GEMs that
+     are referenced by this call. Buffers can be referenced in two ways:
+     1. Directly in the execbuffer call.
+     2. Through the ctx_id (which has an associated vm_id).
+     
+     Here, we'll iterate over all buffers in the given vm_id. */
+  vm_id = info->vm_id;
+  for(n = 0; n < gem_arr_used; n++) {
+    gem = &gem_arr[n];
+    if(gem->vm_bind_info.vm_id == vm_id) {
+      memcpy(&(gem->exec_info), info, sizeof(struct execbuf_start_info));
+    }
+    if(gem->execbuf_stack_str == NULL) {
+      store_stack(info->pid, info->stackid, &(gem->execbuf_stack_str));
+    }
+  }
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to unlock the gem_lock!\n");
+    return -1;
+  }
 
   return 0;
 }

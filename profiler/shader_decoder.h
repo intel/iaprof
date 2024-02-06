@@ -52,6 +52,27 @@ iga_context_t *iga_init() {
   return ctx;
 }
 
+char *iga_disassemble_single(iga_context_t *ctx, unsigned char *data) {
+  char *text;
+  iga_status_t status;
+  
+  iga_disassemble_options_t opts = {
+    sizeof(iga_disassemble_options_t),
+    IGA_FORMATTING_OPTS_DEFAULT,
+    0,
+    0,
+    IGA_DECODING_OPTS_DEFAULT,
+  };
+  
+  status = iga_disassemble_instruction(*ctx, &opts, data, NULL, NULL, &text);
+  if(status != IGA_SUCCESS) {
+    fprintf(stderr, "IGA failed to disassemble an instruction! Error: %s\n", iga_status_to_str(status));
+    return NULL;
+  }
+  
+  return text;
+}
+
 void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data, size_t data_sz) {
   const char *buff;
   iga_status_t status;
