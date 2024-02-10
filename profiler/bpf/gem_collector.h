@@ -3,10 +3,10 @@
 
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 1024*1024
-#define RINGBUF_SIZE 4096*4096
+#define RINGBUF_SIZE 4096*4096*16
 
 /* GEN binary copying maximums */
-#define MAX_BINARY_SIZE 1024*500
+#define MAX_BINARY_SIZE 1024*1024
 
 #define I915_EXEC_BATCH_FIRST (1<<18)
 

@@ -102,19 +102,7 @@ int print_execbuf_end(struct execbuf_end_info *einfo) {
   return 0;
 }
 
-int print_eustall(struct eustall_sample *sample,
-                  uint64_t gpu_addr,
-                  uint64_t offset,
-                  uint32_t handle,
-                  const char *insn) {
-  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall");
-  printf(" %-*llu", TIME_LEN,             0);
-  printf(" %-*u",   CPU_LEN,              0);
-  printf(" %-*u",   PID_LEN,              0);
-  printf(" %-*u",   TID_LEN,              0);
-  printf(" handle=%u gpu_addr=0x%lx offset=0x%lx insn='%s' ", handle, gpu_addr, offset, insn);
-  
-  /* Now print the reasons if they're nonzero */
+int print_eustall_reason(struct eustall_sample *sample) {
   if(sample->active) {
     printf("active=%u ", sample->active);
   }
@@ -142,7 +130,54 @@ int print_eustall(struct eustall_sample *sample,
   if(sample->inst_fetch) {
     printf("inst_fetch=%u ", sample->inst_fetch);
   }
+}
+
+int print_eustall(struct eustall_sample *sample,
+                  uint64_t gpu_addr,
+                  uint64_t offset,
+                  uint32_t handle,
+                  uint16_t subslice,
+                  unsigned long long time) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall");
+  printf(" %-*llu", TIME_LEN,             time);
+  printf(" %-*u",   CPU_LEN,              0);
+  printf(" %-*u",   PID_LEN,              0);
+  printf(" %-*u",   TID_LEN,              0);
+  printf(" handle=%u gpu_addr=0x%lx offset=0x%lx subslice=%" PRIu16 " ", handle, gpu_addr, offset, subslice);
+  print_eustall_reason(sample);
+  printf("\n");
   
+  return 0;
+}
+
+int print_eustall_churn(struct eustall_sample *sample,
+                  uint64_t gpu_addr,
+                  uint64_t offset,
+                  uint16_t subslice,
+                  unsigned long long time) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall_churn");
+  printf(" %-*llu", TIME_LEN,             time);
+  printf(" %-*u",   CPU_LEN,              0);
+  printf(" %-*u",   PID_LEN,              0);
+  printf(" %-*u",   TID_LEN,              0);
+  printf(" gpu_addr=0x%lx offset=0x%lx subslice=%" PRIu16 " ", gpu_addr, offset, subslice);
+  print_eustall_reason(sample);
+  printf("\n");
+  
+  return 0;
+}
+
+int print_eustall_drop(struct eustall_sample *sample,
+                  uint64_t gpu_addr,
+                  uint16_t subslice,
+                  unsigned long long time) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall_drop");
+  printf(" %-*llu", TIME_LEN,             time);
+  printf(" %-*u",   CPU_LEN,              0);
+  printf(" %-*u",   PID_LEN,              0);
+  printf(" %-*u",   TID_LEN,              0);
+  printf(" gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
+  print_eustall_reason(sample);
   printf("\n");
   
   return 0;

@@ -20,7 +20,6 @@ static uint32_t p_event_count = DEFAULT_EVENT_COUNT;
 static uint32_t p_user = DEFAULT_USER_BUF_SIZE;
 static uint32_t p_size = DEFAULT_DSS_BUF_SIZE;
 static uint8_t p_rate = DEFAULT_SAMPL_RATE;
-static uint8_t p_eng_class = PRELIM_I915_ENGINE_CLASS_COMPUTE;
 static uint8_t p_eng_inst = 0;
 
 #define DRIVER_BASE "/dev/dri/card"

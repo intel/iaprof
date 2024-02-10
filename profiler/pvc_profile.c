@@ -145,7 +145,7 @@ void stop_collect_thread() {
 
 void *collect_thread_main(void *a) {
   uint8_t *perf_buf;
-  int perf_fd;
+  int *perf_fd, num_perf_fd, i;
   int retval, retry_eustalls, len;
   sigset_t mask;
   
@@ -162,35 +162,41 @@ void *collect_thread_main(void *a) {
   init_bpf_prog();
   
   /* Initialize the EU stall collection */
-  perf_fd = configure_eustall();
+  retval = configure_eustall(&perf_fd, &num_perf_fd);
+  if(retval != 0) {
+    fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
+    exit(1);
+  }
   perf_buf = malloc(p_user);
   struct pollfd pollfd = {
-    .fd = perf_fd,
     .events = POLLIN,
   };
   
   retry_eustalls = 0;
   while(collect_thread_should_stop == 0) {
     
-    /* Check if there are eustalls */
-    retry_eustalls = 0;
-    retval = poll(&pollfd, 1, 1);
-    if(retval < 0) {
-      fprintf(stderr, "An error occurred while readin the EU stall file descriptor! Aborting.\n");
-      goto cleanup;
-    } else if(retval > 0) {
-      /* There are samples to read */
-      len = read(perf_fd, perf_buf, p_user);
-      if(len > 0) {
-        retry_eustalls = handle_eustall_samples(perf_buf, len);
-        if(retry_eustalls == -1) {
-          return NULL;
-        } else if(retry_eustalls >= 1) {
-          fprintf(stderr, "WARNING: Dropping %d eustalls on the floor.\n", retry_eustalls);
+    for(i = 0; i < num_perf_fd; i++) {
+      /* Check if there are eustalls */
+      retry_eustalls = 0;
+      pollfd.fd = perf_fd[i];
+      retval = poll(&pollfd, 1, 1);
+      if(retval < 0) {
+        fprintf(stderr, "An error occurred while readin the EU stall file descriptor! Aborting.\n");
+        goto cleanup;
+      } else if(retval > 0) {
+        /* There are samples to read */
+        len = read(perf_fd[i], perf_buf, p_user);
+        if(len > 0) {
+          retry_eustalls = handle_eustall_samples(perf_buf, len);
+          if(retry_eustalls == -1) {
+            return NULL;
+          } else if(retry_eustalls >= 1) {
+            fprintf(stderr, "WARNING: Dropping %d eustalls on the floor.\n", retry_eustalls);
+          }
         }
       }
+      /* If retval == 0, fall through */
     }
-    /* If retval == 0, fall through */
     
     /* Sit for a bit on the GEM info ringbuffer */
     ring_buffer__poll(bpf_info.rb, 100);
@@ -201,7 +207,9 @@ void *collect_thread_main(void *a) {
   
 cleanup:
   free(perf_buf);
-  close(perf_fd);
+  for(i = 0; i < num_perf_fd; i++) {
+    close(perf_fd[i]);
+  }
   deinit_bpf_prog();
   
   return NULL;
@@ -282,8 +290,7 @@ int main(int argc, char **argv) {
       printf("[unknown];"); \
     } \
     printf("-;"); \
-    printf("%s_[g];", insn_text); \
-    printf("0x%lx_[g];", tmp_offset);
+    printf("%s_[g];", insn_text);
   
   ctx = iga_init();
   for(i = 0; i < gem_arr_used; i++) {
@@ -324,39 +331,48 @@ int main(int argc, char **argv) {
       
       if((*found)->active) {
         PRINT_FRONT_STACK();
-        printf("active_[g] %u\n", (*found)->active);
+        printf("active_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->active);
       }
       if((*found)->other) {
         PRINT_FRONT_STACK();
-        printf("other_[g] %u\n", (*found)->other);
+        printf("other_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->other);
       }
       if((*found)->control) {
         PRINT_FRONT_STACK();
-        printf("control_[g] %u\n", (*found)->control);
+        printf("control_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->control);
       }
       if((*found)->pipestall) {
         PRINT_FRONT_STACK();
-        printf("pipestall_[g] %u\n", (*found)->pipestall);
+        printf("pipestall_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->pipestall);
       }
       if((*found)->send) {
         PRINT_FRONT_STACK();
-        printf("send_[g] %u\n", (*found)->send);
+        printf("send_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->send);
       }
       if((*found)->dist_acc) {
         PRINT_FRONT_STACK();
-        printf("dist_acc_[g] %u\n", (*found)->dist_acc);
+        printf("dist_acc_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->dist_acc);
       }
       if((*found)->sbid) {
         PRINT_FRONT_STACK();
-        printf("sbid_[g] %u\n", (*found)->sbid);
+        printf("sbid_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->sbid);
       }
       if((*found)->sync) {
         PRINT_FRONT_STACK();
-        printf("sync_[g] %u\n", (*found)->sync);
+        printf("sync_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->sync);
       }
       if((*found)->inst_fetch) {
         PRINT_FRONT_STACK();
-        printf("inst_fetch_[g] %u\n", (*found)->inst_fetch);
+        printf("inst_fetch_[g];");
+        printf("0x%lx_[g] %u\n", tmp_offset, (*found)->inst_fetch);
       }
     }
   }

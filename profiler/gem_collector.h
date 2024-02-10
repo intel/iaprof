@@ -30,6 +30,22 @@ int get_buffer_profile(uint64_t file, uint32_t handle) {
   return -1;
 }
 
+/* Return -1 if not found, otherwise the index of the buffer_profile */
+int get_buffer_profile_by_binding(uint64_t file, uint32_t handle) {
+  int n;
+  GEM_ARR_TYPE *gem;
+  
+  for(n = 0; n < gem_arr_used; n++) {
+    gem = &gem_arr[n];
+    if((gem->vm_bind_info.handle == handle) &&
+       (gem->vm_bind_info.file   == file)) {
+      return n;
+    }
+  }
+  
+  return -1;
+}
+
 /* Ensure that we have enough room to place a newly-seen sample, and place it.
    Does NOT grab the lock, so the caller should. */
 uint64_t grow_sample_arr() {
@@ -159,10 +175,37 @@ int handle_vm_bind(void *data_arg) {
 }
 
 int handle_vm_unbind(void *data_arg) {
+  GEM_ARR_TYPE *gem;
   struct vm_unbind_info *info;
+  int index;
+  
+  if(pthread_rwlock_wrlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
+  }
+  
   info = (struct vm_unbind_info *) data_arg;
   if(debug) {
     print_vm_unbind(info);
+  }
+  
+  /* Try to find the buffer that this is unbinding, and if so,
+     clear its vm_bind_info. */
+  index = get_buffer_profile_by_binding(info->file, info->handle);
+  if(index == -1) {
+    if(pthread_rwlock_unlock(&gem_lock) != 0) {
+      fprintf(stderr, "Failed to acquire the gem_lock!\n");
+      return -1;
+    }
+    fprintf(stderr, "WARNING: Got a vm_unbind on file=0x%llx handle=%u for which there wasn't a vm_bind!\n", info->file, info->handle);
+    return 0;
+  }
+  gem = &(gem_arr[index]);
+  memset(&(gem->vm_bind_info), 0, sizeof(struct vm_bind_info));
+  
+  if(pthread_rwlock_unlock(&gem_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the gem_lock!\n");
+    return -1;
   }
   
   return 0;
@@ -170,7 +213,7 @@ int handle_vm_unbind(void *data_arg) {
 
 int handle_execbuf_start(void *data_arg) {
   GEM_ARR_TYPE *gem;
-  uint32_t vm_id;
+  uint32_t vm_id, pid;
   int n;
   struct execbuf_start_info *info;
   
@@ -191,9 +234,11 @@ int handle_execbuf_start(void *data_arg) {
      
      Here, we'll iterate over all buffers in the given vm_id. */
   vm_id = info->vm_id;
+  pid = info->pid;
   for(n = 0; n < gem_arr_used; n++) {
     gem = &gem_arr[n];
-    if(gem->vm_bind_info.vm_id == vm_id) {
+    if((gem->vm_bind_info.vm_id == vm_id) &&
+       (gem->vm_bind_info.pid == pid)) {
       memcpy(&(gem->exec_info), info, sizeof(struct execbuf_start_info));
     }
     if(gem->execbuf_stack_str == NULL) {

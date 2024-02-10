@@ -22,10 +22,12 @@ int init_syms_cache() {
 void store_stack(uint32_t pid, int stackid, char **stack_str) {
   const struct syms *syms;
   const struct sym *sym;
-  int sfd, i;
+  int sfd, i, last_i;
   size_t len, cur_len, new_len;
   const char *to_copy;
   const char *unknown = "unknown";
+  char *dso_name;
+  unsigned long dso_offset;
   
   if(pid == 0) {
     *stack_str = strdup("[unknown]");
@@ -48,8 +50,15 @@ void store_stack(uint32_t pid, int stackid, char **stack_str) {
     return;
   }
   
+  /* Start at the last IP */
+  last_i = 0;
   for(i = 0; i < MAX_STACK_DEPTH && ip[i]; i++) {
-    sym = syms__map_addr(syms, ip[i]);
+    last_i = i;
+  }
+  
+  for(i = last_i; i >= 0; i--) {
+    dso_name = NULL;
+    sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
     cur_len = 0;
     if(*stack_str) {
       cur_len = strlen(*stack_str);
@@ -57,7 +66,11 @@ void store_stack(uint32_t pid, int stackid, char **stack_str) {
     if(sym) {
       to_copy = sym->name;
     } else {
-      to_copy = unknown;
+      if(dso_name) {
+        to_copy = dso_name;
+      } else {
+        to_copy = unknown;
+      }
     }
     len = strlen(to_copy);
     new_len = cur_len + len + 2;

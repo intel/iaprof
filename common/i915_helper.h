@@ -53,9 +53,9 @@ static inline uint64_t CANONICAL(uint64_t offset) {
       /* Beginning condition */ \
       for(int iter__ = 0; \
       /* Finished condition */ \
-      (iter__ < engine__->num_engines) && (region__ = regions__->regions[iter__].region, 1); \
+      (iter__ < engines__->num_engines) && (engine__ = &(engines__->engines[iter__].engine), 1); \
       /* Incrementing */ \
-      iter__ += ((region__.memory_class != I915_MEMORY_CLASS_SYSTEM) && (region__.memory_class != I915_MEMORY_CLASS_DEVICE)) ? 2 : 1)
+      iter__ += 1)
 
 int i915_ctx_create_all_engines(int fd, uint32_t *ctx_id, struct drm_i915_query_engine_info *engines) {
   int i;

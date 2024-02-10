@@ -53,8 +53,9 @@ iga_context_t *iga_init() {
 }
 
 char *iga_disassemble_single(iga_context_t *ctx, unsigned char *data) {
-  char *text;
+  char *text, *tok, *first_tok;
   iga_status_t status;
+  int field;
   
   iga_disassemble_options_t opts = {
     sizeof(iga_disassemble_options_t),
@@ -69,8 +70,28 @@ char *iga_disassemble_single(iga_context_t *ctx, unsigned char *data) {
     fprintf(stderr, "IGA failed to disassemble an instruction! Error: %s\n", iga_status_to_str(status));
     return NULL;
   }
+  if(!text) {
+    fprintf(stderr, "IGA failed to disassemble an instruction by returning a NULL pointer!\n");
+    return NULL;
+  }
   
-  return text;
+  /* Post-process the text by grabbing the second field (space-separated).
+     TODO: This might be better if we used the JSON output from
+     IGA, then parsed that instead. */
+     
+  fprintf(stderr, "Parsing: %s\n", text);
+  tok = strtok(text, " ");
+  if(!tok) {
+    /* There were no spaces in the string at all, so return the whole thing */
+    return strdup(text);
+  }
+  first_tok = tok;
+  tok = strtok(NULL, " ");
+  if(!tok) {
+    /* There was only one space in the whole string, so return the rest of the string */
+    return strdup(first_tok);
+  }
+  return strdup(tok);
 }
 
 void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data, size_t data_sz) {

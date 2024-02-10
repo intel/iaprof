@@ -22,7 +22,8 @@ uint64_t decanonize(uint64_t address) {
 
 
 int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
-                     uint64_t gpu_addr, uint64_t offset) {
+                     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
+                     unsigned long long time) {
   struct offset_profile **found;
   struct offset_profile *profile;
   
@@ -38,7 +39,7 @@ int associate_sample(struct eustall_sample *sample, GEM_ARR_TYPE *gem,
   }
   
   if(debug) {
-    print_eustall(sample, gpu_addr, offset, gem->mapping_info.handle, "");
+    print_eustall(sample, gpu_addr, offset, gem->mapping_info.handle, subslice, time);
   }
   
   /* Check if this offset has been seen yet */
@@ -66,14 +67,20 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct prelim_drm_i915_stall_cntr_info info;
   int i, n, num_not_found;
   char found;
-  uint64_t addr, start, end, offset;
+  uint64_t addr, start, end, offset, last_found_start;
   struct eustall_sample sample;
   GEM_ARR_TYPE *gem;
+  struct timespec spec;
+  unsigned long long time;
   
   if(pthread_rwlock_rdlock(&gem_lock) != 0) {
     fprintf(stderr, "Failed to grab the gem_lock for reading.\n");
     return -1;
   }
+  
+  /* Get the timestamp */
+  clock_gettime(CLOCK_MONOTONIC, &spec);
+  time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
   
   num_not_found = 0;
   for(i = 0; i < len; i += 64) {
@@ -82,23 +89,40 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
     memcpy(&info, perf_buf + i + 48, sizeof(info));
     addr = ((uint64_t) sample.ip) << 3;
     
+    /* Look up this sample by the GPU address (sample.ip). If we find
+       multiple matches, that means that multiple contexts are using
+       the same virtual address, and there's no way to determine which
+       one the EU stall is associated with */
     found = 0;
+    last_found_start = 0;
     for(n = 0; n < gem_arr_used; n++) {
       gem = &gem_arr[n];
       start = gem->vm_bind_info.gpu_addr & 0xffffffff;
       end = start + gem->vm_bind_info.size;
       
       if((addr >= start) && (addr < end)) {
-/*         offset = ((uint64_t) sample.ip) - (start >> 3); */
         offset = addr - start;
-        associate_sample(&sample, gem, addr, offset);
-        found = 1;
-        break;
+        if(found && (last_found_start != start)) {
+          /* If we found multiple buffers, not starting at the same
+             address, that could have caused this EU stall, just bail out. */
+          found = 0;
+          break;
+        }
+        found++;
+        last_found_start = start;
+        continue;
       }
     }
-    if(!found) {
-/*       print_eustall(&sample, addr, 0, 0, ""); */
+    if(found == 0) {
+      print_eustall_drop(&sample, addr, info.subslice, time);
       num_not_found++;
+    } else if(found == 1) {
+      associate_sample(&sample, gem, addr, offset, info.subslice, time);
+    } else if(found > 1) {
+      /* Multiple buffers could "claim" this EU stall, but we've
+         confirmed that they all start with the same address. Print
+         what information we know: the offset and subslice. */
+      print_eustall_churn(&sample, addr, offset, info.subslice, time);
     }
   }
   
@@ -110,9 +134,10 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
   return num_not_found;
 }
 
-int configure_eustall() {
-  int perf_fd;
+int configure_eustall(int **perf_fd, int *num_perf_fd) {
   struct device_info *devinfo;
+  struct i915_engine_class_instance *engine_class;
+  int i, fd;
   
   /* Grab the i915 driver file descriptor */
   devinfo = open_first_driver();
@@ -137,8 +162,11 @@ int configure_eustall() {
 		PRELIM_DRM_I915_EU_STALL_PROP_SAMPLE_RATE, p_rate,
 		PRELIM_DRM_I915_EU_STALL_PROP_POLL_PERIOD, p_poll_period,
 		PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT, p_event_count,
-		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS, p_eng_class,
-		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, p_eng_inst,
+		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS, 4,
+		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, 0,
+		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, 1,
+		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, 2,
+		PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE, 3,
   };
   
 	struct drm_i915_perf_open_param param = {
@@ -146,21 +174,30 @@ int configure_eustall() {
 			 PRELIM_I915_PERF_FLAG_FD_EU_STALL |
 			 I915_PERF_FLAG_DISABLED,
 		.num_properties = sizeof(properties) / 16,
-		.properties_ptr = (unsigned long long) properties,
+    .properties_ptr = (unsigned long long) properties,
 	};
-
+  
+/*   i = 0; */
+/*   for_each_engine(devinfo->engine_info, engine_class) { */
+/*     if(engine_class->engine_class == PRELIM_I915_ENGINE_CLASS_COMPUTE) { */
+      
   /* Open the fd */
-  perf_fd = ioctl_do(devinfo->fd, DRM_IOCTL_I915_PERF_OPEN, &param);
-  if(perf_fd < 0) {
+  fd = ioctl_do(devinfo->fd, DRM_IOCTL_I915_PERF_OPEN, &param);
+  if(fd < 0) {
     fprintf(stderr, "Failed to open the perf file descriptor.\n");
     return -1;
   }
   
   /* Enable the fd */
-  ioctl(perf_fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+  ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+  
+  /* Store the fd */
+  *perf_fd = realloc(*perf_fd, sizeof(int) * (i + 1));
+  (*perf_fd)[i] = fd;
+  (*num_perf_fd)++;
   
   /* Free up the device info */
   free_driver(devinfo);
   
-  return perf_fd;
+  return 0;
 }
