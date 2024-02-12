@@ -9,18 +9,17 @@
 *    DISCOVERY     *
 *******************/
 
-#define DEFAULT_SAMPL_RATE  7
+#define DEFAULT_SAMPL_RATE  4
 #define DEFAULT_DSS_BUF_SIZE  (128 * 1024)
 #define DEFAULT_USER_BUF_SIZE  (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS  1000000
-#define DEFAULT_EVENT_COUNT  1
+#define DEFAULT_POLL_PERIOD_NS  10000000
+#define DEFAULT_EVENT_COUNT  1000
 
 static uint64_t p_poll_period = DEFAULT_POLL_PERIOD_NS;
 static uint32_t p_event_count = DEFAULT_EVENT_COUNT;
 static uint32_t p_user = DEFAULT_USER_BUF_SIZE;
 static uint32_t p_size = DEFAULT_DSS_BUF_SIZE;
 static uint8_t p_rate = DEFAULT_SAMPL_RATE;
-static uint8_t p_eng_inst = 0;
 
 #define DRIVER_BASE "/dev/dri/card"
 

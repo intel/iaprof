@@ -125,9 +125,9 @@ void sanity_checks() {
 /* Global array of GEMs that we've seen.
    This is what we'll search through when we get an
    EU stall sample. */
-pthread_rwlock_t gem_lock = PTHREAD_RWLOCK_INITIALIZER;
-GEM_ARR_TYPE *gem_arr = NULL;
-size_t gem_arr_sz = 0, gem_arr_used = 0;
+pthread_rwlock_t buffer_profile_lock = PTHREAD_RWLOCK_INITIALIZER;
+struct buffer_profile *buffer_profile_arr = NULL;
+size_t buffer_profile_size = 0, buffer_profile_used = 0;
 
 struct bpf_info_t bpf_info = {};
 int perf_fd;
@@ -145,7 +145,7 @@ void stop_collect_thread() {
 
 void *collect_thread_main(void *a) {
   uint8_t *perf_buf;
-  int *perf_fd, num_perf_fd, i;
+  int perf_fd, i;
   int retval, retry_eustalls, len;
   sigset_t mask;
   
@@ -162,8 +162,8 @@ void *collect_thread_main(void *a) {
   init_bpf_prog();
   
   /* Initialize the EU stall collection */
-  retval = configure_eustall(&perf_fd, &num_perf_fd);
-  if(retval != 0) {
+  perf_fd = configure_eustall();
+  if(perf_fd < 0) {
     fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
     exit(1);
   }
@@ -175,24 +175,22 @@ void *collect_thread_main(void *a) {
   retry_eustalls = 0;
   while(collect_thread_should_stop == 0) {
     
-    for(i = 0; i < num_perf_fd; i++) {
-      /* Check if there are eustalls */
-      retry_eustalls = 0;
-      pollfd.fd = perf_fd[i];
-      retval = poll(&pollfd, 1, 1);
-      if(retval < 0) {
-        fprintf(stderr, "An error occurred while readin the EU stall file descriptor! Aborting.\n");
-        goto cleanup;
-      } else if(retval > 0) {
-        /* There are samples to read */
-        len = read(perf_fd[i], perf_buf, p_user);
-        if(len > 0) {
-          retry_eustalls = handle_eustall_samples(perf_buf, len);
-          if(retry_eustalls == -1) {
-            return NULL;
-          } else if(retry_eustalls >= 1) {
-            fprintf(stderr, "WARNING: Dropping %d eustalls on the floor.\n", retry_eustalls);
-          }
+    /* Check if there are eustalls */
+    retry_eustalls = 0;
+    pollfd.fd = perf_fd;
+    retval = poll(&pollfd, 1, 1);
+    if(retval < 0) {
+      fprintf(stderr, "An error occurred while readin the EU stall file descriptor! Aborting.\n");
+      goto cleanup;
+    } else if(retval > 0) {
+      /* There are samples to read */
+      len = read(perf_fd, perf_buf, p_user);
+      if(len > 0) {
+        retry_eustalls = handle_eustall_samples(perf_buf, len);
+        if(retry_eustalls == -1) {
+          return NULL;
+        } else if(retry_eustalls >= 1) {
+          fprintf(stderr, "WARNING: Dropping %d eustalls on the floor.\n", retry_eustalls);
         }
       }
       /* If retval == 0, fall through */
@@ -207,9 +205,7 @@ void *collect_thread_main(void *a) {
   
 cleanup:
   free(perf_buf);
-  for(i = 0; i < num_perf_fd; i++) {
-    close(perf_fd[i]);
-  }
+  close(perf_fd);
   deinit_bpf_prog();
   
   return NULL;
@@ -240,13 +236,13 @@ int main(int argc, char **argv) {
   struct timespec leftover, request = {
     1, 0
   };
-  GEM_ARR_TYPE *gem;
+  struct buffer_profile *gem;
   int i, n;
   struct offset_profile **found;
   iga_context_t *ctx;
   uint64_t tmp_offset, *tmp;
   char *insn_text;
-  const char *failed_decode = "[failed_decode]";
+  char *failed_decode = "[failed_decode]";
   
   sanity_checks();
   read_opts(argc, argv);
@@ -293,8 +289,8 @@ int main(int argc, char **argv) {
     printf("%s_[g];", insn_text);
   
   ctx = iga_init();
-  for(i = 0; i < gem_arr_used; i++) {
-    gem = &gem_arr[i];
+  for(i = 0; i < buffer_profile_used; i++) {
+    gem = &buffer_profile_arr[i];
     if(!gem->has_stalls) continue;
     if(gem->exec_info.pid == 0) {
       fprintf(stderr, "WARNING: PID for handle %u is zero!\n", gem->mapping_info.handle);
@@ -304,7 +300,7 @@ int main(int argc, char **argv) {
       
       /* First, disassemble the instruction */
       if((!gem->buff_sz) || (!gem->buff)) {
-        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n", gem->mapping_info.handle);
+        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n", gem->vm_bind_info.handle);
         continue;
       }
       if(gem->mapping_info.handle == 2) {
@@ -312,20 +308,20 @@ int main(int argc, char **argv) {
       }
       if(tmp_offset > gem->buff_sz) {
         fprintf(stderr, "WARNING: Got an EU stall past the end of a buffer. ");
-        fprintf(stderr, "handle=%u cpu_addr=0x%lx offset=0x%lx buff_sz=%lu\n",
+        fprintf(stderr, "handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
                 gem->mapping_info.handle, gem->buff, tmp_offset, gem->buff_sz);
-      }
-      insn_text = iga_disassemble_single(ctx, gem->buff + tmp_offset);
-      if(insn_text == NULL) {
         insn_text = failed_decode;
-        fprintf(stderr, "Failed disassembly happened at handle=%u offset=0x%lx\n",
-                gem->mapping_info.handle, tmp_offset);
-/*         printf("Disassembling offset=0x%lx in this size=%lu kernel:\n", tmp_offset, gem->buff_sz); */
-/*         iga_disassemble_shader(ctx, gem->buff, gem->buff_sz); */
-      }
-      for(n = 0; n < strlen(insn_text); n++) {
-        if(insn_text[n] == ';') {
-          insn_text[n] = ',';
+      } else {
+        insn_text = iga_disassemble_single(ctx, gem->buff + tmp_offset);
+        if(insn_text == NULL) {
+          insn_text = failed_decode;
+          fprintf(stderr, "Failed disassembly happened at handle=%u offset=0x%lx\n",
+                  gem->mapping_info.handle, tmp_offset);
+        }
+        for(n = 0; n < strlen(insn_text); n++) {
+          if(insn_text[n] == ';') {
+            insn_text[n] = ',';
+          }
         }
       }
       

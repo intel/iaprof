@@ -91,8 +91,8 @@ struct {
 struct {
   __uint(type, BPF_MAP_TYPE_STACK_TRACE);
   __uint(key_size, sizeof(u32));
-  __uint(value_size, 127 * sizeof(unsigned long));
-  __uint(max_entries, 1024);
+  __uint(value_size, MAX_STACK_DEPTH * sizeof(u64));
+  __uint(max_entries, 5000);
 } stackmap SEC(".maps");
 
 /***************************************
@@ -198,7 +198,7 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
   /* Reserve some space on the ringbuffer */
   info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
   if(!info) {
-    bpf_printk("WARNING: mmal_ioctl_kretprobe failed to reserve in the ringbuffer.");
+    bpf_printk("WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
     return -1;
   }
   
@@ -284,7 +284,7 @@ int mmap_offset_ioctl_kprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_offset_wait_for_ret, &cpu, &val, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_offset_ioctl_kprobe on cpu %u", cpu);
+/*   bpf_printk("mmap_offset_ioctl_kprobe on cpu %u", cpu); */
   
   return 0;
 }
@@ -319,7 +319,7 @@ int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_offset_wait_for_mmap, &fake_offset, &mmap_val, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle);
+/*   bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle); */
   
   return 0;
 }
@@ -342,7 +342,7 @@ int mmap_kprobe(struct pt_regs *ctx)
   bpf_map_update_elem(&mmap_wait_for_ret, &cpu, &val, 0);
   
   /* DEBUG */
-  bpf_printk("mmap_kprobe vma=0x%llx", vma);
+/*   bpf_printk("mmap_kprobe vma=0x%llx", vma); */
   
   return 0;
 }
@@ -380,7 +380,7 @@ int mmap_kretprobe(struct pt_regs *ctx)
   /* Reserve some space on the ringbuffer */
   info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
   if(!info) {
-    bpf_printk("WARNING: mmal_ioctl_kretprobe failed to reserve in the ringbuffer.");
+    bpf_printk("WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
     return -1;
   }
 
@@ -472,7 +472,7 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
         if(param == I915_CONTEXT_PARAM_VM) {
           /* Someone is trying to set the VM for this context, let's store it */
           vm_id = BPF_CORE_READ_USER(setparam_ext, param).value;
-          bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id);
+/*           bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id); */
           bpf_map_update_elem(&context_create_wait_for_exec, &ctx_id, &vm_id, 0);
         }
       }
@@ -625,7 +625,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   }
   val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &addr);
   if(!val) {
-    bpf_printk("WARNING: munmap_tp failed to find addr=%lx in mmap_wait_for_unmap.", addr);
+/*     bpf_printk("WARNING: munmap_tp failed to find addr=%lx in mmap_wait_for_unmap.", addr); */
     return -1;
   }
   
@@ -653,7 +653,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
   if(err) {
     bpf_ringbuf_discard(bin, 0);
-    bpf_printk("WARNING: munmap_tp failed to copy bytes from cpu_addr=0x%lx.", addr);
+/*     bpf_printk("WARNING: munmap_tp failed to copy %lu bytes from cpu_addr=0x%lx.", size, addr); */
     return -1;
   }
   bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);

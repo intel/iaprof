@@ -92,10 +92,9 @@ struct buffer_profile {
   struct shader_profile shader_profile;
 };
 
-#define GEM_ARR_TYPE struct buffer_profile
-extern pthread_rwlock_t gem_lock;
-extern GEM_ARR_TYPE *gem_arr;
-extern size_t gem_arr_sz, gem_arr_used;
+extern pthread_rwlock_t buffer_profile_lock;
+extern struct buffer_profile *buffer_profile_arr;
+extern size_t buffer_profile_size, buffer_profile_used;
 
 extern char verbose;
 

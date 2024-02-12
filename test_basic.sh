@@ -18,10 +18,7 @@ cd /home/macslayer/workloads/oneDNN/build/tests/benchdnn
 ./benchdnn ${BENCHDNN_ARGS} \
   &> workload1.txt &
 WORKLOAD_PID1=$!
-# ./benchdnn ${BENCHDNN_ARGS} \
-#   &> workload2.txt &
-# WORKLOAD_PID2=$!
-wait ${WORKLOAD_PID1} # ${WORKLOAD_PID2}
+wait ${WORKLOAD_PID1}
 
 kill -INT $PROFILER_PID
 wait $PROFILER_PID

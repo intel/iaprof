@@ -12,9 +12,9 @@ sleep 5
 cd /home/macslayer/workloads/matrix_multiply
 ./run.sh &> workload1.txt &
 WORKLOAD_PID1=$!
-./run.sh &> workload2.txt &
-WORKLOAD_PID2=$!
-wait ${WORKLOAD_PID1} ${WORKLOAD_PID2}
+# ./run.sh &> workload2.txt &
+# WORKLOAD_PID2=$!
+wait ${WORKLOAD_PID1} # ${WORKLOAD_PID2}
 
 kill -INT $PROFILER_PID
 wait $PROFILER_PID

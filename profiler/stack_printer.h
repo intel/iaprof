@@ -2,11 +2,15 @@
 
 #include <stdint.h>
 #include "trace_helpers.h"
-
-#define MAX_STACK_DEPTH 127
+#include "bpf/gem_collector.h"
 
 static struct syms_cache *syms_cache = NULL;
-static unsigned long ip[MAX_STACK_DEPTH * sizeof(unsigned long)];
+static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
+
+/* A temporary string we can use to store the maximum characters
+   necessary to print a hexadecimal uint64_t. */
+#define MAX_CHARS_UINT64 19
+static char tmp_str[MAX_CHARS_UINT64];
 
 int init_syms_cache() {
   if(syms_cache == NULL) {
@@ -25,7 +29,6 @@ void store_stack(uint32_t pid, int stackid, char **stack_str) {
   int sfd, i, last_i;
   size_t len, cur_len, new_len;
   const char *to_copy;
-  const char *unknown = "unknown";
   char *dso_name;
   unsigned long dso_offset;
   
@@ -44,6 +47,10 @@ void store_stack(uint32_t pid, int stackid, char **stack_str) {
     return;
   }
   syms = syms_cache__get_syms(syms_cache, pid);
+  if(!syms) {
+    fprintf(stderr, "WARNING: Failed to get syms for PID %" PRIu32 "\n", pid);
+    return;
+  }
   
   if (bpf_map_lookup_elem(sfd, &stackid, ip) != 0) {
     *stack_str = strdup("[unknown]");
@@ -69,7 +76,9 @@ void store_stack(uint32_t pid, int stackid, char **stack_str) {
       if(dso_name) {
         to_copy = dso_name;
       } else {
-        to_copy = unknown;
+        memset(tmp_str, 0, MAX_CHARS_UINT64);
+        sprintf(tmp_str, "0x%lx", ip[i]);
+        to_copy = tmp_str;
       }
     }
     len = strlen(to_copy);
