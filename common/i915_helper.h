@@ -1,7 +1,10 @@
 #pragma once
 
+#include <stdio.h>
+#include <string.h>
 #include <errno.h>
 #include <stddef.h>
+#include <inttypes.h>
 #include <sys/mman.h>
 #include <search.h>
 #include <unistd.h>

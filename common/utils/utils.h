@@ -1,10 +1,12 @@
 #pragma once
+
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <inttypes.h>
 
-void dump_buffer(unsigned char *kernel, __u64 size, __u32 id) {
+void dump_buffer(unsigned char *kernel, uint64_t size, uint32_t id) {
   char filename[256];
   unsigned int i;
   FILE *tmpfile;
@@ -54,7 +56,7 @@ void print_map(pid_t pid) {
   fflush(stdout);
 }
 
-unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
+unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size) {
   size_t num_read;
   FILE *mem_file;
   char filename[256];
@@ -72,7 +74,7 @@ unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
   /* Seek to the spot in the application's address space */
   retval = fseeko(mem_file, ptr, SEEK_SET);
   if(retval != 0) {
-    fprintf(stderr, "WARNING: copy_buffer failed to seek to 0x%llx!\n", ptr);
+    fprintf(stderr, "WARNING: copy_buffer failed to seek to 0x%lx!\n", ptr);
     fclose(mem_file);
     return NULL;
   }
@@ -83,7 +85,7 @@ unsigned char *copy_buffer(__u32 pid, __u64 ptr, __u64 size) {
   /* Read the data */
   num_read = fread(data, 1, size, mem_file);
   if(num_read != size) {
-    fprintf(stderr, "WARNING: copy_buffer failed to read 0x%llx!\n", ptr);
+    fprintf(stderr, "WARNING: copy_buffer failed to read 0x%lx!\n", ptr);
     if(ferror(mem_file)) {
       perror("Error while reading file");
       fclose(mem_file);

@@ -53,21 +53,60 @@ echo ""
 # Create the bin directory
 mkdir -p ${BASE_DIR}/bin
 
-# Compile the profiler
 PROFILER_DIR="${BASE_DIR}/profiler"
 echo "Building ${PROFILER_DIR}..."
 cd ${PROFILER_DIR}/bpf
 source build.sh
 cd ${PROFILER_DIR}
+
+# pvc_profile.c
 ${CC} -gdwarf-4 -c \
   -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/pvc_profile.c \
   -o ${PROFILER_DIR}/pvc_profile.o
+  
+# gem_collector.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/gem_collector.c \
+  -o ${PROFILER_DIR}/gem_collector.o
+  
+# eustall_collector.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/eustall_collector.c \
+  -o ${PROFILER_DIR}/eustall_collector.o
+  
+# shader_decoder.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/shader_decoder.c \
+  -o ${PROFILER_DIR}/shader_decoder.o
+  
+# printer.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/printer.c \
+  -o ${PROFILER_DIR}/printer.o
+  
+# stack_printer.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/stack_printer.c \
+  -o ${PROFILER_DIR}/stack_printer.o
+  
 ${CC} ${LDFLAGS} \
-  ${PROFILER_DIR}/pvc_profile.o \
   ${COMMON_DIR}/drm_helper.o \
   ${COMMON_DIR}/trace_helpers.o \
   ${COMMON_DIR}/uprobe_helpers.o \
+  \
+  ${PROFILER_DIR}/pvc_profile.o \
+  ${PROFILER_DIR}/gem_collector.o \
+  ${PROFILER_DIR}/eustall_collector.o \
+  ${PROFILER_DIR}/shader_decoder.o \
+  \
+  ${PROFILER_DIR}/printer.o \
+  ${PROFILER_DIR}/stack_printer.o \
   -gdwarf-4 \
   -o ${BASE_DIR}/bin/pvc_profile \
   -L${PREFIX}/lib -liga64 \

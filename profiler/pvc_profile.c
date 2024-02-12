@@ -1,8 +1,6 @@
 /*
-  i915 TEST
+  PVC Profile
   =================
-  
-  This is a small test program to play around with the i915 performance counter interface.
 */
 
 #define _GNU_SOURCE
@@ -19,17 +17,19 @@
 #include <pthread.h>
 #include <assert.h>
 
+#include <iga/iga.h>
+
 #include "pvc_profile.h"
 
 #include "common.h"
+#include "utils/utils.h"
 #include "drm_helper.h"
-#include "i915_helper.h"
-#include "eustall_collector.h"
 
+#include "eustall_collector.h"
+#include "shader_decoder.h"
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
 #include "gem_collector.h"
-
 #include "printer.h"
 
 /*******************
