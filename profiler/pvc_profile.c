@@ -37,13 +37,10 @@
 *******************/
 
 int pid = 0;
-char bpf = 0;
 char verbose = 0;
 char debug = 0;
 
 static struct option long_options[] = {
-  {"pid", required_argument, 0, 'p'},
-  {"bpf", no_argument, 0, 'b'},
   {"verbose", no_argument, 0, 'v'},
   {"debug", no_argument, 0, 'd'},
   {0}
@@ -55,19 +52,13 @@ int read_opts(int argc, char **argv) {
   
   while(1) {
     option_index = 0;
-    c = getopt_long(argc, argv, "p:bvd", long_options, &option_index);
+    c = getopt_long(argc, argv, "vd", long_options, &option_index);
     if(c == -1) {
       break;
     }
     switch(c) {
       case 'd':
         debug = 1;
-        break;
-      case 'p':
-        pid = (int) strtol(optarg, NULL, 10);
-        break;
-      case 'b':
-        bpf = 1;
         break;
       case 'v':
         verbose = 1;

@@ -2,7 +2,8 @@
 
 ###################################################################
 #                              NOTE
-#  This is NOT meant to be used standalone.
+#  This is NOT meant to be used standalone. It is intended to be run
+#  from the build.sh in the parent directory.
 ###################################################################
 BUILD_DEPS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PREFIX="${BUILD_DEPS_DIR}/install"
