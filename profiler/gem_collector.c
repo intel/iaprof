@@ -23,15 +23,18 @@
 * Buffer Profile Array
 ***************************************/
 
-/* Return -1 if not found, otherwise the index of the buffer_profile */
-int get_buffer_profile(uint64_t file, uint32_t handle) {
+/* Looks up a buffer in the buffer_profile_arr by file/handle pair
+   (using its mapping_info, or mmap call).
+   Returns -1 if not found. */
+int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle) {
   int n;
   struct buffer_profile *gem;
   
   for(n = 0; n < buffer_profile_used; n++) {
     gem = &buffer_profile_arr[n];
     if((gem->mapping_info.handle == handle) &&
-       (gem->mapping_info.file   == file)) {
+       (gem->mapping_info.file   == file) &&
+       (gem->mapping_info.pid    == pid)) {
       return n;
     }
   }
@@ -39,8 +42,10 @@ int get_buffer_profile(uint64_t file, uint32_t handle) {
   return -1;
 }
 
-/* Return -1 if not found, otherwise the index of the buffer_profile */
-int get_buffer_profile_by_binding(uint64_t file, uint32_t handle) {
+/* Looks up a buffer in the buffer_profile_arr by the file/handle pair
+   found in its vm_bind_info (or vm_bind call).
+   Returns -1 if not found. */
+int get_buffer_profile_by_binding(uint32_t pid, uint64_t file, uint32_t handle) {
   int n;
   struct buffer_profile *gem;
   
@@ -55,7 +60,7 @@ int get_buffer_profile_by_binding(uint64_t file, uint32_t handle) {
   return -1;
 }
 
-/* Return -1 if not found, otherwise the index of the buffer_profile */
+/* Looks up a buffer in the buffer_profile_arr by its GPU address. */
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr) {
   int n;
   struct buffer_profile *gem;
@@ -89,9 +94,13 @@ uint64_t grow_buffer_profiles() {
   return buffer_profile_used - 1;
 }
 
+/***************************************
+* BPF Handlers
+***************************************/
+
 int handle_mapping(void *data_arg) {
   struct buffer_profile *gem;
-  int index;
+  int mapping_index, vm_bind_index, index;
   struct mapping_info *info;
   
   if(pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
@@ -104,16 +113,22 @@ int handle_mapping(void *data_arg) {
     print_mapping(info);
   }
   
-  /* First, check to see if this mapping has already had vm_bind
-     called on it. */
-  index = get_buffer_profile_by_binding(info->file, info->handle);
-  if(index == -1) {
-    index = get_buffer_profile(info->file, info->handle);
-    if(index == -1) {
-      index = grow_buffer_profiles();
-    } else {
-      fprintf(stderr, "WARNING: Detected churn on file=0x%llx handle=%u\n", info->file, info->handle);
-    }
+  /* First, check to see if we've already seen a mapping or a vm_bind called
+     on this file/handle pair. */
+  mapping_index = get_buffer_profile(info->pid, info->file, info->handle);
+  vm_bind_index = get_buffer_profile_by_binding(info->pid, info->file, info->handle);
+  if(mapping_index != -1) {
+    fprintf(stderr, "WARNING: Detected churn on pid=%u file=0x%llx handle=%u\n", info->pid, info->file, info->handle);
+  }
+  if((mapping_index == -1) && (vm_bind_index == -1)) {
+    /* Common case: this same file/handle pair wasn't already mapped. */
+    index = grow_buffer_profiles();
+  } else if((mapping_index == -1) && (vm_bind_index != -1)) {
+    /* If we've seen this buffer's vm_bind already, use that index */
+    index = vm_bind_index;
+  } else {
+    /* In this case, mapping_index is not -1. Create a new buffer. */
+    index = grow_buffer_profiles();
   }
   
   gem = &buffer_profile_arr[index];
@@ -126,10 +141,6 @@ int handle_mapping(void *data_arg) {
   
   return 0;
 }
-
-/***************************************
-* BPF Handlers
-***************************************/
 
 int handle_binary(void *data_arg) {
   struct binary_info *info;
@@ -147,7 +158,7 @@ int handle_binary(void *data_arg) {
     print_binary(info);
   }
   
-  index = get_buffer_profile(info->file, info->handle);
+  index = get_buffer_profile(info->pid, info->file, info->handle);
   if(index == -1) {
     fprintf(stderr, "WARNING: handle_binary called on a mapping that hasn't happened yet.\n");
     if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -190,7 +201,7 @@ int handle_vm_bind(void *data_arg) {
   
   /* Check to see if we've seen mmap get called on this file/handle pair
      yet. If so, use that index, but if not, allocate a new one. */
-  index = get_buffer_profile(info->file, info->handle);
+  index = get_buffer_profile(info->pid, info->file, info->handle);
   if(index == -1) {
     index = grow_buffer_profiles();
   }

@@ -138,12 +138,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
       
       offset = addr - start;
       
-      /*
-      addr=0xffe61448 start=0x200000 offset=0xffc61448 gpu_addr=0x100000000200000
-      addr=0xffe61448 start=0xffe20000 offset=0x41448 gpu_addr=0x80abffe20000
-      eustall_drop   266077437215926 0    0        0        gpu_addr=0xffe61448 subslice=0 sbid=1
-      */
-
     	if(debug) {
     	  printf("addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n", addr, start, offset, gem->vm_bind_info.gpu_addr);
     	}

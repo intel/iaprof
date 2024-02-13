@@ -164,13 +164,16 @@ SEC("kprobe/i915_gem_mmap_ioctl")
 int mmap_ioctl_kprobe(struct pt_regs *ctx)
 {
   struct mmap_ioctl_wait_for_ret_val val;
-  u32 cpu;
+  u32 cpu, pid;
   
   /* Pass two arguments to the kretprobe */
   __builtin_memset(&val, 0, sizeof(struct mmap_ioctl_wait_for_ret_val));
   val.arg = (struct drm_i915_gem_mmap *) PT_REGS_PARM2(ctx);
   val.file = PT_REGS_PARM3(ctx);
   cpu = bpf_get_smp_processor_id();
+  
+  pid = bpf_get_current_pid_tgid() >> 32;
+/*   bpf_printk("i915_gem_mmap_ioctl pid=%u\n", pid); */
   
   bpf_map_update_elem(&mmap_ioctl_wait_for_ret, &cpu, &val, 0);
   
@@ -201,7 +204,6 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
     bpf_printk("WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
     return -1;
   }
-  
 
   /* mapping specific values */
   arg = val.arg;
@@ -320,6 +322,7 @@ int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
   
   /* DEBUG */
 /*   bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle); */
+/*   bpf_printk("pid=%u", bpf_get_current_pid_tgid() >> 32); */
   
   return 0;
 }

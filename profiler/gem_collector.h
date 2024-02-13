@@ -26,8 +26,8 @@
 * of type `struct buffer_profile`.
 ***************************************/
 
-int get_buffer_profile(uint64_t file, uint32_t handle);
-int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
+int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle);
+int get_buffer_profile_by_binding(uint32_t pid, uint64_t file, uint32_t handle);
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
 uint64_t grow_buffer_profiles();
 
