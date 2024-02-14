@@ -5,7 +5,7 @@ BENCHDNN_ARGS="--engine=gpu --mode=P --mode-modifier=PM --max-ms-per-prb=100 --m
 
 ulimit -c unlimited
 ulimit -l unlimited
-./bin/pvc_profile -d \
+./bin/pvc_profile -d -v \
   1> profile.txt \
   2> profile_err.txt \
   &

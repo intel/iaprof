@@ -139,7 +139,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
       offset = addr - start;
       
     	if(debug) {
-    	  printf("addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n", addr, start, offset, gem->vm_bind_info.gpu_addr);
+    	  printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n", (uint64_t) sample.ip, addr, start, offset, gem->vm_bind_info.gpu_addr);
     	}
       if(found && (last_found_start != start)) {
         /* If we found multiple buffers, not starting at the same

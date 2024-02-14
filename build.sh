@@ -95,6 +95,12 @@ ${CC} -gdwarf-4 -c \
   ${PROFILER_DIR}/stack_printer.c \
   -o ${PROFILER_DIR}/stack_printer.o
   
+# utils.c
+${CC} -gdwarf-4 -c \
+  -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
+  ${COMMON_DIR}/utils/utils.c \
+  -o ${COMMON_DIR}/utils/utils.o
+  
 ${CC} ${LDFLAGS} \
   ${COMMON_DIR}/drm_helper.o \
   ${COMMON_DIR}/trace_helpers.o \
@@ -107,6 +113,9 @@ ${CC} ${LDFLAGS} \
   \
   ${PROFILER_DIR}/printer.o \
   ${PROFILER_DIR}/stack_printer.o \
+  \
+  ${COMMON_DIR}/utils/utils.o \
+  \
   -gdwarf-4 \
   -o ${BASE_DIR}/bin/pvc_profile \
   -L${PREFIX}/lib -liga64 \

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 
 /* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
 /* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */
@@ -82,18 +83,18 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
   uint32_t *ptr, cur_cmd, op, op_len;
   uint64_t i, n, tmp, start, end, bbsp_offset;
   unsigned char in_cmd, num_cmd_dwords;
-  struct gem_profile *gem;
+  struct buffer_profile *gem;
   
   /* Loop over the uint32_t batch buffer commands.
      `in_cmd` records the number of dwords that we're "in" a command.
      `cmd` records the command that we're "in."
      `num_cmd_dwords` records the number of dwords that the command holds. */
-  ptr = bb + offset;
+  ptr = (uint32_t *) (bb + offset);
   in_cmd = 0;
   for(i = offset / sizeof(uint32_t); i < (size - offset) / sizeof(uint32_t); i++) {
     
     if(verbose) {
-      printf("dword=0x%x offset=0x%llx\n", *ptr, i * sizeof(uint32_t));
+      printf("dword=0x%x offset=0x%lx\n", *ptr, i * sizeof(uint32_t));
       printf("in_cmd=%u cur_cmd=%u num_cmd_dwords=%u\n", in_cmd, cur_cmd, num_cmd_dwords);
     }
     
@@ -199,20 +200,20 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
             tmp = *ptr;
             parser->bbsp |= tmp << 32;
             if(verbose) {
-              printf("bbsp=0x%llx\n", parser->bbsp);
+              printf("bbsp=0x%lx\n", parser->bbsp);
             }
             
             /* At this point, we've got an address that we need to jump to,
                so go ahead and do it */
             found = 0;
-            for(n = 0; n < gem_arr_used; n++) {
-              gem = &gem_arr[n];
-              start = gem->kinfo.gpu_addr;
-              end = start + gem->kinfo.size;
+            for(n = 0; n < buffer_profile_used; n++) {
+              gem = &buffer_profile_arr[n];
+              start = gem->vm_bind_info.gpu_addr;
+              end = start + gem->vm_bind_info.size;
               if((parser->bbsp >= start) && (parser->bbsp < end)) {
                 
                 if(verbose) {
-                  printf("Found a matching batch buffer to jump to. handle=%u gpu_addr=0x%llx\n", gem->kinfo.handle, gem->kinfo.gpu_addr);
+                  printf("Found a matching batch buffer to jump to. handle=%u gpu_addr=0x%llx\n", gem->vm_bind_info.handle, gem->vm_bind_info.gpu_addr);
                 }
                 found = 1;
                 
@@ -223,12 +224,12 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
                   return;
                 }
                 
-                bbsp_offset = parser->bbsp - gem->kinfo.gpu_addr;
+                bbsp_offset = parser->bbsp - gem->vm_bind_info.gpu_addr;
                 if(verbose) {
-                  printf("Parsing a batch buffer at start=0x%llx offset=0x%llx size=0x%llx\n", gem->kinfo.addr, bbsp_offset, gem->kinfo.size);
+                  printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n", gem->mapping_info.cpu_addr, bbsp_offset, gem->mapping_info.size);
                   printf("The next dword: 0x%x\n", *(ptr + 1));
                 }
-                bb_parser_parse(parser, gem->buff, bbsp_offset, gem->kinfo.size);
+                bb_parser_parse(parser, gem->buff, bbsp_offset, gem->mapping_info.size);
                 
                 if(!(parser->bb2l)) {
                   /* If the "2nd level" bit in the MI_BATCH_BUFFER_START command
@@ -239,7 +240,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
               }
             }
             if(!found) {
-              printf("WARNING: Didn't find a match for GPU address 0x%llx\n", parser->bbsp);
+              printf("WARNING: Didn't find a match for GPU address 0x%lx\n", parser->bbsp);
               return;
             }
           }
@@ -254,6 +255,9 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
           break;
         case STATE_BASE_ADDRESS:
           if(in_cmd == 10) {
+            if(verbose) {
+              printf("Found an Instruction Base Address.\n");
+            }
             /* The tenth dword in STATE_BASE_ADDRESS
               stores 20 of the iba bits. */
             parser->iba |= (*ptr & 0xFFFFF000);

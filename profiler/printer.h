@@ -12,10 +12,13 @@
 
 int print_header();
 int print_mapping(struct mapping_info *info);
-int print_binary(struct binary_info *info);
+int print_unmap(struct unmap_info *info);
+int print_userptr(struct userptr_info *info);
 int print_vm_bind(struct vm_bind_info *info);
 int print_vm_unbind(struct vm_unbind_info *info);
+int print_batchbuffer(struct execbuf_start_info *einfo, struct vm_bind_info *info);
 int print_execbuf_start(struct execbuf_start_info *info);
+int print_execbuf_gem(struct execbuf_start_info *info, struct vm_bind_info *vinfo);
 int print_execbuf_end(struct execbuf_end_info *einfo);
 
 int print_eustall_reason(struct eustall_sample *sample);

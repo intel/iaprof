@@ -64,7 +64,9 @@ extern size_t buffer_profile_size, buffer_profile_used;
 ***************************************/
 
 int handle_mapping(void *data_arg);
-int handle_binary(void *data_arg);
+int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz, uint64_t src_sz);
+int handle_unmap(void *data_arg);
+int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
 int handle_vm_unbind(void *data_arg);
 int handle_execbuf_start(void *data_arg);
@@ -108,8 +110,8 @@ struct bpf_info_t {
   struct bpf_program *mmap_ret_prog;
   
   /* i915_gem_userptr_ioctl */
-/*   struct bpf_program *userptr_ioctl_prog; */
-/*   struct bpf_program *userptr_ioctl_ret_prog; */
+  struct bpf_program *userptr_ioctl_prog;
+  struct bpf_program *userptr_ioctl_ret_prog;
   
   /* i915_gem_vm_bind_ioctl */
   struct bpf_program *vm_bind_ioctl_prog;

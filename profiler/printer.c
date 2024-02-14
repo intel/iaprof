@@ -35,8 +35,20 @@ int print_mapping(struct mapping_info *info) {
   return 0;
 }
 
-int print_binary(struct binary_info *info) {
-  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "binary");
+int print_unmap(struct unmap_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "unmap");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n",
+         info->file, info->handle, info->cpu_addr, info->size);
+  
+  return 0;
+}
+
+int print_userptr(struct userptr_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "userptr");
   printf(" %-*llu", TIME_LEN,             info->time);
   printf(" %-*u",   CPU_LEN,              info->cpu);
   printf(" %-*u",   PID_LEN,              info->pid);
@@ -71,6 +83,18 @@ int print_vm_unbind(struct vm_unbind_info *info) {
   return 0;
 }
 
+int print_batchbuffer(struct execbuf_start_info *einfo, struct vm_bind_info *info) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "batchbuffer");
+  printf(" %-*llu", TIME_LEN,             einfo->time);
+  printf(" %-*u",   CPU_LEN,              einfo->cpu);
+  printf(" %-*u",   PID_LEN,              einfo->pid);
+  printf(" %-*u",   TID_LEN,              einfo->tid);
+  printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
+         einfo->file, einfo->bb_handle, einfo->vm_id, einfo->bb_offset, einfo->batch_len);
+  
+  return 0;
+}
+
 int print_execbuf_start(struct execbuf_start_info *info) {
   char *stack_str = NULL;
   
@@ -79,10 +103,30 @@ int print_execbuf_start(struct execbuf_start_info *info) {
   printf(" %-*u",   CPU_LEN,              info->cpu);
   printf(" %-*u",   PID_LEN,              info->pid);
   printf(" %-*u",   TID_LEN,              info->tid);
-  printf(" ");
+  printf(" bb_handle=%u bb_offset=0x%llx ",
+         info->bb_handle, info->bb_offset);
+  printf("ctx_id=%u vm_id=%u buffer_count=%u batch_len=0x%llx ",
+         info->ctx_id, info->vm_id, info->buffer_count, info->batch_len);
+  printf("batch_start_offset=0x%x batch_index=%u ",
+         info->batch_start_offset, info->batch_index);
   store_stack(info->pid, info->stackid, &stack_str);
   printf("%s", stack_str);
   printf("\n");
+  
+  return 0;
+}
+
+/* Prints buffers that an execbuffer referenced through its vm_id */
+int print_execbuf_gem(struct execbuf_start_info *info, struct vm_bind_info *vinfo) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "execbuf_gem");
+  printf(" %-*llu", TIME_LEN,             info->time);
+  printf(" %-*u",   CPU_LEN,              info->cpu);
+  printf(" %-*u",   PID_LEN,              info->pid);
+  printf(" %-*u",   TID_LEN,              info->tid);
+  printf(" ctx_id=%u vm_id=%u", 
+         info->ctx_id, info->vm_id);
+  printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
+         vinfo->file, vinfo->handle, vinfo->vm_id, vinfo->gpu_addr, vinfo->size);
   
   return 0;
 }

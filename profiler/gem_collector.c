@@ -18,6 +18,8 @@
 #include "stack_printer.h"
 #include "printer.h"
 #include "gem_collector.h"
+#include "utils/utils.h"
+#include "bb_parser.h"
 
 /***************************************
 * Buffer Profile Array
@@ -98,6 +100,8 @@ uint64_t grow_buffer_profiles() {
 * BPF Handlers
 ***************************************/
 
+/* Handles `struct mapping_info`, which comes from
+   `mmap` calls. Includes a CPU pointer. */
 int handle_mapping(void *data_arg) {
   struct buffer_profile *gem;
   int mapping_index, vm_bind_index, index;
@@ -142,10 +146,23 @@ int handle_mapping(void *data_arg) {
   return 0;
 }
 
-int handle_binary(void *data_arg) {
-  struct binary_info *info;
+int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz, uint64_t src_sz) {
   uint64_t size;
-  int index;
+  
+  size = src_sz;
+  if(size > MAX_BINARY_SIZE) {
+    size = MAX_BINARY_SIZE;
+  }
+  *dst = calloc(size, sizeof(unsigned char));
+  *dst_sz = size;
+  memcpy(*dst, src, size);
+  
+  return 0;
+}
+
+int handle_unmap(void *data_arg) {
+  struct unmap_info *info;
+  int index, retval;
   struct buffer_profile *gem;
   
   if(pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
@@ -153,28 +170,42 @@ int handle_binary(void *data_arg) {
     return -1;
   }
   
-  info = (struct binary_info *) data_arg;
+  info = (struct unmap_info *) data_arg;
   if(debug) {
-    print_binary(info);
+    print_unmap(info);
   }
   
   index = get_buffer_profile(info->pid, info->file, info->handle);
   if(index == -1) {
     fprintf(stderr, "WARNING: handle_binary called on a mapping that hasn't happened yet.\n");
-    if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-      fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-      return -1;
-    }
-    return 0;
+    goto cleanup;
   }
   gem = &(buffer_profile_arr[index]);
-  size = info->size;
-  if(size > MAX_BINARY_SIZE) {
-    size = MAX_BINARY_SIZE;
+  retval = handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size);
+  if(retval == -1) {
+    goto cleanup;
   }
-  gem->buff = calloc(size, sizeof(unsigned char));
-  gem->buff_sz = size;
-  memcpy(gem->buff, info->buff, size);
+  
+cleanup:
+  if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+    return -1;
+  }
+  return retval;
+}
+
+int handle_userptr(void *data_arg) {
+  struct userptr_info *info;
+  
+  if(pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+    fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+    return -1;
+  }
+  
+  info = (struct userptr_info *) data_arg;
+  if(debug) {
+    print_userptr(info);
+  }
   
   if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
     fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -262,9 +293,13 @@ int handle_vm_unbind(void *data_arg) {
 
 int handle_execbuf_start(void *data_arg) {
   struct buffer_profile *gem;
+  uint64_t file;
   uint32_t vm_id, pid;
   int n;
+  char found;
   struct execbuf_start_info *info;
+  unsigned char *batchbuffer;
+  struct bb_parser *parser;
   
   if(pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
     fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -284,15 +319,56 @@ int handle_execbuf_start(void *data_arg) {
      Here, we'll iterate over all buffers in the given vm_id. */
   vm_id = info->vm_id;
   pid = info->pid;
+  file = info->file;
   for(n = 0; n < buffer_profile_used; n++) {
     gem = &buffer_profile_arr[n];
+    /* We'll consider a buffer "in the same VM" if the vm_id, pid, and file are the same. */
     if((gem->vm_bind_info.vm_id == vm_id) &&
-       (gem->vm_bind_info.pid == pid)) {
+       (gem->vm_bind_info.pid == pid) &&
+       (gem->vm_bind_info.file == file)) {
+      if(debug) {
+        print_execbuf_gem(info, &(gem->vm_bind_info));
+      }
       memcpy(&(gem->exec_info), info, sizeof(struct execbuf_start_info));
     }
     if(gem->execbuf_stack_str == NULL) {
       store_stack(info->pid, info->stackid, &(gem->execbuf_stack_str));
     }
+  }
+  
+  /* The execbuffer call also specifies a handle (which is sometimes 0) and a GPU
+     address that contains the batchbuffer. Find this buffer and attempt to parse it.
+     In this loop, we're just looking for a buffer whose file pointer and gpu_addr
+     matches what was passed into the execbuffer. */
+  found = 0;
+  for(n = 0; n < buffer_profile_used; n++) {
+    gem = &buffer_profile_arr[n];
+    
+    if((gem->vm_bind_info.file == file) &&
+       (gem->vm_bind_info.gpu_addr == info->bb_offset)) {
+      if(debug) {
+        print_batchbuffer(info, &(gem->vm_bind_info));
+      }
+      if(gem->mapping_info.cpu_addr) {
+        batchbuffer = copy_buffer(pid, gem->mapping_info.cpu_addr, gem->mapping_info.size);
+        if(!batchbuffer) {
+          fprintf(stderr, "WARNING: Failed to copy the batchbuffer cpu_addr=0x%lx size=%lx\n",
+                  gem->mapping_info.cpu_addr, gem->mapping_info.size);
+          goto foundit;
+        }
+        dump_buffer(batchbuffer, gem->mapping_info.size, gem->vm_bind_info.handle);
+        parser = bb_parser_init();
+        bb_parser_parse(parser, batchbuffer, 0, info->batch_len);
+        printf("iba=0x%lx\n", parser->iba);
+        free(batchbuffer);
+      }
+foundit:
+      found = 1;
+      break;
+    }
+  }
+  if(!found) {
+    fprintf(stderr, "WARNING: Failed to find a batchbuffer at file=0x%lx bb_offset=0x%llx\n", file, info->bb_offset);
   }
   
   if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -318,7 +394,7 @@ int handle_execbuf_end(void *data_arg) {
    1. struct mapping_info. This is a struct collected when an `execbuffer` call is made,
       and represents a buffer that is either directly referenced by the `execbuffer`
       call, or a buffer that's in the "VM" assigned to the context that's executing.
-   2. struct binary_info. This is a struct collected when `munmap` is called on a
+   2. struct unmap_info. This is a struct collected when `munmap` is called on a
       VMA that was mapped by i915. Assuming we've seen the associated `mmap` call
       from i915, the buffer is then copied into the ringbuffer (along with some
       metadata).
@@ -329,11 +405,12 @@ int handle_execbuf_end(void *data_arg) {
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   unsigned char *data;
   
-  
   if(data_sz == sizeof(struct mapping_info)) {
     return handle_mapping(data_arg);
-  } else if(data_sz == sizeof(struct binary_info)) {
-    return handle_binary(data_arg);
+  } else if(data_sz == sizeof(struct unmap_info)) {
+    return handle_unmap(data_arg);
+  } else if(data_sz == sizeof(struct userptr_info)) {
+    return handle_userptr(data_arg);
   } else if(data_sz == sizeof(struct vm_bind_info)) {
     return handle_vm_bind(data_arg);
   } else if(data_sz == sizeof(struct vm_unbind_info)) {
@@ -341,7 +418,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
   } else if(data_sz == sizeof(struct execbuf_start_info)) {
     return handle_execbuf_start(data_arg);
   } else if(data_sz == sizeof(struct execbuf_end_info)) {
-    return handle_execbuf_start(data_arg);
+    return handle_execbuf_end(data_arg);
   } else {
     fprintf(stderr, "Unknown data size when handling a sample: %lu\n", data_sz);
     return -1;
@@ -463,8 +540,8 @@ int init_bpf_prog() {
   bpf_info.mmap_prog = (struct bpf_program *) bpf_info.obj->progs.mmap_kprobe;
   bpf_info.mmap_ret_prog = (struct bpf_program *) bpf_info.obj->progs.mmap_kretprobe;
   
-/*   bpf_info.userptr_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kprobe; */
-/*   bpf_info.userptr_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kretprobe; */
+  bpf_info.userptr_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kprobe;
+  bpf_info.userptr_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.userptr_ioctl_kretprobe;
   
   bpf_info.vm_bind_ioctl_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kprobe;
   bpf_info.vm_bind_ioctl_ret_prog = (struct bpf_program *) bpf_info.obj->progs.vm_bind_ioctl_kretprobe;
@@ -529,16 +606,16 @@ int init_bpf_prog() {
   }
   
   /* i915_gem_userptr_ioctl */
-/*   err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_prog, 0); */
-/*   if(err != 0) { */
-/*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
-/*     return -1; */
-/*   } */
-/*   err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_ret_prog, 1); */
-/*   if(err != 0) { */
-/*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
-/*     return -1; */
-/*   } */
+  err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_prog, 0);
+  if(err != 0) {
+    fprintf(stderr, "Failed to attach a kprobe!\n");
+    return -1;
+  }
+  err = attach_kprobe("i915_gem_userptr_ioctl", bpf_info.userptr_ioctl_ret_prog, 1);
+  if(err != 0) {
+    fprintf(stderr, "Failed to attach a kprobe!\n");
+    return -1;
+  }
   
   /* i915_gem_vm_bind_ioctl */
   err = attach_kprobe("i915_gem_vm_bind_ioctl", bpf_info.vm_bind_ioctl_prog, 0);

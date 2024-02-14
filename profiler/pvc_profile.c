@@ -72,9 +72,22 @@ int read_opts(int argc, char **argv) {
   return 0;
 }
 
+/* XXX This is a nasty hack! We're using a ringbuffer to send structs
+   from the BPF program to userspace. We're not just using one type of
+   struct, though; we're using a separate struct type per type of event.
+   Because reading a ringbuffer sample doesn't give you the *type*, just
+   a *size*, the only way to differentiate these samples is by their size.
+   
+   Therefore, we need to ensure that none of the structs that will be
+   placed in the ringbuffer are the same size. We do this with this
+   long list of assertions.
+   
+   Perhaps I should quarantine this into a separate file...? */
 void sanity_checks() {
-  static_assert(sizeof(struct mapping_info) != sizeof(struct binary_info),
-                "mapping_info is the same size as binary_info");
+  static_assert(sizeof(struct mapping_info) != sizeof(struct unmap_info),
+                "mapping_info is the same size as unmap_info");
+  static_assert(sizeof(struct mapping_info) != sizeof(struct userptr_info),
+                "mapping_info is the same size as userptr_info");
   static_assert(sizeof(struct mapping_info) != sizeof(struct vm_bind_info),
                 "mapping_info is the same size as vm_bind_info");
   static_assert(sizeof(struct mapping_info) != sizeof(struct vm_unbind_info),
@@ -84,14 +97,25 @@ void sanity_checks() {
   static_assert(sizeof(struct mapping_info) != sizeof(struct execbuf_end_info),
                 "mapping_info is the same size as execbuf_end_info");
                 
-  static_assert(sizeof(struct binary_info) != sizeof(struct vm_bind_info),
-                "binary_info is the same size as vm_bind_info");
-  static_assert(sizeof(struct binary_info) != sizeof(struct vm_unbind_info),
-                "binary_info is the same size as vm_unbind_info");
-  static_assert(sizeof(struct binary_info) != sizeof(struct execbuf_start_info),
-                "binary_info is the same size as execbuf_start_info");
-  static_assert(sizeof(struct binary_info) != sizeof(struct execbuf_end_info),
-                "binary_info is the same size as execbuf_end_info");
+  static_assert(sizeof(struct unmap_info) != sizeof(struct userptr_info),
+                "unmap_info is the same size as userptr_info");
+  static_assert(sizeof(struct unmap_info) != sizeof(struct vm_bind_info),
+                "unmap_info is the same size as vm_bind_info");
+  static_assert(sizeof(struct unmap_info) != sizeof(struct vm_unbind_info),
+                "unmap_info is the same size as vm_unbind_info");
+  static_assert(sizeof(struct unmap_info) != sizeof(struct execbuf_start_info),
+                "unmap_info is the same size as execbuf_start_info");
+  static_assert(sizeof(struct unmap_info) != sizeof(struct execbuf_end_info),
+                "unmap_info is the same size as execbuf_end_info");
+                
+  static_assert(sizeof(struct userptr_info) != sizeof(struct vm_bind_info),
+                "userptr_info is the same size as vm_bind_info");
+  static_assert(sizeof(struct userptr_info) != sizeof(struct vm_unbind_info),
+                "userptr_info is the same size as vm_unbind_info");
+  static_assert(sizeof(struct userptr_info) != sizeof(struct execbuf_start_info),
+                "userptr_info is the same size as execbuf_start_info");
+  static_assert(sizeof(struct userptr_info) != sizeof(struct execbuf_end_info),
+                "userptr_info is the same size as execbuf_end_info");
                 
   static_assert(sizeof(struct vm_bind_info) != sizeof(struct vm_unbind_info),
                 "vm_bind_info is the same size as vm_unbind_info");
@@ -113,9 +137,11 @@ void sanity_checks() {
 *     COLLECT      *
 *******************/
 
-/* Global array of GEMs that we've seen.
-   This is what we'll search through when we get an
-   EU stall sample. */
+/**
+  Global array of GEMs that we've seen.
+  This is what we'll search through when we get an
+  EU stall sample.
+**/
 pthread_rwlock_t buffer_profile_lock = PTHREAD_RWLOCK_INITIALIZER;
 struct buffer_profile *buffer_profile_arr = NULL;
 size_t buffer_profile_size = 0, buffer_profile_used = 0;
@@ -291,11 +317,8 @@ int main(int argc, char **argv) {
       
       /* First, disassemble the instruction */
       if((!gem->buff_sz) || (!gem->buff)) {
-        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n", gem->vm_bind_info.handle);
+        fprintf(stderr, "WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n", gem->mapping_info.handle);
         continue;
-      }
-      if(gem->mapping_info.handle == 2) {
-        dump_buffer(gem->buff, gem->buff_sz, gem->mapping_info.handle);
       }
       if(tmp_offset > gem->buff_sz) {
         fprintf(stderr, "WARNING: Got an EU stall past the end of a buffer. ");

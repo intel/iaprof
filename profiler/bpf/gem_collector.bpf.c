@@ -408,6 +408,90 @@ int mmap_kretprobe(struct pt_regs *ctx)
 }
 
 /***************************************
+* i915_gem_userptr_ioctl
+*
+* Userspace can give the kernel driver a pointer (and size) to
+* some CPU-allocated memory, which the kernel will then create a GEM from.
+***************************************/
+
+struct userptr_ioctl_wait_for_ret_val {
+  struct drm_i915_gem_userptr *arg;
+  u64 file;
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_ENTRIES);
+  __type(key, u32);
+  __type(value, struct userptr_ioctl_wait_for_ret_val);
+} userptr_ioctl_wait_for_ret SEC(".maps");
+
+SEC("kprobe/i915_gem_userptr_ioctl")
+int userptr_ioctl_kprobe(struct pt_regs *ctx)
+{
+  u32 cpu;
+  struct userptr_ioctl_wait_for_ret_val val;
+  
+  cpu = bpf_get_smp_processor_id();
+  __builtin_memset(&val, 0, sizeof(struct userptr_ioctl_wait_for_ret_val));
+  val.arg = (struct drm_i915_gem_userptr *) PT_REGS_PARM2(ctx);
+  val.file = PT_REGS_PARM3(ctx);
+  bpf_map_update_elem(&userptr_ioctl_wait_for_ret, &cpu, &val, 0);
+  
+  return 0;
+}
+
+SEC("kretprobe/i915_gem_userptr_ioctl")
+int userptr_ioctl_kretprobe(struct pt_regs *ctx)
+{
+  int err;
+  u32 cpu;
+  u64 size;
+  struct drm_i915_gem_userptr *arg;
+  void *lookup;
+  struct userptr_info *bin;
+  struct userptr_ioctl_wait_for_ret_val val;
+  
+  /* Get the pointer to the arguments from the kprobe */
+  cpu = bpf_get_smp_processor_id();
+  lookup = bpf_map_lookup_elem(&userptr_ioctl_wait_for_ret, &cpu);
+  if(!lookup) return 1;
+  __builtin_memcpy(&val, lookup, sizeof(struct userptr_ioctl_wait_for_ret_val));
+  arg = val.arg;
+  
+  /* Reserve some space on the ringbuffer */
+  bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
+  if(!bin) {
+    bpf_printk("WARNING: userptr_ioctl failed to reserve in the ringbuffer.");
+    return -1;
+  }
+  
+  bin->file = val.file;
+  bin->handle = BPF_CORE_READ(arg, handle);
+  bin->cpu_addr = BPF_CORE_READ(arg, user_ptr);
+  bin->size = BPF_CORE_READ(arg, user_size);
+  
+  bin->cpu = bpf_get_smp_processor_id();
+  bin->pid = bpf_get_current_pid_tgid() >> 32;
+  bin->tid = bpf_get_current_pid_tgid();
+  bin->time = bpf_ktime_get_ns();
+  
+  size = bin->size;
+  if(size > MAX_BINARY_SIZE) {
+    size = MAX_BINARY_SIZE;
+  }
+  err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
+  if(err) {
+    bpf_ringbuf_discard(bin, 0);
+    bpf_printk("WARNING: userptr_ioctl failed to copy %lu bytes.", size);
+    return -1;
+  }
+  bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
+  
+  return 0;
+}
+
+/***************************************
 * i915_gem_context_create_ioctl
 *
 * Look for gem contexts getting created, in order to see the association
@@ -619,7 +703,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   
   /* For sending to execbuffer */
   int zero = 0;
-  struct binary_info *bin;
+  struct unmap_info *bin;
   
   /* First, make sure this is an i915 buffer */
   addr = ctx->args[0];
@@ -628,12 +712,11 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   }
   val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &addr);
   if(!val) {
-/*     bpf_printk("WARNING: munmap_tp failed to find addr=%lx in mmap_wait_for_unmap.", addr); */
     return -1;
   }
   
   /* Reserve some space on the ringbuffer */
-  bin = bpf_ringbuf_reserve(&rb, sizeof(struct binary_info), 0);
+  bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
   if(!bin) {
     bpf_printk("WARNING: munmap_tp failed to reserve in the ringbuffer.");
     return -1;
@@ -656,7 +739,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
   err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
   if(err) {
     bpf_ringbuf_discard(bin, 0);
-/*     bpf_printk("WARNING: munmap_tp failed to copy %lu bytes from cpu_addr=0x%lx.", size, addr); */
+    bpf_printk("WARNING: munmap_tp failed to copy %lu bytes from cpu_addr=0x%lx.", size, addr);
     return -1;
   }
   bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
@@ -688,31 +771,32 @@ SEC("kprobe/i915_gem_do_execbuffer")
 int do_execbuffer_kprobe(struct pt_regs *ctx)
 {
   struct execbuffer_wait_for_ret_val val;
-  u32 cpu, ctx_id, vm_id;
-  u64 file, execbuffer, objects;
+  u32 cpu, ctx_id, vm_id, handle,
+      batch_index, batch_start_offset, buffer_count;
+  u64 file, batch_len, offset;
   struct execbuf_start_info *info;
-  struct drm_i915_gem_execbuffer2 *arg;
+  struct drm_i915_gem_execbuffer2 *execbuffer;
+  struct drm_i915_gem_exec_object2 *objects;
   void *val_ptr;
   
   /* Read arguments */
   file = (u64) PT_REGS_PARM2(ctx);
-  execbuffer = (u64) PT_REGS_PARM3(ctx);
-  objects = (u64) PT_REGS_PARM4(ctx);
+  execbuffer = (struct drm_i915_gem_execbuffer2 *) PT_REGS_PARM3(ctx);
+  objects = (struct drm_i915_gem_exec_object2 *) PT_REGS_PARM4(ctx);
   
   /* Pass arguments to the kretprobe */
   __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
   val.file = file;
-  val.execbuffer = execbuffer;
-  val.objects = objects;
+  val.execbuffer = (u64) execbuffer;
+  val.objects = (u64) objects;
   cpu = bpf_get_smp_processor_id();
   bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
   
-  /* Look up the VM ID based on the context ID (which is in arg->rsvd1) */
-  arg = (struct drm_i915_gem_execbuffer2 *) execbuffer;
-  if(!arg) {
+  /* Look up the VM ID based on the context ID (which is in execbuffer->rsvd1) */
+  if(!execbuffer) {
     return -1;
   }
-  ctx_id = (u32) BPF_CORE_READ(arg, rsvd1);
+  ctx_id = (u32) BPF_CORE_READ(execbuffer, rsvd1);
   vm_id = 0;
   if(ctx_id) {
     val_ptr = bpf_map_lookup_elem(&context_create_wait_for_exec, &ctx_id);
@@ -721,13 +805,38 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
     }
   }
   
-  /* Output the start of an execbuffer to the ringbuffer */
+  /* Reserve some space on the ringbuffer, into which we can copy things */
   info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
   if(!info) return -1;
   
+  /* Determine where the batchbuffer is stored (and how long it is).
+     The index that it's in is determined by a flag -- it can either
+     be the first or the last batch. */
+  batch_index = (BPF_CORE_READ(execbuffer, flags) & I915_EXEC_BATCH_FIRST)
+                ? 0 : BPF_CORE_READ(execbuffer, buffer_count) - 1;
+  batch_start_offset = BPF_CORE_READ(execbuffer, batch_start_offset);
+  batch_len = BPF_CORE_READ(execbuffer, batch_len);
+  buffer_count = BPF_CORE_READ(execbuffer, buffer_count);
+  if(batch_index == 0) {
+    /* If the index is 0 (the vast majority of the time it is), we can
+       just directly read the `objects` pointer. */
+    handle = BPF_CORE_READ(objects, handle);
+    offset = BPF_CORE_READ(objects, offset);
+  } else {
+    handle = 0xffffffff;
+    offset = 0xffffffffffffffff;
+  }
+  
   /* execbuffer-specific stuff */
+  info->file = file;
   info->vm_id = vm_id;
   info->ctx_id = ctx_id;
+  info->batch_index = batch_index;
+  info->batch_start_offset = batch_start_offset;
+  info->batch_len = batch_len;
+  info->buffer_count = buffer_count;
+  info->bb_handle = handle;
+  info->bb_offset = offset;
   
   info->cpu = cpu;
   info->pid = bpf_get_current_pid_tgid() >> 32;
@@ -746,8 +855,6 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
   struct execbuf_end_info *einfo;
   struct execbuffer_wait_for_ret_val *val;
   u32 cpu;
-  u64 file, execbuffer, objects;
-  int retval;
   
   cpu = bpf_get_smp_processor_id();
   void *arg = bpf_map_lookup_elem(&execbuffer_wait_for_ret, &cpu);
@@ -755,13 +862,6 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
     return -1;
   }
   val = (struct execbuffer_wait_for_ret_val *) arg;
-  
-  #if 0
-  file = val->file;
-  execbuffer = val->execbuffer;
-  objects = val->objects;
-  retval = parse_execbuffer(file, execbuffer, objects);
-  #endif
   
   /* Output the end of an execbuffer to the ringbuffer */
   einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
@@ -772,7 +872,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
   einfo->time = bpf_ktime_get_ns();
   bpf_ringbuf_submit(einfo, BPF_RB_FORCE_WAKEUP);
   
-  return retval;
+  return 0;
 }
 
 char LICENSE[] SEC("license") = "GPL";
@@ -799,58 +899,6 @@ int pwrite_kprobe(struct pt_regs *ctx)
                  BPF_CORE_READ(gem_pwrite, size),
                  0,
                  0);
-  
-  return 0;
-}
-#endif
-
-#if 0
-/***************************************
-* i915_gem_userptr_ioctl
-*
-* Userspace can give the kernel driver a pointer (and size) to some allocated memory,
-* which the kernel will then create a GEM from.
-***************************************/
-
-struct {
-  __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, MAX_ENTRIES);
-  __type(key, u32);
-  __type(value, u64);
-} userptr_ioctl_wait_for_ret SEC(".maps");
-
-SEC("kprobe/i915_gem_userptr_ioctl")
-int userptr_ioctl_kprobe(struct pt_regs *ctx)
-{
-  u64 arg = (u64) PT_REGS_PARM2(ctx);
-  u32 cpu = bpf_get_smp_processor_id();
-  
-  bpf_map_update_elem(&userptr_ioctl_wait_for_ret, &cpu, &arg, 0);
-}
-
-SEC("kretprobe/i915_gem_userptr_ioctl")
-int userptr_ioctl_kretprobe(struct pt_regs *ctx)
-{
-  /* Get the pointer to the arguments from the kprobe */
-  u32 cpu = bpf_get_smp_processor_id();
-  void *arg = bpf_map_lookup_elem(&userptr_ioctl_wait_for_ret, &cpu);
-  if(!arg) {
-    return 1;
-  }
-  struct drm_i915_gem_userptr *gem_userptr = *((struct drm_i915_gem_userptr **) arg);
-  
-  u32 pid = bpf_get_current_pid_tgid() >> 32;
-  u32 handle = BPF_CORE_READ(gem_userptr, handle);
-  u64 data = BPF_CORE_READ(gem_userptr, user_ptr);
-  u64 data_sz = BPF_CORE_READ(gem_userptr, user_size);
-  
-  /* DEBUG */
-  bpf_printk("userptr_ioctl_kretprobe handle=%u data=0x%llx data_sz=%llu", handle, data, data_sz);
-  
-  int retval = mmap_wait_for_exec_insert(pid, handle, data, data_sz);
-  if(retval < 0) {
-    return 1;
-  }
   
   return 0;
 }

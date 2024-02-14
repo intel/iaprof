@@ -26,7 +26,7 @@ struct mapping_info {
 
 /* Collected from an munmap, possibly
    after execbuffer */
-struct binary_info {
+struct unmap_info {
   __u64 file;
   __u32 handle;
   __u64 cpu_addr;
@@ -69,17 +69,39 @@ struct vm_unbind_info {
 /* Collected from the start of an execbuffer */
 struct execbuf_start_info {
   __u32 ctx_id, vm_id;
+  __u64 file;
+  
+  __u64 batch_len;
+  __u32 batch_start_offset, batch_index, buffer_count;
+  
+  __u64 bb_offset;
+  __u32 bb_handle;
   
   char name[TASK_COMM_LEN];
   __u32 cpu, pid, tid;
   __u64 time;
   int stackid;
+  
+  char pad[8];
 };
 
 /* Collected from the end of an execbuffer */
 struct execbuf_end_info {
   __u32 cpu, pid, tid;
   __u64 time;
+};
+
+/* Collected from the end of a call to i915_gem_userptr_ioctl */
+struct userptr_info {
+  __u64 file;
+  __u32 handle;
+  __u64 cpu_addr;
+  __u64 size;
+  unsigned char buff[MAX_BINARY_SIZE];
+  
+  __u32 pid, tid, cpu;
+  __u64 time;
+  char pad[8];
 };
 
 #endif
