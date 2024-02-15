@@ -213,7 +213,11 @@ retry:
           found = 0;
           goto retry;
         } else {
-          /* XXX: Temporary hack */
+          /* XXX: Temporary hack. Grabbing the last-seen buffer that matches
+             this GPU address. This was borne of a few situations in which I see
+             a vm_bind, but the application never calls vm_unbind. This can
+             be properly fixed by adding an implicit vm_unbind if a PID doesn't
+             exist anymore and the same GPU address shows up again. */
           associate_sample(&sample, last_found_gem, addr, last_found_offset, info.subslice, time);
           num_found++;
           
