@@ -91,7 +91,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
      `num_cmd_dwords` records the number of dwords that the command holds. */
   ptr = (uint32_t *) (bb + offset);
   in_cmd = 0;
-  for(i = offset / sizeof(uint32_t); i < (size - offset) / sizeof(uint32_t); i++) {
+  for(i = offset / sizeof(uint32_t); i < (size + offset) / sizeof(uint32_t); i++) {
     
     if(verbose) {
       printf("dword=0x%x offset=0x%lx\n", *ptr, i * sizeof(uint32_t));
@@ -226,10 +226,10 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb, uint32_t offse
                 
                 bbsp_offset = parser->bbsp - gem->vm_bind_info.gpu_addr;
                 if(verbose) {
-                  printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n", gem->mapping_info.cpu_addr, bbsp_offset, gem->mapping_info.size);
+                  printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n", gem->mapping_info.cpu_addr, bbsp_offset, gem->mapping_info.size - bbsp_offset);
                   printf("The next dword: 0x%x\n", *(ptr + 1));
                 }
-                bb_parser_parse(parser, gem->buff, bbsp_offset, gem->mapping_info.size);
+                bb_parser_parse(parser, gem->buff, bbsp_offset, gem->mapping_info.size - bbsp_offset);
                 
                 if(!(parser->bb2l)) {
                   /* If the "2nd level" bit in the MI_BATCH_BUFFER_START command

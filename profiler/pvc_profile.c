@@ -214,11 +214,11 @@ void *collect_thread_main(void *a) {
     }
     
     /* Sit for a bit on the GEM info ringbuffer */
-    ring_buffer__poll(bpf_info.rb, 100);
+    ring_buffer__poll(bpf_info.rb, 1000);
   }
   
   /* Once we've been told to clean up, check one last time */
-  ring_buffer__poll(bpf_info.rb, 100);
+  ring_buffer__poll(bpf_info.rb, 1000);
   
 cleanup:
   free(perf_buf);

@@ -142,6 +142,17 @@ int print_execbuf_end(struct execbuf_end_info *einfo) {
   return 0;
 }
 
+int print_total_eustall(uint64_t num, unsigned long long time) {
+  printf("%-*.*s",  EVENT_LEN, EVENT_LEN, "eustall");
+  printf(" %-*llu", TIME_LEN,             time);
+  printf(" %-*u",   CPU_LEN,              0);
+  printf(" %-*u",   PID_LEN,              0);
+  printf(" %-*u",   TID_LEN,              0);
+  printf(" num=%" PRIu64 " \n", num);
+  
+  return 0;
+}
+
 int print_eustall_reason(struct eustall_sample *sample) {
   if(sample->active) {
     printf("active=%u ", sample->active);

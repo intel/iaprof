@@ -79,7 +79,6 @@ char *iga_disassemble_single(iga_context_t *ctx, unsigned char *data) {
      TODO: This might be better if we used the JSON output from
      IGA, then parsed that instead. */
      
-  fprintf(stderr, "Parsing: %s\n", text);
   tok = strtok(text, " ");
   if(!tok) {
     /* There were no spaces in the string at all, so return the whole thing */

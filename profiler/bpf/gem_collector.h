@@ -50,7 +50,8 @@ struct vm_bind_info {
   __u64 time;
   int stackid;
   
-  char pad[8];
+  char stale;
+  char pad[7];
 };
 
 /* Collected from a vm_unbind */

@@ -277,11 +277,19 @@ int handle_vm_unbind(void *data_arg) {
     return 0;
   }
   
+  #if 0
   /* Zero out the vm_bind_info of the buffer that we've found.
      Note that after this is done, EU stalls can no longer be
      associated with it. */
   gem = &(buffer_profile_arr[index]);
   memset(&(gem->vm_bind_info), 0, sizeof(struct vm_bind_info));
+  #endif
+  
+  /* Mark the buffer as "stale." 
+     XXX: Find a better solution here. Separate array for "tenured" buffers?
+          When do we delete them? After a number of execbuffers without it? */
+  gem = &(buffer_profile_arr[index]);
+  gem->vm_bind_info.stale = 1;
   
   if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
     fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -296,7 +304,7 @@ int handle_execbuf_start(void *data_arg) {
   uint64_t file;
   uint32_t vm_id, pid;
   int n;
-  char found;
+  char found, should_free_buffer;
   struct execbuf_start_info *info;
   unsigned char *batchbuffer;
   struct bb_parser *parser;
@@ -336,6 +344,7 @@ int handle_execbuf_start(void *data_arg) {
     }
   }
   
+  #if 0
   /* The execbuffer call also specifies a handle (which is sometimes 0) and a GPU
      address that contains the batchbuffer. Find this buffer and attempt to parse it.
      In this loop, we're just looking for a buffer whose file pointer and gpu_addr
@@ -349,19 +358,44 @@ int handle_execbuf_start(void *data_arg) {
       if(debug) {
         print_batchbuffer(info, &(gem->vm_bind_info));
       }
+      
+      
+      /* If the CPU address is a valid one, we want to parse the batchbuffer */
       if(gem->mapping_info.cpu_addr) {
+        should_free_buffer = 1;
         batchbuffer = copy_buffer(pid, gem->mapping_info.cpu_addr, gem->mapping_info.size);
         if(!batchbuffer) {
-          fprintf(stderr, "WARNING: Failed to copy the batchbuffer cpu_addr=0x%lx size=%lx\n",
-                  gem->mapping_info.cpu_addr, gem->mapping_info.size);
-          goto foundit;
+          if(gem->buff) {
+            /* If we couldn't copy the buffer, perhaps we had a copy from before? */
+            batchbuffer = gem->buff;
+            should_free_buffer = 0;
+          } else {
+            fprintf(stderr, "WARNING: Failed to copy the batchbuffer cpu_addr=0x%llx size=%llx\n",
+                    gem->mapping_info.cpu_addr, gem->mapping_info.size);
+            goto foundit;
+          }
+        } else {
+          if(!(gem->buff)) {
+            /* If we read a valid buffer from the process' address space, why not store it
+              for later? We need to do this BEFORE parsing because sometimes batchbuffers
+              "jump" to themselves, in which case gem->buff needs to already be populated
+              for the parser to perform the jump. */
+            gem->buff = batchbuffer;
+            should_free_buffer = 0;
+          }
         }
-        dump_buffer(batchbuffer, gem->mapping_info.size, gem->vm_bind_info.handle);
+        
+        if(debug) {
+          dump_buffer(batchbuffer, gem->mapping_info.size, gem->vm_bind_info.handle);
+        }
         parser = bb_parser_init();
-        bb_parser_parse(parser, batchbuffer, 0, info->batch_len);
-        printf("iba=0x%lx\n", parser->iba);
-        free(batchbuffer);
+        bb_parser_parse(parser, batchbuffer, info->batch_start_offset, info->batch_len);
+        
+        if(should_free_buffer) {
+          free(batchbuffer);
+        }
       }
+      
 foundit:
       found = 1;
       break;
@@ -370,6 +404,7 @@ foundit:
   if(!found) {
     fprintf(stderr, "WARNING: Failed to find a batchbuffer at file=0x%lx bb_offset=0x%llx\n", file, info->bb_offset);
   }
+  #endif
   
   if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
     fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");

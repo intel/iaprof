@@ -46,7 +46,7 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
     gem->has_stalls = 1;
   }
   
-  if(debug) {
+  if(debug && verbose) {
     print_eustall(sample, gpu_addr, offset, gem->vm_bind_info.handle, subslice, time);
   }
   
@@ -73,8 +73,8 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 
 int handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct prelim_drm_i915_stall_cntr_info info;
-  int i, n, num_not_found;
-  char found, multichurn;
+  int i, n, num_not_found, num_found;
+  char found, multichurn, search_stale;
   uint64_t addr, start, end,
            offset,
            last_found_start,
@@ -93,7 +93,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
   clock_gettime(CLOCK_MONOTONIC, &spec);
   time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
   
-  if(debug) {
+  if(debug && verbose) {
     printf("Current buffer_profile_arr: ");
     for(n = 0; n < buffer_profile_used; n++) {
       gem = &buffer_profile_arr[n];
@@ -103,6 +103,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
   }
   
   num_not_found = 0;
+  num_found = 0;
   for(i = 0; i < len; i += 64) {
     
     memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
@@ -118,10 +119,16 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
     last_found_offset = 0;
     last_found_gem = NULL;
     multichurn = 0;
+    search_stale = 0;
+retry:
     for(n = 0; n < buffer_profile_used; n++) {
       gem = &buffer_profile_arr[n];
       start = gem->vm_bind_info.gpu_addr & 0xffffffff;
       end = start + gem->vm_bind_info.size;
+      
+      if(gem->vm_bind_info.stale && (!search_stale)) {
+        continue;
+      }
       
       if((addr < start) || (addr >= end)) {
         continue;
@@ -138,7 +145,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
       
       offset = addr - start;
       
-    	if(debug) {
+    	if(debug && verbose) {
     	  printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n", (uint64_t) sample.ip, addr, start, offset, gem->vm_bind_info.gpu_addr);
     	}
       if(found && (last_found_start != start)) {
@@ -156,27 +163,41 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
     /* Now that we've found 0+ matches, print or store them. */
     if(found == 0) {
       /* No matches found! */
-      if(debug) {
+      if(!search_stale) {
+        /* If we haven't already retried for this stall,
+           search all buffers again but consider "stale" ones too. */
+        if(debug && verbose) {
+          printf("addr=0x%lx trying again\n", addr);
+        }
+        search_stale = 1;
+        goto retry;
+      }
+      if(debug && verbose) {
         print_eustall_drop(&sample, addr, info.subslice, time);
       }
       num_not_found++;
     } else if(found == 1) {
       associate_sample(&sample, last_found_gem, addr, last_found_offset, info.subslice, time);
+      num_found++;
     } else if(found > 1) {
       if(multichurn) {
         /* Multiple buffers could claim this EU stall, and they had
            different start addresses. Print what little we know. */
-        if(debug) {
+        if(debug && verbose) {
           print_eustall_multichurn(&sample, addr, info.subslice, time);
         }
       } else {
         /* Multiple buffers could claim this EU stall, but they all had
            the same start addresses. Print what we know: offset and subslice. */
-        if(debug) {
+        if(debug && verbose) {
           print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
         }
       }
     }
+  }
+  
+  if(debug && (num_found != 0)) {
+    print_total_eustall(num_found, time);
   }
   
   if(pthread_rwlock_unlock(&buffer_profile_lock) != 0) {

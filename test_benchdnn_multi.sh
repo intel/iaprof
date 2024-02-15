@@ -7,7 +7,7 @@ BENCHDNN3_ARGS="--engine=gpu --mode=P --mode-modifier=PM  --matmul --dt=bf16 800
 
 ulimit -c unlimited
 ulimit -l unlimited
-./bin/pvc_profile -d \
+./bin/pvc_profile -d -v \
   1> profile.txt \
   2> profile_err.txt \
   &
