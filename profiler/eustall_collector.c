@@ -13,6 +13,12 @@
 #include "shader_decoder.h"
 #include "printer.h"
 
+/* XXX: This needs to be determined dynamically per-process.
+   Obviously we could use the Level Zero API to determine it,
+   but I'm not sure how we can get it from the kernel quite yet.
+   We can definitely parse the batchbuffer (see bb_parser.h) to get it. */
+#define INSTRUCTION_BASE_ADDRESS 0x800000000000
+
 uint64_t uint64_t_hash(uint64_t i) { return i; }
 
 uint64_t max_bit_value(uint64_t n) {
@@ -74,7 +80,7 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 int handle_eustall_samples(uint8_t *perf_buf, int len) {
   struct prelim_drm_i915_stall_cntr_info info;
   int i, n, num_not_found, num_found;
-  char found, multichurn, search_stale;
+  char found, multichurn, search_stale, search_iba;
   uint64_t addr, start, end,
            offset,
            last_found_start,
@@ -119,12 +125,20 @@ int handle_eustall_samples(uint8_t *perf_buf, int len) {
     last_found_offset = 0;
     last_found_gem = NULL;
     multichurn = 0;
-    search_stale = 0;
+    search_stale = 0; /* Look at stale buffers, too? */
+    search_iba = 0; /* Mask with the Instruction Base Address */
 retry:
     for(n = 0; n < buffer_profile_used; n++) {
       gem = &buffer_profile_arr[n];
       start = gem->vm_bind_info.gpu_addr & 0xffffffff;
       end = start + gem->vm_bind_info.size;
+      
+      if(search_iba &&
+        ((gem->vm_bind_info.gpu_addr >> 32) != (INSTRUCTION_BASE_ADDRESS >> 32))) {
+        /* If we're only searching buffers that match the IBA, and
+           the top 32 bits doesn't match it, reject it */
+        continue;
+      }
       
       if(gem->vm_bind_info.stale && (!search_stale)) {
         continue;
@@ -171,11 +185,13 @@ retry:
         }
         search_stale = 1;
         goto retry;
+      } else {
+        /* We've tried twice, bail out */
+        if(debug && verbose) {
+          print_eustall_drop(&sample, addr, info.subslice, time);
+        }
+        num_not_found++;
       }
-      if(debug && verbose) {
-        print_eustall_drop(&sample, addr, info.subslice, time);
-      }
-      num_not_found++;
     } else if(found == 1) {
       associate_sample(&sample, last_found_gem, addr, last_found_offset, info.subslice, time);
       num_found++;
@@ -188,9 +204,25 @@ retry:
         }
       } else {
         /* Multiple buffers could claim this EU stall, but they all had
-           the same start addresses. Print what we know: offset and subslice. */
-        if(debug && verbose) {
-          print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
+           the same start addresses. */
+        if(!search_iba) {
+          /* We can try one more time, this time only including buffers whose
+             addresses match the top 32 bits of the IBA (Instruction Base Address). */
+          printf("addr=0x%lx trying again with iba\n", addr);
+          search_iba = 1;
+          found = 0;
+          goto retry;
+        } else {
+          /* XXX: Temporary hack */
+          associate_sample(&sample, last_found_gem, addr, last_found_offset, info.subslice, time);
+          num_found++;
+          
+          #if 0
+          /* We've tried twice, bail out. */
+          if(debug && verbose) {
+            print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
+          }
+          #endif
         }
       }
     }

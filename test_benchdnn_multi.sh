@@ -1,9 +1,9 @@
 #!/bin/bash
 # Run this as root
 
-BENCHDNN_ARGS="--engine=gpu --mode=P --mode-modifier=PM  --matmul --dt=bf16 20000x10000:10000x40000"
-BENCHDNN2_ARGS="--engine=gpu --mode=P --mode-modifier=PM  --matmul --dt=bf16 40000x10000:10000x40000"
-BENCHDNN3_ARGS="--engine=gpu --mode=P --mode-modifier=PM  --matmul --dt=bf16 80000x10000:10000x40000"
+BENCHDNN_ARGS="--engine=gpu --mode=P --mode-modifier=M  --matmul --dt=bf16 20000x10000:10000x40000"
+BENCHDNN2_ARGS="--engine=gpu --mode=P --mode-modifier=M  --matmul --dt=bf16 40000x10000:10000x40000"
+BENCHDNN3_ARGS="--engine=gpu --mode=P --mode-modifier=M  --matmul --dt=bf16 80000x10000:10000x40000"
 
 ulimit -c unlimited
 ulimit -l unlimited
@@ -25,6 +25,8 @@ cp benchdnn benchdnn3
   &> workload2.txt
 ./benchdnn3 ${BENCHDNN3_ARGS} \
   &> workload3.txt
+  
+sleep 5
 
 kill -INT $PROFILER_PID
 wait $PROFILER_PID
