@@ -7,8 +7,8 @@ struct eustall_sample;
 struct offset_profile;
 
 int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
-                     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
-                     unsigned long long time);
+		     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
+		     unsigned long long time);
 int handle_eustall_samples(uint8_t *perf_buf, int len);
 int configure_eustall();
 
@@ -38,15 +38,15 @@ int configure_eustall();
 ***************************************/
 
 struct offset_profile {
-  unsigned int active;
-  unsigned int other;
-  unsigned int control;
-  unsigned int pipestall;
-  unsigned int send;
-  unsigned int dist_acc;
-  unsigned int sbid;
-  unsigned int sync;
-  unsigned int inst_fetch;
+	unsigned int active;
+	unsigned int other;
+	unsigned int control;
+	unsigned int pipestall;
+	unsigned int send;
+	unsigned int dist_acc;
+	unsigned int sbid;
+	unsigned int sync;
+	unsigned int inst_fetch;
 };
 
 /***************************************
@@ -67,15 +67,15 @@ struct offset_profile {
   * 85 to 92  sync count
   * 93 to 100  inst_fetch count
 ***************************************/
-struct __attribute__ ((__packed__)) eustall_sample {
-  unsigned int ip : 29;
-  unsigned short active : 8;
-  unsigned short other : 8;
-  unsigned short control : 8;
-  unsigned short pipestall : 8;
-  unsigned short send : 8;
-  unsigned short dist_acc : 8;
-  unsigned short sbid : 8;
-  unsigned short sync : 8;
-  unsigned short inst_fetch : 8;
+struct __attribute__((__packed__)) eustall_sample {
+	unsigned int ip : 29;
+	unsigned short active : 8;
+	unsigned short other : 8;
+	unsigned short control : 8;
+	unsigned short pipestall : 8;
+	unsigned short send : 8;
+	unsigned short dist_acc : 8;
+	unsigned short sbid : 8;
+	unsigned short sync : 8;
+	unsigned short inst_fetch : 8;
 };

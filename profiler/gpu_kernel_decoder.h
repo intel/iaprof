@@ -18,58 +18,84 @@
 #include <sys/mman.h>
 #include <math.h>
 
-static void parse_origin(int pid, uint64_t origin_inst_addr) {
-  FILE *f;
-  char  buff[4096];
-  char *s;
-  char *cur;
-  uint64_t   cur_start;
-  uint64_t   start;
-  uint64_t   end;
-  char  cur_copy[1024];
-  FILE *p;
-  unsigned long line_no;
-  
-  printf("Trying to open the memory map for PID %d, reading 0x%lx\n", pid, origin_inst_addr);
+static void parse_origin(int pid, uint64_t origin_inst_addr)
+{
+	FILE *f;
+	char buff[4096];
+	char *s;
+	char *cur;
+	uint64_t cur_start;
+	uint64_t start;
+	uint64_t end;
+	char cur_copy[1024];
+	FILE *p;
+	unsigned long line_no;
 
-  snprintf(buff, sizeof(buff), "/proc/%d/maps", pid);
-  f = fopen(buff, "r");
+	printf("Trying to open the memory map for PID %d, reading 0x%lx\n", pid,
+	       origin_inst_addr);
 
-  if (f == NULL) { return; }
-  
-  cur       = NULL;
-  cur_start = 0;
+	snprintf(buff, sizeof(buff), "/proc/%d/maps", pid);
+	f = fopen(buff, "r");
 
-  while (fgets(buff, sizeof(buff), f)) {
-    if (buff[strlen(buff) - 1] == '\n') { buff[strlen(buff) - 1] = 0; }
+	if (f == NULL) {
+		return;
+	}
 
-    if (*buff == 0) { continue; }
+	cur = NULL;
+	cur_start = 0;
 
-    /* range */
-    if ((s = strtok(buff, " ")) == NULL) { continue; }
-    sscanf(s, "%lx-%lx", &start, &end);
+	while (fgets(buff, sizeof(buff), f)) {
+		if (buff[strlen(buff) - 1] == '\n') {
+			buff[strlen(buff) - 1] = 0;
+		}
 
-    /* perms */
-    if ((s = strtok(NULL, " ")) == NULL) { continue; }
-    /* offset */
-    if ((s = strtok(NULL, " ")) == NULL) { continue; }
-    /* dev */
-    if ((s = strtok(NULL, " ")) == NULL) { continue; }
-    /* inode */
-    if ((s = strtok(NULL, " ")) == NULL) { continue; }
+		if (*buff == 0) {
+			continue;
+		}
 
-    /* path */
-    if ((s = strtok(NULL, " ")) == NULL) { continue; }
-    if (*s != '/')                       { continue; }
+		/* range */
+		if ((s = strtok(buff, " ")) == NULL) {
+			continue;
+		}
+		sscanf(s, "%lx-%lx", &start, &end);
 
-    if (cur == NULL || strcmp(cur, s)) {
-      if (cur != NULL) { free(cur); }
-      cur       = strdup(s);
-      cur_start = start;
-    }
-  }
+		/* perms */
+		if ((s = strtok(NULL, " ")) == NULL) {
+			continue;
+		}
+		/* offset */
+		if ((s = strtok(NULL, " ")) == NULL) {
+			continue;
+		}
+		/* dev */
+		if ((s = strtok(NULL, " ")) == NULL) {
+			continue;
+		}
+		/* inode */
+		if ((s = strtok(NULL, " ")) == NULL) {
+			continue;
+		}
 
-  if (cur != NULL) { free(cur); }
+		/* path */
+		if ((s = strtok(NULL, " ")) == NULL) {
+			continue;
+		}
+		if (*s != '/') {
+			continue;
+		}
 
-  fclose(f);
+		if (cur == NULL || strcmp(cur, s)) {
+			if (cur != NULL) {
+				free(cur);
+			}
+			cur = strdup(s);
+			cur_start = start;
+		}
+	}
+
+	if (cur != NULL) {
+		free(cur);
+	}
+
+	fclose(f);
 }

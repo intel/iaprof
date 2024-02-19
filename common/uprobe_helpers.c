@@ -26,8 +26,8 @@ int get_pid_binary_path(pid_t pid, char *path, size_t path_sz)
 	ssize_t ret;
 	char proc_pid_exe[32];
 
-	if (snprintf(proc_pid_exe, sizeof(proc_pid_exe), "/proc/%d/exe", pid)
-	    >= sizeof(proc_pid_exe)) {
+	if (snprintf(proc_pid_exe, sizeof(proc_pid_exe), "/proc/%d/exe", pid) >=
+	    sizeof(proc_pid_exe)) {
 		warn("snprintf /proc/PID/exe failed");
 		return -1;
 	}
@@ -58,8 +58,8 @@ int get_pid_lib_path(pid_t pid, const char *lib, char *path, size_t path_sz)
 	char line_buf[1024];
 	char path_buf[1024];
 
-	if (snprintf(proc_pid_maps, sizeof(proc_pid_maps), "/proc/%d/maps", pid)
-	    >= sizeof(proc_pid_maps)) {
+	if (snprintf(proc_pid_maps, sizeof(proc_pid_maps), "/proc/%d/maps",
+		     pid) >= sizeof(proc_pid_maps)) {
 		warn("snprintf /proc/PID/maps failed");
 		return -1;
 	}
@@ -69,7 +69,8 @@ int get_pid_lib_path(pid_t pid, const char *lib, char *path, size_t path_sz)
 		return -1;
 	}
 	while (fgets(line_buf, sizeof(line_buf), maps)) {
-		if (sscanf(line_buf, "%*x-%*x %*s %*x %*s %*u %s", path_buf) != 1)
+		if (sscanf(line_buf, "%*x-%*x %*s %*x %*s %*u %s", path_buf) !=
+		    1)
 			continue;
 		/* e.g. /usr/lib/x86_64-linux-gnu/libc-2.31.so */
 		p = strrchr(path_buf, '/');
@@ -138,7 +139,8 @@ static int which_program(const char *prog, char *path, size_t path_sz)
  * For case 4), ideally we'd like to search for libbar too, but we don't support
  * that yet.
  */
-int resolve_binary_path(const char *binary, pid_t pid, char *path, size_t path_sz)
+int resolve_binary_path(const char *binary, pid_t pid, char *path,
+			size_t path_sz)
 {
 	if (!strcmp(binary, "")) {
 		if (!pid) {
@@ -156,7 +158,8 @@ int resolve_binary_path(const char *binary, pid_t pid, char *path, size_t path_s
 		 * But we can't find a library by name yet.  We'd need to parse
 		 * ld.so.cache or something similar.
 		 */
-		warn("Can't find %s (Need a PID if this is a library)\n", binary);
+		warn("Can't find %s (Need a PID if this is a library)\n",
+		     binary);
 		return -1;
 	}
 	return 0;
@@ -252,7 +255,8 @@ off_t get_elf_func_offset(const char *path, const char *func)
 	while ((scn = elf_nextscn(e, scn))) {
 		if (!gelf_getshdr(scn, shdr))
 			continue;
-		if (!(shdr->sh_type == SHT_SYMTAB || shdr->sh_type == SHT_DYNSYM))
+		if (!(shdr->sh_type == SHT_SYMTAB ||
+		      shdr->sh_type == SHT_DYNSYM))
 			continue;
 		data = NULL;
 		while ((data = elf_getdata(scn, data))) {
@@ -281,7 +285,8 @@ check:
 				continue;
 			if (phdr.p_type != PT_LOAD || !(phdr.p_flags & PF_X))
 				continue;
-			if (phdr.p_vaddr <= ret && ret < (phdr.p_vaddr + phdr.p_memsz)) {
+			if (phdr.p_vaddr <= ret &&
+			    ret < (phdr.p_vaddr + phdr.p_memsz)) {
 				ret = ret - phdr.p_vaddr + phdr.p_offset;
 				goto out;
 			}

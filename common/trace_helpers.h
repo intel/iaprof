@@ -4,7 +4,7 @@
 
 #include <stdbool.h>
 
-#define NSEC_PER_SEC		1000000000ULL
+#define NSEC_PER_SEC 1000000000ULL
 
 struct ksym {
 	const char *name;
@@ -33,8 +33,9 @@ struct syms *syms__load_pid(int tgid);
 struct syms *syms__load_file(const char *fname);
 void syms__free(struct syms *syms);
 const struct sym *syms__map_addr(const struct syms *syms, unsigned long addr);
-const struct sym *syms__map_addr_dso(const struct syms *syms, unsigned long addr,
-				     char **dso_name, unsigned long *dso_offset);
+const struct sym *syms__map_addr_dso(const struct syms *syms,
+				     unsigned long addr, char **dso_name,
+				     unsigned long *dso_offset);
 
 struct syms_cache;
 
@@ -58,7 +59,7 @@ partitions__get_by_name(const struct partitions *partitions, const char *name);
 
 void print_log2_hist(unsigned int *vals, int vals_size, const char *val_type);
 void print_linear_hist(unsigned int *vals, int vals_size, unsigned int base,
-		unsigned int step, const char *val_type);
+		       unsigned int step, const char *val_type);
 
 unsigned long long get_ktime_ns(void);
 
