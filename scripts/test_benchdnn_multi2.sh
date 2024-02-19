@@ -6,13 +6,16 @@ BENCHDNN2_ARGS="--engine=gpu --mode=P --mode-modifier=PM --max-ms-per-prb=100 --
 
 ulimit -c unlimited
 ulimit -l unlimited
-./bin/pvc_profile -d \
+./bin/pvc_profile -d -v \
   1> profile.txt \
   2> profile_err.txt \
   &
 PROFILER_PID=$!
 
 sleep 5
+
+# This should make it use the same virtual address space for both applications
+export DebuggerForceSbaTrackingMode=1
 
 # Workload
 cd /home/macslayer/workloads/oneDNN/build/tests/benchdnn

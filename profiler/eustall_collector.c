@@ -14,6 +14,7 @@
 #include "printer.h"
 
 /* XXX: This needs to be determined dynamically per-process.
+   It depends on the engine that the workload is running on, I think.
    Obviously we could use the Level Zero API to determine it,
    but I'm not sure how we can get it from the kernel quite yet.
    We can definitely parse the batchbuffer (see bb_parser.h) to get it. */
@@ -208,7 +209,9 @@ retry:
         if(!search_iba) {
           /* We can try one more time, this time only including buffers whose
              addresses match the top 32 bits of the IBA (Instruction Base Address). */
-          printf("addr=0x%lx trying again with iba\n", addr);
+          if(debug && verbose) {
+            printf("addr=0x%lx trying again with iba\n", addr);
+          }
           search_iba = 1;
           found = 0;
           goto retry;

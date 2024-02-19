@@ -13,6 +13,9 @@ ulimit -l unlimited
   &
 PROFILER_PID=$!
 
+perf record -F 99 -a -g &
+PERF_PID=$!
+
 sleep 5
 
 # Workload
@@ -26,7 +29,7 @@ cp benchdnn benchdnn3
 ./benchdnn3 ${BENCHDNN3_ARGS} \
   &> workload3.txt
   
-sleep 5
-
 kill -INT $PROFILER_PID
+kill -INT $PERF_PID
 wait $PROFILER_PID
+wait $PERF_PID

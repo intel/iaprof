@@ -6,6 +6,7 @@ tags
 *.svg
 *.txt
 core.*
+out/
 
 reference/kernel_headers
 reference/*.deb

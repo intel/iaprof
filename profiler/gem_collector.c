@@ -467,13 +467,20 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz) {
 ***************************************/
 
 int attach_kprobe(const char *func, struct bpf_program *prog, int ret) {
+  struct bpf_kprobe_opts opts;
+  
   bpf_info.num_links++;
   bpf_info.links = realloc(bpf_info.links, sizeof(struct bpf_link *) * bpf_info.num_links);
   if(!bpf_info.links) {
     fprintf(stderr, "Failed to allocate memory for the BPF links! Aborting.\n");
     return -1;
   }
-  bpf_info.links[bpf_info.num_links - 1] = bpf_program__attach_kprobe(prog, ret, func);
+  
+  memset(&opts, 0, sizeof(opts));
+  opts.retprobe = ret;
+  opts.sz = sizeof(opts);
+  opts.attach_mode = PROBE_ATTACH_MODE_LEGACY;
+  bpf_info.links[bpf_info.num_links - 1] = bpf_program__attach_kprobe_opts(prog, func, &opts);
   if(libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
     fprintf(stderr, "Failed to attach the BPF program to a kprobe: %s\n", func);
     /* Set this pointer to NULL, since it's undefined what it will be */

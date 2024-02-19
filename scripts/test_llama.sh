@@ -17,7 +17,7 @@ cd /home/macslayer/workloads/llama/llama.cpp
 GGML_SYCL_DEVICE=0 ./build/bin/main \
   -m models/llama-2-7b.Q2_K.gguf \
   -p "Building a website can be done in 10 simple steps:" \
-  -n 64 -e -ngl 10 \
+  -n 64 -e -ngl 2 \
   &> workload1.txt &
 WORKLOAD_PID1=$!
 wait ${WORKLOAD_PID1}

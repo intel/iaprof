@@ -583,7 +583,7 @@ struct vm_bind_ioctl_wait_for_ret_val {
 };
 
 struct {
-  __uint(type,        BPF_MAP_TYPE_HASH);
+  __uint(type,        BPF_MAP_TYPE_PERCPU_HASH);
   __uint(max_entries, MAX_ENTRIES);
   __type(key,         u32);
   __type(value,       struct vm_bind_ioctl_wait_for_ret_val);
@@ -594,6 +594,8 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
 {
   u32 cpu;
   struct vm_bind_ioctl_wait_for_ret_val val;
+  
+  bpf_printk("vm_bind kprobe");
   
   __builtin_memset(&val, 0, sizeof(struct vm_bind_ioctl_wait_for_ret_val));
   val.arg = (struct prelim_drm_i915_gem_vm_bind *) PT_REGS_PARM2(ctx);
@@ -613,6 +615,8 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
   struct vm_bind_ioctl_wait_for_ret_val val;
   void *lookup;
   struct vm_bind_info *info;
+  
+  bpf_printk("vm_bind kretprobe");
   
   /* Grab the argument from the kprobe */
   cpu = bpf_get_smp_processor_id();
