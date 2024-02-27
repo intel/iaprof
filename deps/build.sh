@@ -60,6 +60,11 @@ git clone -b llvm_release_140 https://github.com/KhronosGroup/SPIRV-LLVM-Transla
 git clone https://github.com/KhronosGroup/SPIRV-Tools.git SPIRV-Tools
 git clone https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Headers
 
+cd ${IGC_DIR}/igc
+pwd
+git apply ${BUILD_DEPS_DIR}/iga.diff
+cd ${IGC_DIR}
+
 # Now build IGC
 echo "Building IGC..."
 sudo rm -rf build
