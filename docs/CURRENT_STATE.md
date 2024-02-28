@@ -45,3 +45,21 @@ The main design is split into several directories:
    of `mmap`, `munmap`, `vm_bind`, and `execbuffer` calls), gathers relevant information
    from each (`cpu_addr`, `gpu_addr`, etc.), and sends it all to userspace via
    a single ringbuffer.
+   
+Problems
+========
+
+1. When running `scripts/test_benchdnn.sh`, we intermittently (sometimes it takes
+   100 runs to reproduce) miss `vm_bind` calls in the BPF program itself; that is,
+   even if we're running `bpftrace` at the same time and see that `vm_bind` call,
+   our profiler *doesn't* see it, and we therefore drop every EU stall (since
+   we don't know the GPU address of the buffer object that they relate to).
+   
+2. When running `scripts/test_benchdnn.sh`, we'll always see a few (1% or less) EU stalls
+   that are happening at addresses that we have no notion of; for example, `0xfff0`.
+   I currently have no theories as to why that could be.
+   
+3. We will, VERY intermittently, miss the `munmap` tracepoint that allows us to copy
+   GEN binaries in the BPF program. This results in the final printouts being
+   nonsensical or having a plethora of `illegal` instructions when decoding. This is
+   likely related to #1.
