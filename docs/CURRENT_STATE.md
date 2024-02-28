@@ -46,7 +46,7 @@ The main design is split into several directories:
    from each (`cpu_addr`, `gpu_addr`, etc.), and sends it all to userspace via
    a single ringbuffer.
    
-Problems
+Issues
 ========
 
 1. When running `scripts/test_benchdnn.sh`, we intermittently (sometimes it takes
@@ -63,3 +63,16 @@ Problems
    GEN binaries in the BPF program. This results in the final printouts being
    nonsensical or having a plethora of `illegal` instructions when decoding. This is
    likely related to #1.
+   
+4. When running `scripts/test_llama.sh`, we *always* miss several buffer objects
+   that should have been bound into the VM, but aren't. We get quite a lot of
+   EU stalls from `0x8100ff760000` to `0x8100ff770000`, but don't see a `vm_bind`
+   for that block of size `0x10000`. bpftrace nor our profiler sees it.
+   
+   This can be mitigated by setting the environment variable `MakeEachAllocationResident=2`,
+   which tells the Compute Runtime library to explicitly bind all buffer objects.
+   
+5. With `scripts/test_llama.sh`, we often get "illegal" instructions when disassembling the GEN
+   binaries that we collected during the run.
+   
+6. We don't get CPU-side symbols for `scripts/test_llama.sh`.
