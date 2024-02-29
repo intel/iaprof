@@ -71,8 +71,15 @@ Issues
    
    This can be mitigated by setting the environment variable `MakeEachAllocationResident=2`,
    which tells the Compute Runtime library to explicitly bind all buffer objects.
+   `MakeEachAllocationResident=1` seems to crash LLAMA.
    
 5. With `scripts/test_llama.sh`, we often get "illegal" instructions when disassembling the GEN
    binaries that we collected during the run.
    
 6. We don't get CPU-side symbols for `scripts/test_llama.sh`.
+
+7. If you switch between benchmarks, you HAVE to manually change `INSTRUCTION_BASE_ADDRESS`
+   in `profiler/eustall_collector.c`. This is in lieu of a dynamic way to detect that base
+   address per-workload. This address is stored in the Compute Runtime library (NEO), obviously,
+   as well as in the batchbuffer -- but that requires being able to properly parse the whole
+   thing.
