@@ -17,7 +17,7 @@ Building
 --------
 
 Run `./build.sh -d` to build the project along with its dependencies. The resulting
-executable will be placed in the `bin/` directory.
+executable will be placed in the `bin/` directory and is called `pvc_profile`.
 
 Usage
 -----
