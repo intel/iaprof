@@ -509,10 +509,14 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret)
 		return -1;
 	}
 
+  /* XXX: Experiment with attach_mode parameter.
+     Set it to PROBE_ATTACH_MODE_LEGACY so that we can check
+     the number of events that we missed.
+  */
 	memset(&opts, 0, sizeof(opts));
 	opts.retprobe = ret;
 	opts.sz = sizeof(opts);
-	opts.attach_mode = PROBE_ATTACH_MODE_LEGACY;
+	opts.attach_mode = PROBE_ATTACH_MODE_DEFAULT;
 	bpf_info.links[bpf_info.num_links - 1] =
 		bpf_program__attach_kprobe_opts(prog, func, &opts);
 	if (libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
@@ -558,7 +562,7 @@ int deinit_bpf_prog()
 	int retval;
 
 	for (i = 0; i < bpf_info.num_links; i++) {
-		retval = bpf_link__detach(bpf_info.links[i]);
+		retval = bpf_link__destroy(bpf_info.links[i]);
 		if (retval == -1) {
 			return retval;
 		}
@@ -678,6 +682,8 @@ int init_bpf_prog()
 		return -1;
 	}
 
+  /* XXX: Finish pwrite support in BPF and re-enable. It's another way to
+     write to a buffer object via the CPU. */
 	/* i915_gem_pwrite_ioctl */
 	/*   err = attach_kprobe("i915_gem_pwrite_ioctl", bpf_info.pwrite_ioctl_prog, 0); */
 	/*   if(err != 0) { */
@@ -794,6 +800,8 @@ int init_bpf_prog()
 		return -1;
 	}
 
+  /* XXX: Finish vm_close support in BPF and re-enable. This should
+     free up any addresses bound to the VM. */
 	/* vm_close */
 	/*   err = attach_kprobe("vm_close", bpf_info.vm_close_prog, 0); */
 	/*   if(err != 0) { */

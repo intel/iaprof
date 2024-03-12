@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
+#include <poll.h>
 #include <drm/i915_drm_prelim.h>
 
 #include "drm_helper.h"
@@ -17,8 +18,9 @@
    It depends on the engine that the workload is running on, I think.
    Obviously we could use the Level Zero API to determine it,
    but I'm not sure how we can get it from the kernel quite yet.
-   We can definitely parse the batchbuffer (see bb_parser.h) to get it. */
-#define INSTRUCTION_BASE_ADDRESS 0x800000000000
+   We can definitely parse the batchbuffer (see bb_parser.h) to get it,
+   but each time I try this, I hit unreadable bytes and cannot progress. */
+#define INSTRUCTION_BASE_ADDRESS 0x810000000000
 
 uint64_t uint64_t_hash(uint64_t i)
 {
@@ -93,7 +95,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 {
 	struct prelim_drm_i915_stall_cntr_info info;
 	int i, n, num_not_found, num_found;
-	char found, multichurn, search_stale, search_iba;
+	char found, search_stale, search_iba;
 	uint64_t addr, start, end, offset, last_found_start, last_found_offset;
 	struct eustall_sample sample;
 	struct buffer_profile *gem, *last_found_gem;
@@ -134,7 +136,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 		last_found_start = 0;
 		last_found_offset = 0;
 		last_found_gem = NULL;
-		multichurn = 0;
 		search_stale = 0; /* Look at stale buffers, too? */
 		search_iba = 0; /* Mask with the Instruction Base Address */
 retry:
@@ -174,11 +175,6 @@ retry:
 				       (uint64_t)sample.ip, addr, start, offset,
 				       gem->vm_bind_info.gpu_addr);
 			}
-			if (found && (last_found_start != start)) {
-				/* If we found multiple buffers, not starting at the same
-            address, that could have caused this EU stall, just bail out. */
-				multichurn = 1;
-			}
 			found++;
 			last_found_start = start;
 			last_found_offset = offset;
@@ -212,46 +208,34 @@ retry:
 					 time);
 			num_found++;
 		} else if (found > 1) {
-			if (multichurn) {
-				/* Multiple buffers could claim this EU stall, and they had
-           different start addresses. Print what little we know. */
+		  /* Multiple buffers could claim this EU stall, but they all had
+         the same start addresses. */
+			if (!search_iba) {
+			  /* We can try one more time, this time only including buffers whose
+           addresses match the top 32 bits of the IBA (Instruction Base Address). */
 				if (debug && verbose) {
-					print_eustall_multichurn(&sample, addr,
-								 info.subslice,
-								 time);
+				  printf("addr=0x%lx trying again with iba\n",
+						     addr);
 				}
+				search_iba = 1;
+				found = 0;
+				goto retry;
 			} else {
-				/* Multiple buffers could claim this EU stall, but they all had
-           the same start addresses. */
-				if (!search_iba) {
-					/* We can try one more time, this time only including buffers whose
-             addresses match the top 32 bits of the IBA (Instruction Base Address). */
-					if (debug && verbose) {
-						printf("addr=0x%lx trying again with iba\n",
-						       addr);
-					}
-					search_iba = 1;
-					found = 0;
-					goto retry;
-				} else {
-					/* XXX: Temporary hack. Grabbing the last-seen buffer that matches
-             this GPU address. This was borne of a few situations in which I see
-             a vm_bind, but the application never calls vm_unbind. This can
-             be properly fixed by adding an implicit vm_unbind if a PID doesn't
-             exist anymore and the same GPU address shows up again. */
-					associate_sample(&sample,
-							 last_found_gem, addr,
-							 last_found_offset,
-							 info.subslice, time);
-					num_found++;
+				/* XXX: Temporary hack. Grabbing the last-seen buffer that matches
+           this GPU address. This was borne of a few situations in which I see
+           a vm_bind, but the application never calls vm_unbind. This can
+           be properly fixed by adding an implicit vm_unbind if a PID doesn't
+           exist anymore and the same GPU address shows up again. */
+				associate_sample(&sample,
+				  last_found_gem, addr,
+				  last_found_offset,
+					info.subslice, time);
+				num_found++;
 
-#if 0
-          /* We've tried twice, bail out. */
-          if(debug && verbose) {
-            print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
-          }
-#endif
-				}
+        /* We've tried twice, bail out. */
+        if(debug && verbose) {
+          print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
+        }
 			}
 		}
 	}
@@ -272,7 +256,7 @@ int configure_eustall()
 {
 	struct device_info *devinfo;
 	struct i915_engine_class_instance *engine_class;
-	int i, fd, found;
+	int i, fd, found, retval;
 	uint64_t *properties;
 	size_t properties_size;
 
@@ -347,9 +331,31 @@ int configure_eustall()
 		return -1;
 	}
 
+#if 0
+  /* Clear out the buffer */
+  struct pollfd pollfd = {
+    .events = POLLIN,
+    .fd = fd,
+  };
+  retval = poll(&pollfd, 1, 1);
+  if (retval < 0) {
+    fprintf(stderr,
+      "An error occurred while reading the EU stall file descriptor! Aborting.\n");
+    goto cleanup;
+  } else if (retval > 0) {
+    /* There are samples to read. Since we haven't even enabled collection yet,
+       discard them because they are stale. */
+    if(lseek(fd, p_user, SEEK_SET) == -1) {
+      fprintf(stderr, "Failed to seek to clear out EU stall samples. Aborting.\n");
+      goto cleanup;
+    }
+  }
+#endif
+
 	/* Enable the fd */
 	ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
 
+cleanup:
 	/* Free up the device info */
 	free_driver(devinfo);
 	free(properties);

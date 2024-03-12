@@ -9,7 +9,9 @@
 /* GEN binary copying maximums */
 #define MAX_BINARY_SIZE 1024 * 1024
 
+#ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
+#endif
 
 /* Collected from an mmap */
 struct mapping_info {
