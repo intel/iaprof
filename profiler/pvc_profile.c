@@ -40,9 +40,21 @@ int pid = 0;
 char verbose = 0;
 char debug = 0;
 
-static struct option long_options[] = { { "verbose", no_argument, 0, 'v' },
-					{ "debug", no_argument, 0, 'd' },
+static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
+					{ "help", no_argument, 0, 'h' },
+					{ "verbose", no_argument, 0, 'v' },
 					{ 0 } };
+
+void usage()
+{
+	printf("USAGE: pvc_profile [-dhv]\n\n");
+	printf(" e.g.:\n");
+	printf("        pvc_profile > profile.txt       # profile until Ctrl-C. STDERR visible.\n");
+	printf("\noptional arguments:\n");
+	printf("        -d, --debug     debug\n");
+	printf("        -h, --help      help\n");
+	printf("        -v, --verbose   verbose\n");
+}
 
 int read_opts(int argc, char **argv)
 {
@@ -51,7 +63,7 @@ int read_opts(int argc, char **argv)
 
 	while (1) {
 		option_index = 0;
-		c = getopt_long(argc, argv, "vd", long_options, &option_index);
+		c = getopt_long(argc, argv, "dhv", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -59,6 +71,10 @@ int read_opts(int argc, char **argv)
 		case 'd':
 			debug = 1;
 			break;
+		case 'h':
+			usage();
+			exit(0);
+			/* no fallthrough */
 		case 'v':
 			verbose = 1;
 			break;
