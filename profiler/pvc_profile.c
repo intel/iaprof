@@ -39,20 +39,23 @@
 int pid = 0;
 char verbose = 0;
 char debug = 0;
+char quiet = 0;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
 					{ "help", no_argument, 0, 'h' },
+					{ "quiet", no_argument, 0, 'q' },
 					{ "verbose", no_argument, 0, 'v' },
 					{ 0 } };
 
 void usage()
 {
-	printf("USAGE: pvc_profile [-dhv]\n\n");
+	printf("USAGE: pvc_profile [-dhqv]\n\n");
 	printf(" e.g.:\n");
 	printf("        pvc_profile > profile.txt       # profile until Ctrl-C. STDERR visible.\n");
 	printf("\noptional arguments:\n");
 	printf("        -d, --debug     debug\n");
 	printf("        -h, --help      help\n");
+	printf("        -q, --quiet     quiet\n");
 	printf("        -v, --verbose   verbose\n");
 }
 
@@ -75,6 +78,9 @@ int read_opts(int argc, char **argv)
 			usage();
 			exit(0);
 			/* no fallthrough */
+		case 'q':
+			quiet = 1;
+			break;
 		case 'v':
 			verbose = 1;
 			break;
@@ -85,6 +91,13 @@ int read_opts(int argc, char **argv)
 	}
 
 	return 0;
+}
+
+void print_status(const char *msg)
+{
+	if (!quiet) {
+		fprintf(stderr, "%s", msg);
+	}
 }
 
 /* XXX This is a nasty hack! We're using a ringbuffer to send structs
@@ -221,6 +234,7 @@ void *collect_thread_main(void *a)
 		fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
 		exit(1);
 	}
+	print_status("Profiling... Ctrl-C to end.\n");
 	perf_buf = malloc(p_user);
 	struct pollfd pollfd = {
 		.events = POLLIN,
@@ -308,6 +322,7 @@ int main(int argc, char **argv)
 	read_opts(argc, argv);
 
 	/* Begin collecting results */
+	print_status("Initializing...\n");
 	if (start_collect_thread() != 0) {
 		fprintf(stderr,
 			"Failed to start the collection thread. Aborting.\n");
@@ -332,6 +347,7 @@ int main(int argc, char **argv)
 	while (!main_thread_should_stop) {
 		nanosleep(&request, &leftover);
 	}
+	print_status("Profile stopped. Assembling output...\n");
 
 	/* Wait for the collection thread to finish */
 	stop_collect_thread();
