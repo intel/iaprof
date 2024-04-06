@@ -59,6 +59,15 @@ void usage()
 	printf("        -v, --verbose   verbose\n");
 }
 
+void check_permissions()
+{
+	if (geteuid() != 0) {
+		printf("Tool currently needs superuser (root) permission. "
+		    "Please consider running with sudo. Exiting.\n");
+		exit(1);
+	}
+}
+
 int read_opts(int argc, char **argv)
 {
 	int option_index;
@@ -320,9 +329,10 @@ int main(int argc, char **argv)
 
 	sanity_checks();
 	read_opts(argc, argv);
+	check_permissions();
 
 	/* Begin collecting results */
-	print_status("Initializing...\n");
+	print_status("Initializing, please wait...\n");
 	if (start_collect_thread() != 0) {
 		fprintf(stderr,
 			"Failed to start the collection thread. Aborting.\n");
