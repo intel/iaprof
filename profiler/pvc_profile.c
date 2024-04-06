@@ -40,6 +40,7 @@ int pid = 0;
 char verbose = 0;
 char debug = 0;
 char quiet = 0;
+char *g_sidecar = NULL;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
 					{ "help", no_argument, 0, 'h' },
@@ -49,14 +50,16 @@ static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
 
 void usage()
 {
-	printf("USAGE: pvc_profile [-dhqv]\n\n");
+	printf("USAGE: pvc_profile [-dhqv] [command]\n\n");
 	printf(" e.g.:\n");
-	printf("        pvc_profile > profile.txt       # profile until Ctrl-C. STDERR visible.\n");
+	printf("        pvc_profile > profile.txt            # profile until Ctrl-C.\n");
+	printf("        pvc_profile sleep 30 > profile.txt   # profile for 30 seconds.\n");
 	printf("\noptional arguments:\n");
 	printf("        -d, --debug     debug\n");
 	printf("        -h, --help      help\n");
 	printf("        -q, --quiet     quiet\n");
 	printf("        -v, --verbose   verbose\n");
+	printf("        command         profile system-wide while command runs\n");
 }
 
 void check_permissions()
@@ -70,7 +73,7 @@ void check_permissions()
 
 int read_opts(int argc, char **argv)
 {
-	int option_index;
+	int option_index, size = 0;
 	char c;
 
 	while (1) {
@@ -97,6 +100,20 @@ int read_opts(int argc, char **argv)
 			printf("option %s\n", long_options[option_index].name);
 			break;
 		}
+	}
+
+	if (optind < argc) {
+		for (int i = optind; i < argc; i++) {
+			size += strlen(argv[i]) + 1;
+		}
+		if (!(g_sidecar = malloc(size))) {
+			fprintf(stderr, "ERROR: out of memory.\n");
+			exit(2);
+		}
+		for (int i = optind, size = 0; i < argc; i++) {
+			size += sprintf(g_sidecar + size, "%s ", argv[i]);
+		}
+		g_sidecar[--size] = '\0';
 	}
 
 	return 0;
@@ -206,6 +223,7 @@ size_t buffer_profile_size = 0, buffer_profile_used = 0;
 struct bpf_info_t bpf_info = {};
 int perf_fd;
 pthread_t collect_thread_id;
+pthread_t sidecar_thread_id;
 static int interval_num = 0;
 static int interval_length = 1;
 static int interval_signal;
@@ -310,6 +328,31 @@ int start_collect_thread()
 }
 
 /*******************
+*      SIDECAR     *
+*******************/
+
+void *sidecar_thread_main(void *a)
+{
+	system(g_sidecar);
+	return NULL;
+}
+
+int start_sidecar_thread()
+{
+	int retval;
+
+	retval = pthread_create(&sidecar_thread_id, NULL, &sidecar_thread_main,
+				NULL);
+	if (retval != 0) {
+		fprintf(stderr,
+			"Failed to call pthread_create. Something is very wrong. Aborting.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+/*******************
 *       MAIN       *
 *******************/
 
@@ -334,12 +377,23 @@ int main(int argc, char **argv)
 	read_opts(argc, argv);
 	check_permissions();
 
-	/* Begin collecting results */
+	/* Begin profiling */
 	print_status("Initializing, please wait...\n");
 	if (start_collect_thread() != 0) {
 		fprintf(stderr,
 			"Failed to start the collection thread. Aborting.\n");
 		exit(1);
+	}
+	if (g_sidecar) {
+		/* don't kick off the sidecar command until profiling has started */
+		while (!collect_thread_profiling) {
+			nanosleep(&request, &leftover);
+		}
+		if (start_sidecar_thread() != 0) {
+			fprintf(stderr,
+				"Failed to start the provided command. Aborting.\n");
+			exit(1);
+		}
 	}
 
 	sa.sa_flags = 0;
@@ -351,14 +405,18 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	/* This loop runs until the profiler gets a signal to stop. 
-     It prints out per-interval stats, then sleeps until the next
-     interval. */
+	/* The collector thread is starting profiling rougly now.. */
 	if (debug) {
 		print_header();
 	}
-	while (!main_thread_should_stop) {
-		nanosleep(&request, &leftover);
+	if (g_sidecar) {
+		/* Wait until sidecar command finishes */
+		pthread_join(sidecar_thread_id, NULL);
+	} else {
+		/* Wait until we get a signal (Ctrl-C) */
+		while (!main_thread_should_stop) {
+			nanosleep(&request, &leftover);
+		}
 	}
 	if (collect_thread_profiling) {
 		print_status("Profile stopped. Assembling output...\n");
