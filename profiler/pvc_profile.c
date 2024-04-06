@@ -211,6 +211,7 @@ static int interval_length = 1;
 static int interval_signal;
 timer_t interval_timer;
 static char collect_thread_should_stop = 0;
+static char collect_thread_profiling = 0;
 static char main_thread_should_stop = 0;
 
 void stop_collect_thread()
@@ -243,7 +244,9 @@ void *collect_thread_main(void *a)
 		fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
 		exit(1);
 	}
-	print_status("Profiling... Ctrl-C to end.\n");
+	if (collect_thread_should_stop == 0)
+		print_status("Profiling... Ctrl-C to end.\n");
+	collect_thread_profiling = 1;
 	perf_buf = malloc(p_user);
 	struct pollfd pollfd = {
 		.events = POLLIN,
@@ -357,7 +360,11 @@ int main(int argc, char **argv)
 	while (!main_thread_should_stop) {
 		nanosleep(&request, &leftover);
 	}
-	print_status("Profile stopped. Assembling output...\n");
+	if (collect_thread_profiling) {
+		print_status("Profile stopped. Assembling output...\n");
+	} else {
+		print_status("Exit requested (had not yet started profiling).\n");
+	}
 
 	/* Wait for the collection thread to finish */
 	stop_collect_thread();
