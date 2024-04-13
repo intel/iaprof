@@ -249,6 +249,9 @@ retry:
 		return -1;
 	}
 
+	g_samples += num_found;
+	g_samples_unmatched += num_not_found;
+
 	return num_not_found;
 }
 

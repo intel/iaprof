@@ -41,6 +41,8 @@ char verbose = 0;
 char debug = 0;
 char quiet = 0;
 char *g_sidecar = NULL;
+int g_samples = 0;
+int g_samples_unmatched = 0;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
 					{ "help", no_argument, 0, 'h' },
@@ -241,7 +243,7 @@ void *collect_thread_main(void *a)
 {
 	uint8_t *perf_buf;
 	int perf_fd, i;
-	int retval, retry_eustalls, len;
+	int retval, retry_eustalls, len, secs;
 	sigset_t mask;
 
 	/* The collect thread should block SIGINT, so that all
@@ -273,8 +275,12 @@ void *collect_thread_main(void *a)
 	};
 
 	retry_eustalls = 0;
+	secs = 0;
 	while (collect_thread_should_stop == 0) {
 		/* Check if there are eustalls */
+		fprintf(stderr, "\rStatus: profiling for %d secs, %d samples collected, %d samples unmatched. ",
+		    secs++, g_samples, g_samples_unmatched);
+		fflush(stderr);
 		retry_eustalls = 0;
 		pollfd.fd = perf_fd;
 		retval = poll(&pollfd, 1, 1);
@@ -291,9 +297,11 @@ void *collect_thread_main(void *a)
 				if (retry_eustalls == -1) {
 					return NULL;
 				} else if (retry_eustalls >= 1) {
-					fprintf(stderr,
-						"WARNING: Dropping %d eustalls on the floor.\n",
-						retry_eustalls);
+					if (debug) {
+						fprintf(stderr,
+							"WARNING: Dropping %d eustalls on the floor.\n",
+							retry_eustalls);
+					}
 				}
 			}
 			/* If retval == 0, fall through */
@@ -418,7 +426,7 @@ int main(int argc, char **argv)
 		}
 	}
 	if (collect_thread_profiling) {
-		print_status("Profile stopped. Assembling output...\n");
+		print_status("\nProfile stopped. Assembling output...\n");
 	} else {
 		print_status("Exit requested (had not yet started profiling).\n");
 	}
