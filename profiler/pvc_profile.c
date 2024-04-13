@@ -264,6 +264,8 @@ void *collect_thread_main(void *a)
 	}
 	if (collect_thread_should_stop == 0)
 		print_status("Profiling... Ctrl-C to end.\n");
+	if (debug)
+		print_header();
 	collect_thread_profiling = 1;
 	perf_buf = malloc(p_user);
 	struct pollfd pollfd = {
@@ -406,9 +408,6 @@ int main(int argc, char **argv)
 	}
 
 	/* The collector thread is starting profiling rougly now.. */
-	if (debug) {
-		print_header();
-	}
 	if (g_sidecar) {
 		/* Wait until sidecar command finishes */
 		pthread_join(sidecar_thread_id, NULL);
