@@ -98,6 +98,8 @@ uint64_t grow_buffer_profiles()
 		memset(buffer_profile_arr + buffer_profile_used, 0,
 		       (buffer_profile_size - old_size) *
 			       sizeof(struct buffer_profile));
+		if (debug)
+			fprintf(stderr, "INFO: Increasing buffer size.\n");
 	}
 
 	buffer_profile_used++;
