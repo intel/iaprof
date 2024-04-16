@@ -4,7 +4,7 @@
 #include <bpf/bpf.h>
 
 #include "stack_printer.h"
-#include "gem_collector.h"
+#include "event_collector.h"
 #include "bpf/gem_collector.skel.h"
 
 static struct syms_cache *syms_cache = NULL;

@@ -41,6 +41,9 @@ struct buffer_profile {
 	uint64_t buff_sz;
 	unsigned char *buff;
 
+  /* The IBA (Instruction Base Address) associated with this buffer */
+  uint64_t iba;
+
 	/* The stack where this buffer was execbuffer'd */
 	char *execbuf_stack_str;
 
@@ -48,6 +51,8 @@ struct buffer_profile {
 	unsigned char has_stalls;
 	struct shader_profile shader_profile;
 };
+
+void update_buffer_copy(struct buffer_profile *gem);
 
 /* Global array, including a lock, size, and "used" counter,
    of buffer profiles. */

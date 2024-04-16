@@ -29,7 +29,7 @@
 #include "shader_decoder.h"
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
-#include "gem_collector.h"
+#include "event_collector.h"
 #include "printer.h"
 
 /*******************

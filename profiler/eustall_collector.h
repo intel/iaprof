@@ -1,7 +1,7 @@
 #pragma once
 
 #include <inttypes.h>
-#include "gem_collector.h"
+#include "event_collector.h"
 
 struct eustall_sample;
 struct offset_profile;

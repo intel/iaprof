@@ -1,5 +1,5 @@
 /***************************************
-* GEM Collector
+* Event Collector
 ***************************************/
 
 #define _GNU_SOURCE
@@ -17,7 +17,7 @@
 #include "bpf/gem_collector.skel.h"
 #include "stack_printer.h"
 #include "printer.h"
-#include "gem_collector.h"
+#include "event_collector.h"
 #include "utils/utils.h"
 #include "bb_parser.h"
 
@@ -104,6 +104,20 @@ uint64_t grow_buffer_profiles()
 
 	buffer_profile_used++;
 	return buffer_profile_used - 1;
+}
+
+void update_buffer_copy(struct buffer_profile *gem)
+{
+  unsigned char *tmp_buff;
+  
+  tmp_buff = copy_buffer(gem->vm_bind_info.pid, gem->mapping_info.cpu_addr, 
+                         gem->mapping_info.size);
+  if(tmp_buff) {
+    if(gem->buff) {
+      free(gem->buff);
+    }
+    gem->buff = tmp_buff;
+  }
 }
 
 /***************************************
@@ -326,13 +340,12 @@ int handle_vm_unbind(void *data_arg)
 
 int handle_execbuf_start(void *data_arg)
 {
+  char found;
 	struct buffer_profile *gem;
-	uint64_t file;
+	uint64_t file, iba;
 	uint32_t vm_id, pid;
 	int n;
-	char found, should_free_buffer;
 	struct execbuf_start_info *info;
-	unsigned char *batchbuffer;
 	struct bb_parser *parser;
 
 	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
@@ -363,76 +376,65 @@ int handle_execbuf_start(void *data_arg)
 			if (debug) {
 				print_execbuf_gem(info, &(gem->vm_bind_info));
 			}
+
+      /* Store the execbuf information */
 			memcpy(&(gem->exec_info), info,
 			       sizeof(struct execbuf_start_info));
-		}
-		if (gem->execbuf_stack_str == NULL) {
-			store_stack(info->pid, info->stackid,
-				    &(gem->execbuf_stack_str));
+
+      /* Store the stack */
+  		if (gem->execbuf_stack_str == NULL) {
+  			store_stack(info->pid, info->stackid,
+  				    &(gem->execbuf_stack_str));
+  		}
 		}
 	}
 
-#if 0
-  /* The execbuffer call also specifies a handle (which is sometimes 0) and a GPU
-     address that contains the batchbuffer. Find this buffer and attempt to parse it.
-     In this loop, we're just looking for a buffer whose file pointer and gpu_addr
-     matches what was passed into the execbuffer. */
+  /* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
+     address that contains the batchbuffer. Find this buffer and attempt to parse it. */
   found = 0;
+  iba = 0;
   for(n = 0; n < buffer_profile_used; n++) {
     gem = &buffer_profile_arr[n];
     
-    if((gem->vm_bind_info.file == file) &&
-       (gem->vm_bind_info.gpu_addr == info->bb_offset)) {
-      if(debug) {
-        print_batchbuffer(info, &(gem->vm_bind_info));
-      }
-      
-      
-      /* If the CPU address is a valid one, we want to parse the batchbuffer */
-      if(gem->mapping_info.cpu_addr) {
-        should_free_buffer = 1;
-        batchbuffer = copy_buffer(pid, gem->mapping_info.cpu_addr, gem->mapping_info.size);
-        if(!batchbuffer) {
-          if(gem->buff) {
-            /* If we couldn't copy the buffer, perhaps we had a copy from before? */
-            batchbuffer = gem->buff;
-            should_free_buffer = 0;
-          } else {
-            fprintf(stderr, "WARNING: Failed to copy the batchbuffer cpu_addr=0x%llx size=%llx\n",
-                    gem->mapping_info.cpu_addr, gem->mapping_info.size);
-            goto foundit;
-          }
-        } else {
-          if(!(gem->buff)) {
-            /* If we read a valid buffer from the process' address space, why not store it
-              for later? We need to do this BEFORE parsing because sometimes batchbuffers
-              "jump" to themselves, in which case gem->buff needs to already be populated
-              for the parser to perform the jump. */
-            gem->buff = batchbuffer;
-            should_free_buffer = 0;
-          }
-        }
-        
-        if(debug) {
-          dump_buffer(batchbuffer, gem->mapping_info.size, gem->vm_bind_info.handle);
-        }
-        parser = bb_parser_init();
-        bb_parser_parse(parser, batchbuffer, info->batch_start_offset, info->batch_len);
-        
-        if(should_free_buffer) {
-          free(batchbuffer);
-        }
-      }
-      
-foundit:
-      found = 1;
-      break;
+    if((gem->vm_bind_info.file != file) ||
+       (gem->vm_bind_info.gpu_addr != info->bb_offset)) {
+      /* This buffer doesn't match the one we're looking for */
+      continue;
     }
+    
+    if(!(gem->mapping_info.cpu_addr) || !(gem->mapping_info.size)) {
+      /* No valid CPU address means we can't copy the batchbuffer */
+      continue;
+    }
+    
+    /* Parse the batchbuffer */
+    found = 1;
+    update_buffer_copy(gem);
+    if(debug) {
+      print_batchbuffer(info, &(gem->vm_bind_info));
+    }
+    parser = bb_parser_init();
+    bb_parser_parse(parser, gem->buff, info->batch_start_offset, info->batch_len);
+    if(parser->iba) {
+      iba = parser->iba;
+    }
+    
+    break;
   }
   if(!found) {
-    fprintf(stderr, "WARNING: Failed to find a batchbuffer at file=0x%lx bb_offset=0x%llx\n", file, info->bb_offset);
+    fprintf(stderr, "WARNING: Unable to find a buffer that matches 0x%llx\n", info->bb_offset);
   }
-#endif
+  
+  if(iba) {
+  	for (n = 0; n < buffer_profile_used; n++) {
+  		gem = &buffer_profile_arr[n];
+  		if ((gem->vm_bind_info.vm_id == vm_id) &&
+  		    (gem->vm_bind_info.pid == pid) &&
+  		    (gem->vm_bind_info.file == file)) {
+        gem->iba = iba;
+      }
+    }
+  }
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
@@ -445,12 +447,14 @@ foundit:
 int handle_execbuf_end(void *data_arg)
 {
 	struct execbuf_end_info *info;
+
+  /* First, just print out the execbuf_end */
 	info = (struct execbuf_end_info *)data_arg;
 	if (debug) {
 		print_execbuf_end(info);
 	}
 
-	return 0;
+  return 0;
 }
 
 /* Runs each time a sample from the ringbuffer is collected.

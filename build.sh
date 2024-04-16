@@ -65,11 +65,11 @@ ${CC} -gdwarf-4 -c \
   ${PROFILER_DIR}/pvc_profile.c \
   -o ${PROFILER_DIR}/pvc_profile.o
   
-# gem_collector.c
+# event_collector.c
 ${CC} -gdwarf-4 -c \
   -I${KERN_HEADERS}/include -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/gem_collector.c \
-  -o ${PROFILER_DIR}/gem_collector.o
+  ${PROFILER_DIR}/event_collector.c \
+  -o ${PROFILER_DIR}/event_collector.o
   
 # eustall_collector.c
 ${CC} -gdwarf-4 -c \
@@ -107,7 +107,7 @@ ${CC} ${LDFLAGS} \
   ${COMMON_DIR}/uprobe_helpers.o \
   \
   ${PROFILER_DIR}/pvc_profile.o \
-  ${PROFILER_DIR}/gem_collector.o \
+  ${PROFILER_DIR}/event_collector.o \
   ${PROFILER_DIR}/eustall_collector.o \
   ${PROFILER_DIR}/shader_decoder.o \
   \

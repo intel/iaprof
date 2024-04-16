@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
+#include "event_collector.h"
 
 /* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
 /* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */
@@ -84,7 +85,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 	char found;
 	uint32_t *ptr, cur_cmd, op, op_len;
 	uint64_t i, n, tmp, start, end, bbsp_offset;
-	unsigned char in_cmd, num_cmd_dwords;
+	unsigned char in_cmd, num_cmd_dwords, *buff;
 	struct buffer_profile *gem;
 
 	/* Loop over the uint32_t batch buffer commands.
@@ -213,7 +214,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 					}
 
 					/* At this point, we've got an address that we need to jump to,
-               so go ahead and do it */
+             so find the buffer that it points into */
 					found = 0;
 					for (n = 0; n < buffer_profile_used;
 					     n++) {
@@ -233,12 +234,15 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 							}
 							found = 1;
 
-							if (gem->buff == NULL) {
-								/* We know we're supposed to jump *somewhere*, but can't. */
-								printf("WARNING: A batch buffer was supposed to chain somewhere, but we ");
-								printf("don't have a copy of it.\n");
-								return;
-							}
+              /* Try to grab a fresh copy of the buffer */
+              update_buffer_copy(gem);
+
+              if(!(gem->buff)) {
+  						  /* We know we're supposed to jump *somewhere*, but can't. */
+  							printf("WARNING: A batch buffer was supposed to chain somewhere, but we ");
+  						  printf("don't have a copy of it.\n");
+                return;
+              }
 
 							bbsp_offset =
 								parser->bbsp -
@@ -281,10 +285,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				break;
 			case MI_SEMAPHORE_WAIT:
 				if (in_cmd == 5) {
-					if (verbose) {
-						printf("Sleeping for 1 second.\n");
-					}
-					sleep(2);
+          /* TODO: do *something* to handle the semaphore. Sleeping is a non-starter. */
 				}
 				break;
 			case STATE_BASE_ADDRESS:

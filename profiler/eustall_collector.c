@@ -10,17 +10,9 @@
 #include "pvc_profile.h"
 #include "eustall_collector.h"
 #include "gpu_kernel_decoder.h"
-#include "gem_collector.h"
+#include "event_collector.h"
 #include "shader_decoder.h"
 #include "printer.h"
-
-/* XXX: This needs to be determined dynamically per-process.
-   It depends on the engine that the workload is running on, I think.
-   Obviously we could use the Level Zero API to determine it,
-   but I'm not sure how we can get it from the kernel quite yet.
-   We can definitely parse the batchbuffer (see bb_parser.h) to get it,
-   but each time I try this, I hit unreadable bytes and cannot progress. */
-#define INSTRUCTION_BASE_ADDRESS 0x810000000000
 
 uint64_t uint64_t_hash(uint64_t i)
 {
@@ -144,12 +136,15 @@ retry:
 			start = gem->vm_bind_info.gpu_addr & 0xffffffff;
 			end = start + gem->vm_bind_info.size;
 
-			if (search_iba && ((gem->vm_bind_info.gpu_addr >> 32) !=
-					   (INSTRUCTION_BASE_ADDRESS >> 32))) {
+      printf("iba = 0x%lx\n", gem->iba);
+			if (search_iba && gem->iba &&
+          ((gem->vm_bind_info.gpu_addr >> 32) == (gem->iba >> 32))) {
 				/* If we're only searching buffers that match the IBA, and
            the top 32 bits doesn't match it, reject it */
+        printf("0x%lx != 0x%lx\n", gem->vm_bind_info.gpu_addr >> 32, gem->iba >> 32);
 				continue;
 			}
+      printf("0x%lx == 0x%lx\n", gem->vm_bind_info.gpu_addr >> 32, gem->iba >> 32);
 
 			if (gem->vm_bind_info.stale && (!search_stale)) {
 				continue;
