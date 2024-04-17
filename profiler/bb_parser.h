@@ -89,11 +89,12 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 	struct buffer_profile *gem;
 
 	/* Loop over the uint32_t batch buffer commands.
-     `in_cmd` records the number of dwords that we're "in" a command.
-     `cmd` records the command that we're "in."
-     `num_cmd_dwords` records the number of dwords that the command holds. */
+	   `in_cmd` records the number of dwords that we're "in" a command.
+           `cur_cmd` records the command that we're "in."
+           `num_cmd_dwords` records the number of dwords that the command holds. */
 	ptr = (uint32_t *)(bb + offset);
 	in_cmd = 0;
+	cur_cmd = 0;
 	for (i = offset / sizeof(uint32_t);
 	     i < (size + offset) / sizeof(uint32_t); i++) {
 		if (verbose) {
@@ -103,8 +104,8 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			       in_cmd, cur_cmd, num_cmd_dwords);
 		}
 
-		if (!in_cmd) {
-			/* Get the op */
+		if (!cur_cmd) {
+			/* Get the op bytes */
 			if (CMD_TYPE(*ptr) == CMD_MI) {
 				if (verbose) {
 					printf("cmd_type=CMD_MI\n");
@@ -125,12 +126,12 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			}
 			op = (*ptr) >> (32 - op_len);
 
+			/* Decode which op this is */
 			switch (op) {
 			case MI_BATCH_BUFFER_START:
 				if (verbose) {
 					printf("op=MI_BATCH_BUFFER_START\n");
 				}
-				in_cmd = 1;
 				cur_cmd = MI_BATCH_BUFFER_START;
 				num_cmd_dwords = MI_BATCH_BUFFER_START_DWORDS;
 				break;
@@ -138,7 +139,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=STATE_BASE_ADDRESS\n");
 				}
-				in_cmd = 1;
 				cur_cmd = STATE_BASE_ADDRESS;
 				num_cmd_dwords = STATE_BASE_ADDRESS_DWORDS;
 				break;
@@ -146,7 +146,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=STATE_SIP\n");
 				}
-				in_cmd = 1;
 				cur_cmd = STATE_SIP;
 				num_cmd_dwords = STATE_SIP_DWORDS;
 				break;
@@ -154,7 +153,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=COMPUTE_WALKER\n");
 				}
-				in_cmd = 1;
 				cur_cmd = COMPUTE_WALKER;
 				num_cmd_dwords = COMPUTE_WALKER_DWORDS;
 				break;
@@ -162,7 +160,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=MI_BATCH_BUFFER_END\n");
 				}
-				in_cmd = 1;
 				cur_cmd = MI_BATCH_BUFFER_END;
 				num_cmd_dwords = MI_BATCH_BUFFER_END_DWORDS;
 				break;
@@ -170,7 +167,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=PIPE_CONTROL\n");
 				}
-				in_cmd = 1;
 				cur_cmd = PIPE_CONTROL;
 				num_cmd_dwords = PIPE_CONTROL_DWORDS;
 				break;
@@ -178,7 +174,6 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				if (verbose) {
 					printf("op=MI_SEMAPHORE_WAIT\n");
 				}
-				in_cmd = 1;
 				cur_cmd = MI_SEMAPHORE_WAIT;
 				num_cmd_dwords = MI_SEMAPHORE_WAIT_DWORDS;
 				break;
@@ -190,144 +185,141 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			}
 		}
 
-		if (in_cmd) {
-			/* Consume this command's dwords */
-			switch (cur_cmd) {
-			case MI_BATCH_BUFFER_START:
-				if (in_cmd == 1) {
-					parser->bb2l =
-						MI_BATCH_BUFFER_START_2ND_LEVEL(
-							*ptr);
-					if (verbose) {
-						printf("bb2l=%u\n",
-						       parser->bb2l);
-					}
-				} else if (in_cmd == 2) {
-					parser->bbsp = 0;
-					parser->bbsp |= *ptr;
-				} else if (in_cmd == 3) {
-					tmp = *ptr;
-					parser->bbsp |= tmp << 32;
-					if (verbose) {
-						printf("bbsp=0x%lx\n",
-						       parser->bbsp);
-					}
+		/* Consume this command's dwords */
+		switch (cur_cmd) {
+		case MI_BATCH_BUFFER_START:
+			if (in_cmd == 1) {
+				parser->bb2l =
+					MI_BATCH_BUFFER_START_2ND_LEVEL(
+						*ptr);
+				if (verbose) {
+					printf("bb2l=%u\n",
+					       parser->bb2l);
+				}
+				parser->bbsp = 0;
+				parser->bbsp |= *ptr;
+			} else if (in_cmd == 2) {
+				tmp = *ptr;
+				parser->bbsp |= tmp << 32;
+				if (verbose) {
+					printf("bbsp=0x%lx\n",
+					       parser->bbsp);
+				}
 
-					/* At this point, we've got an address that we need to jump to,
-             so find the buffer that it points into */
-					found = 0;
-					for (n = 0; n < buffer_profile_used;
-					     n++) {
-						gem = &buffer_profile_arr[n];
-						start = gem->vm_bind_info
+				/* At this point, we've got an address that we need
+					 * to jump to, so find the buffer that it points into */
+				found = 0;
+				for (n = 0; n < buffer_profile_used;
+				     n++) {
+					gem = &buffer_profile_arr[n];
+					start = gem->vm_bind_info
+							.gpu_addr;
+					end = start +
+					      gem->vm_bind_info.size;
+					if ((parser->bbsp >= start) &&
+					    (parser->bbsp < end)) {
+						if (verbose) {
+							printf("Found a matching batch buffer to jump to. handle=%u gpu_addr=0x%llx\n",
+							       gem->vm_bind_info
+								       .handle,
+							       gem->vm_bind_info
+								       .gpu_addr);
+						}
+						found = 1;
+
+						/* Try to grab a fresh copy of the buffer */
+						update_buffer_copy(gem);
+
+						if (!(gem->buff)) {
+							/* We know we're supposed to jump *somewhere*, but can't. */
+							printf("WARNING: A batch buffer was supposed to chain somewhere, but we ");
+							printf("don't have a copy of it.\n");
+							return;
+						}
+
+						bbsp_offset =
+							parser->bbsp -
+							gem->vm_bind_info
 								.gpu_addr;
-						end = start +
-						      gem->vm_bind_info.size;
-						if ((parser->bbsp >= start) &&
-						    (parser->bbsp < end)) {
-							if (verbose) {
-								printf("Found a matching batch buffer to jump to. handle=%u gpu_addr=0x%llx\n",
-								       gem->vm_bind_info
-									       .handle,
-								       gem->vm_bind_info
-									       .gpu_addr);
-							}
-							found = 1;
+						if (verbose) {
+							printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n",
+							       gem->mapping_info
+								       .cpu_addr,
+							       bbsp_offset,
+							       gem->mapping_info
+									       .size -
+								       bbsp_offset);
+							printf("The next dword: 0x%x\n",
+							       *(ptr +
+								 1));
+						}
+						bb_parser_parse(
+							parser,
+							gem->buff,
+							bbsp_offset,
+							gem->mapping_info
+									.size -
+								bbsp_offset);
 
-              /* Try to grab a fresh copy of the buffer */
-              update_buffer_copy(gem);
-
-              if(!(gem->buff)) {
-  						  /* We know we're supposed to jump *somewhere*, but can't. */
-  							printf("WARNING: A batch buffer was supposed to chain somewhere, but we ");
-  						  printf("don't have a copy of it.\n");
-                return;
-              }
-
-							bbsp_offset =
-								parser->bbsp -
-								gem->vm_bind_info
-									.gpu_addr;
-							if (verbose) {
-								printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n",
-								       gem->mapping_info
-									       .cpu_addr,
-								       bbsp_offset,
-								       gem->mapping_info
-										       .size -
-									       bbsp_offset);
-								printf("The next dword: 0x%x\n",
-								       *(ptr +
-									 1));
-							}
-							bb_parser_parse(
-								parser,
-								gem->buff,
-								bbsp_offset,
-								gem->mapping_info
-										.size -
-									bbsp_offset);
-
-							if (!(parser->bb2l)) {
-								/* If the "2nd level" bit in the MI_BATCH_BUFFER_START command
-                     wasn't set, it acts as a goto - don't continue parsing after the jump 
-                     returns here. */
-								return;
-							}
+						if (!(parser->bb2l)) {
+							/* If the "2nd level" bit in the MI_BATCH_BUFFER_START command wasn't set, 
+								 * it acts as a goto - don't continue parsing after the jump returns here. */
+							return;
 						}
 					}
-					if (!found) {
-						printf("WARNING: Didn't find a match for GPU address 0x%lx\n",
-						       parser->bbsp);
-						return;
-					}
 				}
-				break;
-			case MI_SEMAPHORE_WAIT:
-				if (in_cmd == 5) {
-          /* TODO: do *something* to handle the semaphore. Sleeping is a non-starter. */
+				if (!found) {
+					printf("WARNING: Didn't find a match for GPU address 0x%lx\n",
+					       parser->bbsp);
+					return;
 				}
-				break;
-			case STATE_BASE_ADDRESS:
-				if (in_cmd == 10) {
-					if (verbose) {
-						printf("Found an Instruction Base Address.\n");
-					}
-					/* The tenth dword in STATE_BASE_ADDRESS
-              stores 20 of the iba bits. */
-					parser->iba |= (*ptr & 0xFFFFF000);
-				} else if (in_cmd == 11) {
-					/* The eleventh dword in STATE_BASE_ADDRESS
-              stores the majority of the iba */
-					tmp = *ptr;
-					parser->iba |= tmp << 32;
-				}
-				break;
-			case STATE_SIP:
-				if (in_cmd == 1) {
-					parser->sip |= *ptr;
-				} else if (in_cmd == 2) {
-					tmp = *ptr;
-					parser->sip |= tmp << 32;
-				}
-				break;
 			}
+			break;
+		case MI_SEMAPHORE_WAIT:
+			/* TODO: do *something* to handle the semaphore. Sleeping is a non-starter. */
+			break;
+		case STATE_BASE_ADDRESS:
+			if (in_cmd == 10) {
+				if (verbose) {
+					printf("Found an Instruction Base Address.\n");
+				}
+				/* The tenth dword in STATE_BASE_ADDRESS stores 20 of the iba bits. */
+				parser->iba |= (*ptr & 0xFFFFF000);
+			} else if (in_cmd == 11) {
+				/* The eleventh dword in STATE_BASE_ADDRESS stores the majority of the iba */
+				tmp = *ptr;
+				parser->iba |= tmp << 32;
+			}
+			break;
+		case STATE_SIP:
+			if (in_cmd == 1) {
+				parser->sip |= *ptr;
+			} else if (in_cmd == 2) {
+				tmp = *ptr;
+				parser->sip |= tmp << 32;
+			}
+			break;
+		}
 
-			if (in_cmd == num_cmd_dwords) {
-				/* We've consumed all of this command's
-           dwords, so go back to looking for new
-           commands. */
+		if(cur_cmd) {
+			
+			/* Advance to the next dword in a command */
+
+			if (cur_cmd == MI_BATCH_BUFFER_END)
+				break;
+
+			if (in_cmd == num_cmd_dwords - 1) {
+				/* We've consumed all of this command's dwords, 
+				 * so go back to looking for new commands. */
 				in_cmd = 0;
+				cur_cmd = 0;
 			} else {
-				/* Keep looking for dwords that this command
-           needs */
+				/* Keep looking for dwords that this command needs */
 				in_cmd++;
 			}
 		}
 
-		if (cur_cmd == MI_BATCH_BUFFER_END)
-			break;
-
+		/* Next dword in the buffer */
 		ptr++;
 	}
 }

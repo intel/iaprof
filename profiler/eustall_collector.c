@@ -104,15 +104,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 	clock_gettime(CLOCK_MONOTONIC, &spec);
 	time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-	if (debug && verbose) {
-		printf("Current buffer_profile_arr: ");
-		for (n = 0; n < buffer_profile_used; n++) {
-			gem = &buffer_profile_arr[n];
-			printf("0x%llx ", gem->vm_bind_info.gpu_addr);
-		}
-		printf("\n");
-	}
-
 	num_not_found = 0;
 	num_found = 0;
 	for (i = 0; i < len; i += 64) {
@@ -136,15 +127,13 @@ retry:
 			start = gem->vm_bind_info.gpu_addr & 0xffffffff;
 			end = start + gem->vm_bind_info.size;
 
-      printf("iba = 0x%lx\n", gem->iba);
-			if (search_iba && gem->iba &&
-          ((gem->vm_bind_info.gpu_addr >> 32) == (gem->iba >> 32))) {
+			if (search_iba && (!(gem->iba) ||
+			    ((gem->vm_bind_info.gpu_addr >> 32) !=
+			     (gem->iba >> 32)))) {
 				/* If we're only searching buffers that match the IBA, and
-           the top 32 bits doesn't match it, reject it */
-        printf("0x%lx != 0x%lx\n", gem->vm_bind_info.gpu_addr >> 32, gem->iba >> 32);
+				 * the top 32 bits doesn't match it, reject it */
 				continue;
 			}
-      printf("0x%lx == 0x%lx\n", gem->vm_bind_info.gpu_addr >> 32, gem->iba >> 32);
 
 			if (gem->vm_bind_info.stale && (!search_stale)) {
 				continue;
@@ -156,10 +145,10 @@ retry:
 
 			if ((addr - start) > MAX_BINARY_SIZE) {
 				/* Don't count this buffer if the binary size isn't big enough
-            to contain it. This is a kludge that I'd rather avoid,
-            but sometimes, NEO will allocate huge swaths of the address
-            space that overlap with more reasonably-sized buffers that
-            actually contain data. */
+				 * to contain it. This is a kludge that I'd rather avoid,
+				 * but sometimes, NEO will allocate huge swaths of the address
+				 * space that overlap with more reasonably-sized buffers that
+				 * actually contain data. */
 				continue;
 			}
 
@@ -203,14 +192,14 @@ retry:
 					 time);
 			num_found++;
 		} else if (found > 1) {
-		  /* Multiple buffers could claim this EU stall, but they all had
+			/* Multiple buffers could claim this EU stall, but they all had
          the same start addresses. */
 			if (!search_iba) {
-			  /* We can try one more time, this time only including buffers whose
+				/* We can try one more time, this time only including buffers whose
            addresses match the top 32 bits of the IBA (Instruction Base Address). */
 				if (debug && verbose) {
-				  printf("addr=0x%lx trying again with iba\n",
-						     addr);
+					printf("addr=0x%lx trying again with iba\n",
+					       addr);
 				}
 				search_iba = 1;
 				found = 0;
@@ -221,16 +210,18 @@ retry:
            a vm_bind, but the application never calls vm_unbind. This can
            be properly fixed by adding an implicit vm_unbind if a PID doesn't
            exist anymore and the same GPU address shows up again. */
-				associate_sample(&sample,
-				  last_found_gem, addr,
-				  last_found_offset,
-					info.subslice, time);
+				associate_sample(&sample, last_found_gem, addr,
+						 last_found_offset,
+						 info.subslice, time);
 				num_found++;
 
-        /* We've tried twice, bail out. */
-        if(debug && verbose) {
-          print_eustall_churn(&sample, addr, last_found_offset, info.subslice, time);
-        }
+				/* We've tried twice, bail out. */
+				if (debug && verbose) {
+					print_eustall_churn(&sample, addr,
+							    last_found_offset,
+							    info.subslice,
+							    time);
+				}
 			}
 		}
 	}
