@@ -97,7 +97,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 	cur_cmd = 0;
 	for (i = offset / sizeof(uint32_t);
 	     i < (size + offset) / sizeof(uint32_t); i++) {
-		if (verbose) {
+		if (debug) {
 			printf("dword=0x%x offset=0x%lx\n", *ptr,
 			       i * sizeof(uint32_t));
 			printf("in_cmd=%u cur_cmd=%u num_cmd_dwords=%u\n",
@@ -107,17 +107,17 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 		if (!cur_cmd) {
 			/* Get the op bytes */
 			if (CMD_TYPE(*ptr) == CMD_MI) {
-				if (verbose) {
+				if (debug) {
 					printf("cmd_type=CMD_MI\n");
 				}
 				op_len = OP_LEN_MI;
 			} else if (CMD_TYPE(*ptr) == CMD_3D_MEDIA) {
-				if (verbose) {
+				if (debug) {
 					printf("cmd_type=CMD_3D_MEDIA\n");
 				}
 				op_len = OP_LEN_3D_MEDIA;
 			} else {
-				if (verbose) {
+				if (debug) {
 					printf("cmd_type=UNKNOWN (0x%x)\n",
 					       CMD_TYPE(*ptr));
 				}
@@ -129,56 +129,56 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			/* Decode which op this is */
 			switch (op) {
 			case MI_BATCH_BUFFER_START:
-				if (verbose) {
+				if (debug) {
 					printf("op=MI_BATCH_BUFFER_START\n");
 				}
 				cur_cmd = MI_BATCH_BUFFER_START;
 				num_cmd_dwords = MI_BATCH_BUFFER_START_DWORDS;
 				break;
 			case STATE_BASE_ADDRESS:
-				if (verbose) {
+				if (debug) {
 					printf("op=STATE_BASE_ADDRESS\n");
 				}
 				cur_cmd = STATE_BASE_ADDRESS;
 				num_cmd_dwords = STATE_BASE_ADDRESS_DWORDS;
 				break;
 			case STATE_SIP:
-				if (verbose) {
+				if (debug) {
 					printf("op=STATE_SIP\n");
 				}
 				cur_cmd = STATE_SIP;
 				num_cmd_dwords = STATE_SIP_DWORDS;
 				break;
 			case COMPUTE_WALKER:
-				if (verbose) {
+				if (debug) {
 					printf("op=COMPUTE_WALKER\n");
 				}
 				cur_cmd = COMPUTE_WALKER;
 				num_cmd_dwords = COMPUTE_WALKER_DWORDS;
 				break;
 			case MI_BATCH_BUFFER_END:
-				if (verbose) {
+				if (debug) {
 					printf("op=MI_BATCH_BUFFER_END\n");
 				}
 				cur_cmd = MI_BATCH_BUFFER_END;
 				num_cmd_dwords = MI_BATCH_BUFFER_END_DWORDS;
 				break;
 			case PIPE_CONTROL:
-				if (verbose) {
+				if (debug) {
 					printf("op=PIPE_CONTROL\n");
 				}
 				cur_cmd = PIPE_CONTROL;
 				num_cmd_dwords = PIPE_CONTROL_DWORDS;
 				break;
 			case MI_SEMAPHORE_WAIT:
-				if (verbose) {
+				if (debug) {
 					printf("op=MI_SEMAPHORE_WAIT\n");
 				}
 				cur_cmd = MI_SEMAPHORE_WAIT;
 				num_cmd_dwords = MI_SEMAPHORE_WAIT_DWORDS;
 				break;
 			default:
-				if (verbose) {
+				if (debug) {
 					printf("op=UNKNOWN (0x%x)\n", op);
 				}
 				break;
@@ -192,7 +192,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 				parser->bb2l =
 					MI_BATCH_BUFFER_START_2ND_LEVEL(
 						*ptr);
-				if (verbose) {
+				if (debug) {
 					printf("bb2l=%u\n",
 					       parser->bb2l);
 				}
@@ -201,7 +201,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			} else if (in_cmd == 2) {
 				tmp = *ptr;
 				parser->bbsp |= tmp << 32;
-				if (verbose) {
+				if (debug) {
 					printf("bbsp=0x%lx\n",
 					       parser->bbsp);
 				}
@@ -218,7 +218,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 					      gem->vm_bind_info.size;
 					if ((parser->bbsp >= start) &&
 					    (parser->bbsp < end)) {
-						if (verbose) {
+						if (debug) {
 							printf("Found a matching batch buffer to jump to. handle=%u gpu_addr=0x%llx\n",
 							       gem->vm_bind_info
 								       .handle,
@@ -241,7 +241,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 							parser->bbsp -
 							gem->vm_bind_info
 								.gpu_addr;
-						if (verbose) {
+						if (debug) {
 							printf("Parsing a batch buffer at start=0x%llx offset=0x%lx size=%llu\n",
 							       gem->mapping_info
 								       .cpu_addr,
@@ -280,7 +280,7 @@ void bb_parser_parse(struct bb_parser *parser, unsigned char *bb,
 			break;
 		case STATE_BASE_ADDRESS:
 			if (in_cmd == 10) {
-				if (verbose) {
+				if (debug) {
 					printf("Found an Instruction Base Address.\n");
 				}
 				/* The tenth dword in STATE_BASE_ADDRESS stores 20 of the iba bits. */

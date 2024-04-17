@@ -55,7 +55,7 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 		gem->has_stalls = 1;
 	}
 
-	if (debug && verbose) {
+	if (verbose) {
 		print_eustall(sample, gpu_addr, offset,
 			      gem->vm_bind_info.handle, subslice, time);
 	}
@@ -154,7 +154,7 @@ retry:
 
 			offset = addr - start;
 
-			if (debug && verbose) {
+			if (debug) {
 				printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n",
 				       (uint64_t)sample.ip, addr, start, offset,
 				       gem->vm_bind_info.gpu_addr);
@@ -172,7 +172,7 @@ retry:
 			if (!search_stale) {
 				/* If we haven't already retried for this stall,
            search all buffers again but consider "stale" ones too. */
-				if (debug && verbose) {
+				if (debug) {
 					printf("addr=0x%lx trying again\n",
 					       addr);
 				}
@@ -180,7 +180,7 @@ retry:
 				goto retry;
 			} else {
 				/* We've tried twice, bail out */
-				if (debug && verbose) {
+				if (verbose) {
 					print_eustall_drop(&sample, addr,
 							   info.subslice, time);
 				}
@@ -197,7 +197,7 @@ retry:
 			if (!search_iba) {
 				/* We can try one more time, this time only including buffers whose
            addresses match the top 32 bits of the IBA (Instruction Base Address). */
-				if (debug && verbose) {
+				if (debug) {
 					printf("addr=0x%lx trying again with iba\n",
 					       addr);
 				}
@@ -216,7 +216,7 @@ retry:
 				num_found++;
 
 				/* We've tried twice, bail out. */
-				if (debug && verbose) {
+				if (verbose) {
 					print_eustall_churn(&sample, addr,
 							    last_found_offset,
 							    info.subslice,

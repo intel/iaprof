@@ -266,7 +266,7 @@ void *collect_thread_main(void *a)
 	}
 	if (collect_thread_should_stop == 0)
 		print_status("Profiling... Ctrl-C to end.\n");
-	if (debug)
+	if (verbose)
 		print_header();
 	collect_thread_profiling = 1;
 	perf_buf = malloc(p_user);

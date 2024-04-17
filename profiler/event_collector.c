@@ -138,7 +138,7 @@ int handle_mapping(void *data_arg)
 	}
 
 	info = (struct mapping_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_mapping(info);
 	}
 
@@ -202,7 +202,7 @@ int handle_unmap(void *data_arg)
 	}
 
 	info = (struct unmap_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_unmap(info);
 	}
 
@@ -237,7 +237,7 @@ int handle_userptr(void *data_arg)
 	}
 
 	info = (struct userptr_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_userptr(info);
 	}
 
@@ -261,7 +261,7 @@ int handle_vm_bind(void *data_arg)
 	}
 
 	info = (struct vm_bind_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_vm_bind(info);
 	}
 
@@ -296,7 +296,7 @@ int handle_vm_unbind(void *data_arg)
 	}
 
 	info = (struct vm_unbind_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_vm_unbind(info);
 	}
 
@@ -354,7 +354,7 @@ int handle_execbuf_start(void *data_arg)
 	}
 
 	info = (struct execbuf_start_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_execbuf_start(info);
 	}
 
@@ -373,7 +373,7 @@ int handle_execbuf_start(void *data_arg)
 		if ((gem->vm_bind_info.vm_id == vm_id) &&
 		    (gem->vm_bind_info.pid == pid) &&
 		    (gem->vm_bind_info.file == file)) {
-			if (debug) {
+			if (verbose) {
 				print_execbuf_gem(info, &(gem->vm_bind_info));
 			}
 
@@ -410,7 +410,7 @@ int handle_execbuf_start(void *data_arg)
     /* Parse the batchbuffer */
     found = 1;
     update_buffer_copy(gem);
-    if(debug) {
+    if(verbose) {
       print_batchbuffer(info, &(gem->vm_bind_info));
     }
     parser = bb_parser_init();
@@ -450,7 +450,7 @@ int handle_execbuf_end(void *data_arg)
 
   /* First, just print out the execbuf_end */
 	info = (struct execbuf_end_info *)data_arg;
-	if (debug) {
+	if (verbose) {
 		print_execbuf_end(info);
 	}
 
