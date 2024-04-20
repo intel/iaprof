@@ -9,11 +9,12 @@
 *    DISCOVERY     *
 *******************/
 
-#define DEFAULT_SAMPL_RATE 5
+#define DEFAULT_SAMPL_RATE 7	/* HW events per sample, max 7 in i915 */
+/* XXX ^^^ increase i915 max as this is too low and generates excessive samples */
 #define DEFAULT_DSS_BUF_SIZE (128 * 1024)
 #define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS 10000000
-#define DEFAULT_EVENT_COUNT 1000
+#define DEFAULT_POLL_PERIOD_NS 10000000	/* userspace wakeup interval */
+#define DEFAULT_EVENT_COUNT 1000	/* aggregation: number of events to trigger poll read */
 
 static uint64_t p_poll_period = DEFAULT_POLL_PERIOD_NS;
 static uint32_t p_event_count = DEFAULT_EVENT_COUNT;
