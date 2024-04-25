@@ -36,6 +36,7 @@
 * COMMANDLINE ARGS *
 *******************/
 
+char *version = "20-Apr-2024";
 int pid = 0;
 char verbose = 0;
 char debug = 0;
@@ -48,6 +49,7 @@ static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
 					{ "help", no_argument, 0, 'h' },
 					{ "quiet", no_argument, 0, 'q' },
 					{ "verbose", no_argument, 0, 'v' },
+					{ "version", no_argument, 0, 0 },
 					{ 0 } };
 
 void usage()
@@ -61,7 +63,8 @@ void usage()
 	printf("        -h, --help      help\n");
 	printf("        -q, --quiet     quiet\n");
 	printf("        -v, --verbose   verbose\n");
-	printf("        command         profile system-wide while command runs\n");
+	printf("        command         profile system-wide while command runs\n\n");
+	printf("Version: %s\n", version);
 }
 
 void check_permissions()
@@ -99,7 +102,12 @@ int read_opts(int argc, char **argv)
 			verbose = 1;
 			break;
 		case 0:
-			printf("option %s\n", long_options[option_index].name);
+			if (strcmp(long_options[option_index].name, "version") == 0) {
+				printf("Version: %s\n", version);
+				exit(0);
+			} else {
+				printf("option %s\n", long_options[option_index].name);
+			}
 			break;
 		}
 	}
