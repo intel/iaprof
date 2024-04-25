@@ -118,10 +118,12 @@ ${CC} ${LDFLAGS} \
   \
   -gdwarf-4 \
   -o ${BASE_DIR}/bin/pvc_profile \
-  -L${PREFIX}/lib -liga64 \
+  -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
-  -lelf -lz
+  -lelf -lz \
+  -lstdc++ \
+  ${PREFIX}/lib/libiga64.a
 echo ""
 
 # Compile the benchmark
