@@ -221,6 +221,7 @@ void sanity_checks()
 pthread_rwlock_t buffer_profile_lock = PTHREAD_RWLOCK_INITIALIZER;
 struct buffer_profile *buffer_profile_arr = NULL;
 size_t buffer_profile_size = 0, buffer_profile_used = 0;
+uint64_t iba = 0;
 
 struct bpf_info_t bpf_info = {};
 int perf_fd;
@@ -431,6 +432,11 @@ int main(int argc, char **argv)
 		print_status("Exit requested (had not yet started profiling).\n");
 	}
 
+        if(verbose) {
+        	printf("%d samples collected, %d samples unmatched.\n",
+        	       g_samples, g_samples_unmatched);
+        }
+
 	/* Wait for the collection thread to finish */
 	stop_collect_thread();
 	pthread_join(collect_thread_id, NULL);
@@ -453,7 +459,7 @@ int main(int argc, char **argv)
 		gem = &buffer_profile_arr[i];
 		if (!gem->has_stalls)
 			continue;
-		if (gem->exec_info.pid == 0) {
+		if ((gem->exec_info.pid == 0) && debug) {
 			fprintf(stderr, "WARNING: PID for handle %u is zero!\n",
 				gem->mapping_info.handle);
 		}
@@ -463,18 +469,22 @@ int main(int argc, char **argv)
 
 			/* First, disassemble the instruction */
 			if ((!gem->buff_sz) || (!gem->buff)) {
-				fprintf(stderr,
-					"WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n",
-					gem->mapping_info.handle);
+                                if (debug) {
+        				fprintf(stderr,
+        					"WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n",
+        					gem->mapping_info.handle);
+                                }
 				continue;
 			}
 			if (tmp_offset > gem->buff_sz) {
-				fprintf(stderr,
-					"WARNING: Got an EU stall past the end of a buffer. ");
-				fprintf(stderr,
-					"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
-					gem->mapping_info.handle, gem->buff,
-					tmp_offset, gem->buff_sz);
+                                if (debug) {
+        				fprintf(stderr,
+        					"WARNING: Got an EU stall past the end of a buffer. ");
+        				fprintf(stderr,
+        					"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
+        					gem->mapping_info.handle, gem->buff,
+        					tmp_offset, gem->buff_sz);
+                                }
 				insn_text = failed_decode;
 			} else {
 				insn_text = iga_disassemble_single(

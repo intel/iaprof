@@ -111,12 +111,13 @@ void update_buffer_copy(struct buffer_profile *gem)
   unsigned char *tmp_buff;
   
   tmp_buff = copy_buffer(gem->vm_bind_info.pid, gem->mapping_info.cpu_addr, 
-                         gem->mapping_info.size);
+                         gem->mapping_info.size, debug);
   if(tmp_buff) {
     if(gem->buff) {
       free(gem->buff);
     }
     gem->buff = tmp_buff;
+    gem->buff_sz = gem->mapping_info.size;
   }
 }
 
@@ -147,7 +148,7 @@ int handle_mapping(void *data_arg)
 	mapping_index = get_buffer_profile(info->pid, info->file, info->handle);
 	vm_bind_index = get_buffer_profile_by_binding(info->pid, info->file,
 						      info->handle);
-	if (mapping_index != -1) {
+	if ((mapping_index != -1) && debug) {
 		fprintf(stderr,
 			"WARNING: Detected churn on pid=%u file=0x%llx handle=%u\n",
 			info->pid, info->file, info->handle);
@@ -207,7 +208,7 @@ int handle_unmap(void *data_arg)
 	}
 
 	index = get_buffer_profile(info->pid, info->file, info->handle);
-	if (index == -1) {
+	if ((index == -1) && debug) {
 		fprintf(stderr,
 			"WARNING: handle_binary called on a mapping that hasn't happened yet.\n");
 		goto cleanup;
@@ -310,9 +311,11 @@ int handle_vm_unbind(void *data_arg)
 				"Failed to acquire the buffer_profile_lock!\n");
 			return -1;
 		}
-		fprintf(stderr,
-			"WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
-			info->gpu_addr);
+                if(debug) {
+        		fprintf(stderr,
+        			"WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
+        			info->gpu_addr);
+                }
 		return 0;
 	}
 
@@ -342,7 +345,7 @@ int handle_execbuf_start(void *data_arg)
 {
   char found;
 	struct buffer_profile *gem;
-	uint64_t file, iba;
+	uint64_t file;
 	uint32_t vm_id, pid;
 	int n;
 	struct execbuf_start_info *info;
@@ -392,7 +395,7 @@ int handle_execbuf_start(void *data_arg)
   /* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
      address that contains the batchbuffer. Find this buffer and attempt to parse it. */
   found = 0;
-  iba = 0;
+/*   iba = 0; */
   for(n = 0; n < buffer_profile_used; n++) {
     gem = &buffer_profile_arr[n];
     
@@ -414,14 +417,14 @@ int handle_execbuf_start(void *data_arg)
       print_batchbuffer(info, &(gem->vm_bind_info));
     }
     parser = bb_parser_init();
-    bb_parser_parse(parser, gem->buff, info->batch_start_offset, info->batch_len);
+    bb_parser_parse(parser, gem, info->batch_start_offset, info->batch_len);
     if(parser->iba) {
       iba = parser->iba;
     }
     
     break;
   }
-  if(!found) {
+  if(!found && debug) {
     fprintf(stderr, "WARNING: Unable to find a buffer that matches 0x%llx\n", info->bb_offset);
   }
   

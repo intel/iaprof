@@ -5,4 +5,4 @@
 
 void dump_buffer(unsigned char *kernel, uint64_t size, uint32_t id);
 void print_map(pid_t pid);
-unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size);
+unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size, char debug);

@@ -61,7 +61,7 @@ void print_map(pid_t pid)
 	fflush(stdout);
 }
 
-unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size)
+unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size, char debug)
 {
 	size_t num_read;
 	FILE *mem_file;
@@ -73,17 +73,21 @@ unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size)
 	sprintf(filename, "/proc/%u/mem", pid);
 	mem_file = fopen(filename, "r");
 	if (!mem_file) {
-		fprintf(stderr,
-			"WARNING: copy_buffer failed to open /proc/%u/mem!\n",
-			pid);
+                if (debug) {
+        		fprintf(stderr,
+        			"WARNING: copy_buffer failed to open /proc/%u/mem!\n",
+        			pid);
+                }
 		return NULL;
 	}
 
 	/* Seek to the spot in the application's address space */
 	retval = fseeko(mem_file, ptr, SEEK_SET);
 	if (retval != 0) {
-		fprintf(stderr,
-			"WARNING: copy_buffer failed to seek to 0x%lx!\n", ptr);
+                if (debug) {
+        		fprintf(stderr,
+        			"WARNING: copy_buffer failed to seek to 0x%lx!\n", ptr);
+                }
 		fclose(mem_file);
 		return NULL;
 	}

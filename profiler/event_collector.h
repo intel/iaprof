@@ -41,8 +41,8 @@ struct buffer_profile {
 	uint64_t buff_sz;
 	unsigned char *buff;
 
-  /* The IBA (Instruction Base Address) associated with this buffer */
-  uint64_t iba;
+        /* The IBA (Instruction Base Address) associated with this buffer */
+        uint64_t iba;
 
 	/* The stack where this buffer was execbuffer'd */
 	char *execbuf_stack_str;
@@ -59,6 +59,10 @@ void update_buffer_copy(struct buffer_profile *gem);
 extern pthread_rwlock_t buffer_profile_lock;
 extern struct buffer_profile *buffer_profile_arr;
 extern size_t buffer_profile_size, buffer_profile_used;
+
+/* Global IBA, or Instruction Base Address, which is found by
+ * parsing batchbuffer commands. */
+extern uint64_t iba;
 
 /***************************************
 * BPF Handlers

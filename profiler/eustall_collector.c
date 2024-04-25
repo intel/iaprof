@@ -127,9 +127,9 @@ retry:
 			start = gem->vm_bind_info.gpu_addr & 0xffffffff;
 			end = start + gem->vm_bind_info.size;
 
-			if (search_iba && (!(gem->iba) ||
+			if (search_iba && (!(iba) ||
 			    ((gem->vm_bind_info.gpu_addr >> 32) !=
-			     (gem->iba >> 32)))) {
+			     (iba >> 32)))) {
 				/* If we're only searching buffers that match the IBA, and
 				 * the top 32 bits doesn't match it, reject it */
 				continue;
@@ -155,9 +155,9 @@ retry:
 			offset = addr - start;
 
 			if (debug) {
-				printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx\n",
+				printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx iba=0x%lx\n",
 				       (uint64_t)sample.ip, addr, start, offset,
-				       gem->vm_bind_info.gpu_addr);
+				       gem->vm_bind_info.gpu_addr, iba);
 			}
 			found++;
 			last_found_start = start;

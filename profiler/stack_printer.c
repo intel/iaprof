@@ -3,6 +3,7 @@
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 
+#include "pvc_profile.h"
 #include "stack_printer.h"
 #include "event_collector.h"
 #include "bpf/gem_collector.skel.h"
@@ -53,7 +54,7 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
 		return;
 	}
 	syms = syms_cache__get_syms(syms_cache, pid);
-	if (!syms) {
+	if (!syms && debug) {
 		fprintf(stderr,
 			"WARNING: Failed to get syms for PID %" PRIu32 "\n",
 			pid);
