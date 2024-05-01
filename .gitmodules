@@ -1,15 +1,6 @@
-[submodule "drivers.gpu.i915.drm-intel"]
-	path = reference/drivers.gpu.i915.drm-intel
-	url = https://github.com/intel-innersource/drivers.gpu.i915.drm-intel.git
 [submodule "deps/bpftool"]
 	path = deps/bpftool
 	url = https://github.com/libbpf/bpftool.git
-[submodule "reference/drivers.gpu.i915.internal-linux-firmware"]
-	path = reference/drivers.gpu.i915.internal-linux-firmware
-	url = https://github.com/intel-innersource/drivers.gpu.i915.internal-linux-firmware.git
-[submodule "reference/linux-firmware"]
-	path = reference/linux-firmware
-	url = https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
 [submodule "deps/intel-graphics-compiler"]
 	path = deps/igc/igc
 	url = https://github.com/intel/intel-graphics-compiler.git
