@@ -108,17 +108,18 @@ uint64_t grow_buffer_profiles()
 
 void update_buffer_copy(struct buffer_profile *gem)
 {
-  unsigned char *tmp_buff;
-  
-  tmp_buff = copy_buffer(gem->vm_bind_info.pid, gem->mapping_info.cpu_addr, 
-                         gem->mapping_info.size, debug);
-  if(tmp_buff) {
-    if(gem->buff) {
-      free(gem->buff);
-    }
-    gem->buff = tmp_buff;
-    gem->buff_sz = gem->mapping_info.size;
-  }
+	unsigned char *tmp_buff;
+
+	tmp_buff = copy_buffer(gem->vm_bind_info.pid,
+			       gem->mapping_info.cpu_addr,
+			       gem->mapping_info.size, debug);
+	if (tmp_buff) {
+		if (gem->buff) {
+			free(gem->buff);
+		}
+		gem->buff = tmp_buff;
+		gem->buff_sz = gem->mapping_info.size;
+	}
 }
 
 /***************************************
@@ -311,11 +312,11 @@ int handle_vm_unbind(void *data_arg)
 				"Failed to acquire the buffer_profile_lock!\n");
 			return -1;
 		}
-                if(debug) {
-        		fprintf(stderr,
-        			"WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
-        			info->gpu_addr);
-                }
+		if (debug) {
+			fprintf(stderr,
+				"WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
+				info->gpu_addr);
+		}
 		return 0;
 	}
 
@@ -343,7 +344,7 @@ int handle_vm_unbind(void *data_arg)
 
 int handle_execbuf_start(void *data_arg)
 {
-  char found;
+	char found;
 	struct buffer_profile *gem;
 	uint64_t file;
 	uint32_t vm_id, pid;
@@ -380,64 +381,68 @@ int handle_execbuf_start(void *data_arg)
 				print_execbuf_gem(info, &(gem->vm_bind_info));
 			}
 
-      /* Store the execbuf information */
+			/* Store the execbuf information */
 			memcpy(&(gem->exec_info), info,
 			       sizeof(struct execbuf_start_info));
 
-      /* Store the stack */
-  		if (gem->execbuf_stack_str == NULL) {
-  			store_stack(info->pid, info->stackid,
-  				    &(gem->execbuf_stack_str));
-  		}
+			/* Store the stack */
+			if (gem->execbuf_stack_str == NULL) {
+				store_stack(info->pid, info->stackid,
+					    &(gem->execbuf_stack_str));
+			}
 		}
 	}
 
-  /* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
+	/* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
      address that contains the batchbuffer. Find this buffer and attempt to parse it. */
-  found = 0;
-/*   iba = 0; */
-  for(n = 0; n < buffer_profile_used; n++) {
-    gem = &buffer_profile_arr[n];
-    
-    if((gem->vm_bind_info.file != file) ||
-       (gem->vm_bind_info.gpu_addr != info->bb_offset)) {
-      /* This buffer doesn't match the one we're looking for */
-      continue;
-    }
-    
-    if(!(gem->mapping_info.cpu_addr) || !(gem->mapping_info.size)) {
-      /* No valid CPU address means we can't copy the batchbuffer */
-      continue;
-    }
-    
-    /* Parse the batchbuffer */
-    found = 1;
-    update_buffer_copy(gem);
-    if(verbose) {
-      print_batchbuffer(info, &(gem->vm_bind_info));
-    }
-    parser = bb_parser_init();
-    bb_parser_parse(parser, gem, info->batch_start_offset, info->batch_len);
-    if(parser->iba) {
-      iba = parser->iba;
-    }
-    
-    break;
-  }
-  if(!found && debug) {
-    fprintf(stderr, "WARNING: Unable to find a buffer that matches 0x%llx\n", info->bb_offset);
-  }
-  
-  if(iba) {
-  	for (n = 0; n < buffer_profile_used; n++) {
-  		gem = &buffer_profile_arr[n];
-  		if ((gem->vm_bind_info.vm_id == vm_id) &&
-  		    (gem->vm_bind_info.pid == pid) &&
-  		    (gem->vm_bind_info.file == file)) {
-        gem->iba = iba;
-      }
-    }
-  }
+	found = 0;
+	/*   iba = 0; */
+	for (n = 0; n < buffer_profile_used; n++) {
+		gem = &buffer_profile_arr[n];
+
+		if ((gem->vm_bind_info.file != file) ||
+		    (gem->vm_bind_info.gpu_addr != info->bb_offset)) {
+			/* This buffer doesn't match the one we're looking for */
+			continue;
+		}
+
+		if (!(gem->mapping_info.cpu_addr) ||
+		    !(gem->mapping_info.size)) {
+			/* No valid CPU address means we can't copy the batchbuffer */
+			continue;
+		}
+
+		/* Parse the batchbuffer */
+		found = 1;
+		update_buffer_copy(gem);
+		if (verbose) {
+			print_batchbuffer(info, &(gem->vm_bind_info));
+		}
+		parser = bb_parser_init();
+		bb_parser_parse(parser, gem, info->batch_start_offset,
+				info->batch_len);
+		if (parser->iba) {
+			iba = parser->iba;
+		}
+
+		break;
+	}
+	if (!found && debug) {
+		fprintf(stderr,
+			"WARNING: Unable to find a buffer that matches 0x%llx\n",
+			info->bb_offset);
+	}
+
+	if (iba) {
+		for (n = 0; n < buffer_profile_used; n++) {
+			gem = &buffer_profile_arr[n];
+			if ((gem->vm_bind_info.vm_id == vm_id) &&
+			    (gem->vm_bind_info.pid == pid) &&
+			    (gem->vm_bind_info.file == file)) {
+				gem->iba = iba;
+			}
+		}
+	}
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
@@ -451,13 +456,13 @@ int handle_execbuf_end(void *data_arg)
 {
 	struct execbuf_end_info *info;
 
-  /* First, just print out the execbuf_end */
+	/* First, just print out the execbuf_end */
 	info = (struct execbuf_end_info *)data_arg;
 	if (verbose) {
 		print_execbuf_end(info);
 	}
 
-  return 0;
+	return 0;
 }
 
 /* Runs each time a sample from the ringbuffer is collected.
@@ -518,7 +523,7 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret)
 		return -1;
 	}
 
-  /* XXX: Experiment with attach_mode parameter.
+	/* XXX: Experiment with attach_mode parameter.
      Set it to PROBE_ATTACH_MODE_LEGACY so that we can check
      the number of events that we missed.
   */
@@ -691,7 +696,7 @@ int init_bpf_prog()
 		return -1;
 	}
 
-  /* XXX: Finish pwrite support in BPF and re-enable. It's another way to
+	/* XXX: Finish pwrite support in BPF and re-enable. It's another way to
      write to a buffer object via the CPU. */
 	/* i915_gem_pwrite_ioctl */
 	/*   err = attach_kprobe("i915_gem_pwrite_ioctl", bpf_info.pwrite_ioctl_prog, 0); */
@@ -809,7 +814,7 @@ int init_bpf_prog()
 		return -1;
 	}
 
-  /* XXX: Finish vm_close support in BPF and re-enable. This should
+	/* XXX: Finish vm_close support in BPF and re-enable. This should
      free up any addresses bound to the VM. */
 	/* vm_close */
 	/*   err = attach_kprobe("vm_close", bpf_info.vm_close_prog, 0); */

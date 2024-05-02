@@ -127,9 +127,9 @@ retry:
 			start = gem->vm_bind_info.gpu_addr & 0xffffffff;
 			end = start + gem->vm_bind_info.size;
 
-			if (search_iba && (!(iba) ||
-			    ((gem->vm_bind_info.gpu_addr >> 32) !=
-			     (iba >> 32)))) {
+			if (search_iba &&
+			    (!(iba) || ((gem->vm_bind_info.gpu_addr >> 32) !=
+					(iba >> 32)))) {
 				/* If we're only searching buffers that match the IBA, and
 				 * the top 32 bits doesn't match it, reject it */
 				continue;

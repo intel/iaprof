@@ -45,12 +45,11 @@ char *g_sidecar = NULL;
 int g_samples = 0;
 int g_samples_unmatched = 0;
 
-static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
-					{ "help", no_argument, 0, 'h' },
-					{ "quiet", no_argument, 0, 'q' },
-					{ "verbose", no_argument, 0, 'v' },
-					{ "version", no_argument, 0, 0 },
-					{ 0 } };
+static struct option long_options[] = {
+	{ "debug", no_argument, 0, 'd' }, { "help", no_argument, 0, 'h' },
+	{ "quiet", no_argument, 0, 'q' }, { "verbose", no_argument, 0, 'v' },
+	{ "version", no_argument, 0, 0 }, { 0 }
+};
 
 void usage()
 {
@@ -71,7 +70,7 @@ void check_permissions()
 {
 	if (geteuid() != 0) {
 		printf("Tool currently needs superuser (root) permission. "
-		    "Please consider running with sudo. Exiting.\n");
+		       "Please consider running with sudo. Exiting.\n");
 		exit(1);
 	}
 }
@@ -102,11 +101,13 @@ int read_opts(int argc, char **argv)
 			verbose = 1;
 			break;
 		case 0:
-			if (strcmp(long_options[option_index].name, "version") == 0) {
+			if (strcmp(long_options[option_index].name,
+				   "version") == 0) {
 				printf("Version: %s\n", version);
 				exit(0);
 			} else {
-				printf("option %s\n", long_options[option_index].name);
+				printf("option %s\n",
+				       long_options[option_index].name);
 			}
 			break;
 		}
@@ -287,8 +288,9 @@ void *collect_thread_main(void *a)
 	secs = 0;
 	while (collect_thread_should_stop == 0) {
 		/* Check if there are eustalls */
-		fprintf(stderr, "\rStatus: profiling for %d secs, %d samples collected, %d samples unmatched. ",
-		    secs++, g_samples, g_samples_unmatched);
+		fprintf(stderr,
+			"\rStatus: profiling for %d secs, %d samples collected, %d samples unmatched. ",
+			secs++, g_samples, g_samples_unmatched);
 		fflush(stderr);
 		retry_eustalls = 0;
 		pollfd.fd = perf_fd;
@@ -437,13 +439,14 @@ int main(int argc, char **argv)
 	if (collect_thread_profiling) {
 		print_status("\nProfile stopped. Assembling output...\n");
 	} else {
-		print_status("Exit requested (had not yet started profiling).\n");
+		print_status(
+			"Exit requested (had not yet started profiling).\n");
 	}
 
-        if(verbose) {
-        	printf("%d samples collected, %d samples unmatched.\n",
-        	       g_samples, g_samples_unmatched);
-        }
+	if (verbose) {
+		printf("%d samples collected, %d samples unmatched.\n",
+		       g_samples, g_samples_unmatched);
+	}
 
 	/* Wait for the collection thread to finish */
 	stop_collect_thread();
@@ -477,22 +480,23 @@ int main(int argc, char **argv)
 
 			/* First, disassemble the instruction */
 			if ((!gem->buff_sz) || (!gem->buff)) {
-                                if (debug) {
-        				fprintf(stderr,
-        					"WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n",
-        					gem->mapping_info.handle);
-                                }
+				if (debug) {
+					fprintf(stderr,
+						"WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n",
+						gem->mapping_info.handle);
+				}
 				continue;
 			}
 			if (tmp_offset > gem->buff_sz) {
-                                if (debug) {
-        				fprintf(stderr,
-        					"WARNING: Got an EU stall past the end of a buffer. ");
-        				fprintf(stderr,
-        					"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
-        					gem->mapping_info.handle, gem->buff,
-        					tmp_offset, gem->buff_sz);
-                                }
+				if (debug) {
+					fprintf(stderr,
+						"WARNING: Got an EU stall past the end of a buffer. ");
+					fprintf(stderr,
+						"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
+						gem->mapping_info.handle,
+						gem->buff, tmp_offset,
+						gem->buff_sz);
+				}
 				insn_text = failed_decode;
 			} else {
 				insn_text = iga_disassemble_single(

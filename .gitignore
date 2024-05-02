@@ -13,3 +13,5 @@ reference/*.deb
 reference/*.buildinfo
 reference/*.changes
 reference/pkgs
+
+.yedrc

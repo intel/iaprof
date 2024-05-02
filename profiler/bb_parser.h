@@ -16,7 +16,7 @@
 enum bb_parser_status {
 	BB_PARSER_STATUS_OK,
 	BB_PARSER_STATUS_BUFFER_OVERFLOW,
-        BB_PARSER_STATUS_NOTFOUND,
+	BB_PARSER_STATUS_NOTFOUND,
 };
 
 /******************************************************************************
@@ -49,8 +49,7 @@ uint32_t op_len(uint32_t *bb)
 		return OP_LEN_3D_MEDIA;
 	default:
 		if (debug) {
-			printf("cmd_type=UNKNOWN (0x%x)\n",
-			       CMD_TYPE(*bb));
+			printf("cmd_type=UNKNOWN (0x%x)\n", CMD_TYPE(*bb));
 		}
 		break;
 	}
@@ -98,13 +97,13 @@ uint32_t op_len(uint32_t *bb)
 * The end goal here is to parse out all references to GPU kernel pointers.
 ******************************************************************************/
 struct bb_parser {
-        uint64_t pc[3];
-        char pc_depth;
-        unsigned char in_cmd;
+	uint64_t pc[3];
+	char pc_depth;
+	unsigned char in_cmd;
 	struct buffer_profile *gem;
 	uint64_t cur_cmd;
 	unsigned char cur_num_dwords;
-        
+
 	/* Instruction Base Address */
 	uint64_t iba;
 
@@ -128,33 +127,33 @@ struct bb_parser *bb_parser_init()
 
 struct buffer_profile *find_jump_buffer(uint64_t bbsp)
 {
-        struct buffer_profile *gem;
-        uint64_t n, start, end;
-        
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                start = gem->vm_bind_info.gpu_addr;
-                end = start + gem->vm_bind_info.size;
-                if ((bbsp >= start) &&
-                    (bbsp < end)) {
+	struct buffer_profile *gem;
+	uint64_t n, start, end;
+
+	for (n = 0; n < buffer_profile_used; n++) {
+		gem = &buffer_profile_arr[n];
+		start = gem->vm_bind_info.gpu_addr;
+		end = start + gem->vm_bind_info.size;
+		if ((bbsp >= start) && (bbsp < end)) {
 			if (debug) {
 				printf("Found a matching batch buffer ");
 				printf("to jump to. handle=%u gpu_addr=0x%llx\n",
 				       gem->vm_bind_info.handle,
 				       gem->vm_bind_info.gpu_addr);
 			}
-                        return gem;
-                }
-        }
-        return NULL;
+			return gem;
+		}
+	}
+	return NULL;
 }
 
-enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser, uint32_t *ptr)
+enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
+					    uint32_t *ptr)
 {
-        uint64_t tmp, bbsp_offset;
-        
-        /* XXX: Handle MI_PREDICATE */
-        
+	uint64_t tmp, bbsp_offset;
+
+	/* XXX: Handle MI_PREDICATE */
+
 	if (parser->in_cmd == 1) {
 		parser->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(*ptr);
 		if (debug) {
@@ -169,20 +168,23 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser, uint32_t *
 			printf("bbsp=0x%lx\n", parser->bbsp);
 		}
 
-                if (parser->bb2l && (parser->pc_depth == 1)) {
-                        parser->pc[parser->pc_depth] += 4 * MI_BATCH_BUFFER_START_DWORDS - 4;
-                        parser->pc_depth++;
-                }
-                parser->pc[parser->pc_depth] = parser->bbsp - 4;
+		if (parser->bb2l && (parser->pc_depth == 1)) {
+			parser->pc[parser->pc_depth] +=
+				4 * MI_BATCH_BUFFER_START_DWORDS - 4;
+			parser->pc_depth++;
+		}
+		parser->pc[parser->pc_depth] = parser->bbsp - 4;
 
 		parser->gem = find_jump_buffer(parser->bbsp);
 
 		if (!parser->gem) {
-                        if (debug) {
-        			fprintf(stderr, "WARNING: Couldn't find a buffer ");
-        			fprintf(stderr, " that encompasses the BBSP 0x%lx\n",
-        			        parser->bbsp);
-                        }
+			if (debug) {
+				fprintf(stderr,
+					"WARNING: Couldn't find a buffer ");
+				fprintf(stderr,
+					" that encompasses the BBSP 0x%lx\n",
+					parser->bbsp);
+			}
 			return BB_PARSER_STATUS_NOTFOUND;
 		}
 
@@ -191,30 +193,32 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser, uint32_t *
 		if (!(parser->gem->buff)) {
 			/* We know we're supposed to jump *somewhere*, 
 			 * but can't. */
-                        if (debug) {
-        			fprintf(stderr, "WARNING: A batch buffer was"); 
-        			fprintf(stderr, " supposed to chain somewhere,");
-                                fprintf(stderr, " but we don't have a copy of it.\n");
-                        }
+			if (debug) {
+				fprintf(stderr, "WARNING: A batch buffer was");
+				fprintf(stderr,
+					" supposed to chain somewhere,");
+				fprintf(stderr,
+					" but we don't have a copy of it.\n");
+			}
 			return BB_PARSER_STATUS_NOTFOUND;
 		}
 	}
 
-        return BB_PARSER_STATUS_OK;
+	return BB_PARSER_STATUS_OK;
 }
 
 char mi_batch_buffer_end(struct bb_parser *parser)
 {
-        if (parser->pc_depth == 0) {
-                return 1;
-        }
-        parser->pc_depth--;
-        return 0;
+	if (parser->pc_depth == 0) {
+		return 1;
+	}
+	parser->pc_depth--;
+	return 0;
 }
 
-enum bb_parser_status bb_parser_parse(
-        struct bb_parser *parser, struct buffer_profile *gem,
-        uint32_t offset, uint64_t size)
+enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
+				      struct buffer_profile *gem,
+				      uint32_t offset, uint64_t size)
 {
 	uint32_t *dword_ptr, op;
 	uint64_t off, tmp;
@@ -226,22 +230,25 @@ enum bb_parser_status bb_parser_parse(
 	parser->in_cmd = 0;
 	parser->cur_cmd = 0;
 	while (1) {
-		off = parser->pc[parser->pc_depth] - parser->gem->vm_bind_info.gpu_addr;
-		dword_ptr = (uint32_t *) (parser->gem->buff + off);
+		off = parser->pc[parser->pc_depth] -
+		      parser->gem->vm_bind_info.gpu_addr;
+		dword_ptr = (uint32_t *)(parser->gem->buff + off);
 
 		if ((parser->pc_depth == 0) && (off > size)) {
 			/* Buffer overflow! We'll just have to bail out. */
-                        if (debug) {
-                                printf("Buffer overflow! off=0x%lx sz=0x%lx.\n",
-                                        off, parser->gem->buff_sz);
-                        }
+			if (debug) {
+				printf("Buffer overflow! off=0x%lx sz=0x%lx.\n",
+				       off, parser->gem->buff_sz);
+			}
 			return BB_PARSER_STATUS_BUFFER_OVERFLOW;
 		}
 
 		if (debug) {
-			printf("size=0x%lx dword=0x%x offset=0x%lx\n", size, *dword_ptr, off);
+			printf("size=0x%lx dword=0x%x offset=0x%lx\n", size,
+			       *dword_ptr, off);
 			printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
-			       parser->in_cmd, parser->cur_cmd, parser->cur_num_dwords);
+			       parser->in_cmd, parser->cur_cmd,
+			       parser->cur_num_dwords);
 		}
 
 		if (!parser->cur_cmd) {
@@ -254,14 +261,16 @@ enum bb_parser_status bb_parser_parse(
 					printf("op=MI_BATCH_BUFFER_START\n");
 				}
 				parser->cur_cmd = MI_BATCH_BUFFER_START;
-				parser->cur_num_dwords = MI_BATCH_BUFFER_START_DWORDS;
+				parser->cur_num_dwords =
+					MI_BATCH_BUFFER_START_DWORDS;
 				break;
 			case STATE_BASE_ADDRESS:
 				if (debug) {
 					printf("op=STATE_BASE_ADDRESS\n");
 				}
 				parser->cur_cmd = STATE_BASE_ADDRESS;
-				parser->cur_num_dwords = STATE_BASE_ADDRESS_DWORDS;
+				parser->cur_num_dwords =
+					STATE_BASE_ADDRESS_DWORDS;
 				break;
 			case STATE_SIP:
 				if (debug) {
@@ -282,14 +291,17 @@ enum bb_parser_status bb_parser_parse(
 					printf("op=MI_BATCH_BUFFER_END\n");
 				}
 				parser->cur_cmd = MI_BATCH_BUFFER_END;
-				parser->cur_num_dwords = MI_BATCH_BUFFER_END_DWORDS;
+				parser->cur_num_dwords =
+					MI_BATCH_BUFFER_END_DWORDS;
 				break;
 			case MI_CONDITIONAL_BATCH_BUFFER_END:
 				if (debug) {
 					printf("op=MI_CONDITIONAL_BATCH_BUFFER_END\n");
 				}
-				parser->cur_cmd = MI_CONDITIONAL_BATCH_BUFFER_END;
-				parser->cur_num_dwords = MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS;
+				parser->cur_cmd =
+					MI_CONDITIONAL_BATCH_BUFFER_END;
+				parser->cur_num_dwords =
+					MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS;
 				break;
 			case MI_PREDICATE:
 				if (debug) {
@@ -310,7 +322,8 @@ enum bb_parser_status bb_parser_parse(
 					printf("op=MI_SEMAPHORE_WAIT\n");
 				}
 				parser->cur_cmd = MI_SEMAPHORE_WAIT;
-				parser->cur_num_dwords = MI_SEMAPHORE_WAIT_DWORDS;
+				parser->cur_num_dwords =
+					MI_SEMAPHORE_WAIT_DWORDS;
 				break;
 			default:
 				if (debug) {
@@ -325,11 +338,11 @@ enum bb_parser_status bb_parser_parse(
 		case MI_BATCH_BUFFER_START:
 			mi_batch_buffer_start(parser, dword_ptr);
 			break;
-                case MI_BATCH_BUFFER_END:
-                        if (mi_batch_buffer_end(parser)) {
-                                return BB_PARSER_STATUS_OK;
-                        }
-                        break;
+		case MI_BATCH_BUFFER_END:
+			if (mi_batch_buffer_end(parser)) {
+				return BB_PARSER_STATUS_OK;
+			}
+			break;
 		case MI_SEMAPHORE_WAIT:
 			/* TODO: do *something* to handle the semaphor.
                          * Sleeping is a non-starter. */
@@ -345,7 +358,8 @@ enum bb_parser_status bb_parser_parse(
 				tmp = *dword_ptr;
 				parser->iba |= tmp << 32;
 				if (debug) {
-					printf("Found an IBA: 0x%lx\n", parser->iba);
+					printf("Found an IBA: 0x%lx\n",
+					       parser->iba);
 				}
 			}
 			break;
@@ -359,16 +373,15 @@ enum bb_parser_status bb_parser_parse(
 			break;
 		}
 
-		if(parser->cur_cmd) {
-			
+		if (parser->cur_cmd) {
 			/* If we're in a command already, advance to the next dword within it */
 
 			if (parser->in_cmd == parser->cur_num_dwords - 1) {
 				/* We've consumed all of this command's dwords, 
 				 * so go back to looking for new commands. */
 				parser->in_cmd = 0;
-                                parser->cur_cmd = 0;
-                                parser->cur_num_dwords = 0;
+				parser->cur_cmd = 0;
+				parser->cur_num_dwords = 0;
 			} else {
 				/* Keep looking for dwords that this command needs */
 				parser->in_cmd++;
@@ -377,13 +390,14 @@ enum bb_parser_status bb_parser_parse(
 
 		/* Next dword in the buffer */
 		parser->pc[parser->pc_depth] += 4;
-                if (debug) {
-                        printf("Advancing the PC to 0x%lx\n", parser->pc[parser->pc_depth]);
-                }
+		if (debug) {
+			printf("Advancing the PC to 0x%lx\n",
+			       parser->pc[parser->pc_depth]);
+		}
 	}
 
-        if (debug) {
-                printf("Finished batchbuffer parsing.\n");
-        }
-        return BB_PARSER_STATUS_OK;
+	if (debug) {
+		printf("Finished batchbuffer parsing.\n");
+	}
+	return BB_PARSER_STATUS_OK;
 }
