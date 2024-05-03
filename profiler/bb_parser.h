@@ -222,6 +222,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 {
 	uint32_t *dword_ptr, op;
 	uint64_t off, tmp;
+        enum bb_parser_status retval;
 
 	/* Loop over 32-bit dwords. */
 	parser->pc_depth = 0;
@@ -238,7 +239,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 			/* Buffer overflow! We'll just have to bail out. */
 			if (debug) {
 				printf("Buffer overflow! off=0x%lx sz=0x%lx.\n",
-				       off, parser->gem->buff_sz);
+				       off, size);
 			}
 			return BB_PARSER_STATUS_BUFFER_OVERFLOW;
 		}
@@ -336,7 +337,10 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 		/* Consume this command's dwords */
 		switch (parser->cur_cmd) {
 		case MI_BATCH_BUFFER_START:
-			mi_batch_buffer_start(parser, dword_ptr);
+			retval = mi_batch_buffer_start(parser, dword_ptr);
+                        if(retval != BB_PARSER_STATUS_OK) {
+                                return retval;
+                        }
 			break;
 		case MI_BATCH_BUFFER_END:
 			if (mi_batch_buffer_end(parser)) {
