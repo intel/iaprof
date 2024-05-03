@@ -364,7 +364,7 @@ int handle_execbuf_start(void *data_arg)
 
         /* Try to look for ELF headers in this process' address space. */
         if(info->pid) {
-                find_elf_magic_bytes(info->pid);
+                find_elf_magic_bytes(info->pid, debug);
         }
 
 	/* This execbuffer call needs to be associated with all GEMs that

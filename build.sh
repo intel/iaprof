@@ -9,6 +9,11 @@ DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
 LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
 
+# Get the git commit hash
+cd ${BASE_DIR}
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+GIT_COMMIT_HASH=$(git rev-parse HEAD)
+
 # Commandline arguments
 DO_DEPS=false
 while getopts d flag
@@ -60,6 +65,7 @@ cd ${PROFILER_DIR}
 
 # iaprof.c
 ${CC} -gdwarf-4 -c \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/iaprof.c \
   -o ${PROFILER_DIR}/iaprof.o

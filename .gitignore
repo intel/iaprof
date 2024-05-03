@@ -1,5 +1,4 @@
 *.o
-bin/
 results/
 bude
 tags
@@ -15,3 +14,7 @@ reference/*.changes
 reference/pkgs
 
 .yedrc
+
+deps/bpftool.log
+deps/igc.log
+iaprof

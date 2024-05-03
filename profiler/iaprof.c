@@ -36,7 +36,9 @@
 * COMMANDLINE ARGS *
 *******************/
 
-char *version = "20-Apr-2024";
+#ifndef GIT_COMMIT_HASH
+#define GIT_COMMIT_HASH "?"
+#endif
 int pid = 0;
 char verbose = 0;
 char debug = 0;
@@ -63,7 +65,7 @@ void usage()
 	printf("        -q, --quiet     quiet\n");
 	printf("        -v, --verbose   verbose\n");
 	printf("        command         profile system-wide while command runs\n\n");
-	printf("Version: %s\n", version);
+	printf("Version: %s\n", GIT_COMMIT_HASH);
 }
 
 void check_permissions()
@@ -103,7 +105,7 @@ int read_opts(int argc, char **argv)
 		case 0:
 			if (strcmp(long_options[option_index].name,
 				   "version") == 0) {
-				printf("Version: %s\n", version);
+				printf("Version: %s\n", GIT_COMMIT_HASH);
 				exit(0);
 			} else {
 				printf("option %s\n",
