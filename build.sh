@@ -58,11 +58,11 @@ cd ${PROFILER_DIR}/bpf
 source build.sh
 cd ${PROFILER_DIR}
 
-# pvc_profile.c
+# iaprof.c
 ${CC} -gdwarf-4 -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/pvc_profile.c \
-  -o ${PROFILER_DIR}/pvc_profile.o
+  ${PROFILER_DIR}/iaprof.c \
+  -o ${PROFILER_DIR}/iaprof.o
   
 # event_collector.c
 ${CC} -gdwarf-4 -c \
@@ -105,7 +105,7 @@ ${CC} ${LDFLAGS} \
   ${COMMON_DIR}/trace_helpers.o \
   ${COMMON_DIR}/uprobe_helpers.o \
   \
-  ${PROFILER_DIR}/pvc_profile.o \
+  ${PROFILER_DIR}/iaprof.o \
   ${PROFILER_DIR}/event_collector.o \
   ${PROFILER_DIR}/eustall_collector.o \
   ${PROFILER_DIR}/shader_decoder.o \
@@ -116,7 +116,7 @@ ${CC} ${LDFLAGS} \
   ${COMMON_DIR}/utils/utils.o \
   \
   -gdwarf-4 \
-  -o ${BASE_DIR}/bin/pvc_profile \
+  -o ${BASE_DIR}/bin/iaprof \
   -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \

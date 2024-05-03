@@ -3,7 +3,7 @@
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 
-#include "pvc_profile.h"
+#include "iaprof.h"
 #include "stack_printer.h"
 #include "event_collector.h"
 #include "bpf/gem_collector.skel.h"

@@ -1,7 +1,7 @@
 Current State
 =============
 
-This is the current state of the PVC profiler as of February 28, 2024.
+This is the current state of the Intel Accelerator Profiler as of May 3, 2024.
 It's just meant as a "living document" to record what's going on with the project.
 
 Design
@@ -13,7 +13,7 @@ The main design is split into several directories:
    also includes `utils/`, which are simple utilities.
 2. `profiler/`, which includes the entirety of the profiler portion. This is split into:
    
-   `profiler/pvc_profile.[ch]`: This is the main userspace program, which essentially
+   `profiler/iaprof.[ch]`: This is the main userspace program, which essentially
    launches a thread which spins on the file descriptors for the EU stalls and the BPF
    ringbuffer, waits to receive a signal to die, and spits out the final printout.
    
@@ -49,37 +49,11 @@ The main design is split into several directories:
 Issues
 ========
 
-1. When running `scripts/test_benchdnn.sh`, we intermittently (sometimes it takes
-   100 runs to reproduce) miss `vm_bind` calls in the BPF program itself; that is,
-   even if we're running `bpftrace` at the same time and see that `vm_bind` call,
-   our profiler *doesn't* see it, and we therefore drop every EU stall (since
-   we don't know the GPU address of the buffer object that they relate to).
-   
-2. When running `scripts/test_benchdnn.sh`, we'll always see a few (1% or less) EU stalls
+1. When running `scripts/test_benchdnn.sh`, we'll always see a few (1% or less) EU stalls
    that are happening at addresses that we have no notion of; for example, `0xfff0`.
    I currently have no theories as to why that could be.
    
-3. We will, VERY intermittently, miss the `munmap` tracepoint that allows us to copy
-   GEN binaries in the BPF program. This results in the final printouts being
-   nonsensical or having a plethora of `illegal` instructions when decoding. This is
-   likely related to #1.
-   
-4. When running `scripts/test_llama.sh`, we *always* miss several buffer objects
-   that should have been bound into the VM, but aren't. We get quite a lot of
-   EU stalls from `0x8100ff760000` to `0x8100ff770000`, but don't see a `vm_bind`
-   for that block of size `0x10000`. bpftrace nor our profiler sees it.
-   
-   This can be mitigated by setting the environment variable `MakeEachAllocationResident=2`,
-   which tells the Compute Runtime library to explicitly bind all buffer objects.
-   `MakeEachAllocationResident=1` seems to crash LLAMA.
-   
-5. With `scripts/test_llama.sh`, we often get "illegal" instructions when disassembling the GEN
+2. With `scripts/test_llama.sh`, we often get "illegal" instructions when disassembling the GEN
    binaries that we collected during the run.
    
-6. We don't get CPU-side symbols for `scripts/test_llama.sh`.
-
-7. If you switch between benchmarks, you HAVE to manually change `INSTRUCTION_BASE_ADDRESS`
-   in `profiler/eustall_collector.c`. This is in lieu of a dynamic way to detect that base
-   address per-workload. This address is stored in the Compute Runtime library (NEO), obviously,
-   as well as in the batchbuffer -- but that requires being able to properly parse the whole
-   thing.
+3. We rely entirely on the presence of frame pointers to get stacktraces.

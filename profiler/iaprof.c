@@ -19,7 +19,7 @@
 
 #include <iga/iga.h>
 
-#include "pvc_profile.h"
+#include "iaprof.h"
 
 #include "common.h"
 #include "utils/utils.h"
@@ -53,10 +53,10 @@ static struct option long_options[] = {
 
 void usage()
 {
-	printf("USAGE: pvc_profile [-dhqv] [command]\n\n");
+	printf("USAGE: iaprof [-dhqv] [command]\n\n");
 	printf(" e.g.:\n");
-	printf("        pvc_profile > profile.txt            # profile until Ctrl-C.\n");
-	printf("        pvc_profile sleep 30 > profile.txt   # profile for 30 seconds.\n");
+	printf("        iaprof > profile.txt            # profile until Ctrl-C.\n");
+	printf("        iaprof sleep 30 > profile.txt   # profile for 30 seconds.\n");
 	printf("\noptional arguments:\n");
 	printf("        -d, --debug     debug\n");
 	printf("        -h, --help      help\n");

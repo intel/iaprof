@@ -7,7 +7,7 @@
 #include "drm_helper.h"
 #include "i915_helper.h"
 
-#include "pvc_profile.h"
+#include "iaprof.h"
 #include "eustall_collector.h"
 #include "gpu_kernel_decoder.h"
 #include "event_collector.h"

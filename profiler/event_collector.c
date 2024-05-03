@@ -12,7 +12,7 @@
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 
-#include "pvc_profile.h"
+#include "iaprof.h"
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
 #include "stack_printer.h"

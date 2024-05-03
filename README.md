@@ -1,4 +1,4 @@
-GPU/AI/i915 Profiling
+Intel Accelerator Profiler (iaprof)
 =====================
 
 Introduction
@@ -17,7 +17,7 @@ Building
 --------
 
 Run `./build.sh -d` to build the project along with its dependencies. The resulting
-executable will be placed in the `bin/` directory and is called `pvc_profile`.
+executable will be called `iaprof`.
 
 Usage
 -----
