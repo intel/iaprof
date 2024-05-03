@@ -8,6 +8,8 @@
 BUILD_DEPS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PREFIX="${BUILD_DEPS_DIR}/install"
 
+echo "Building dependencies..."
+
 ###################################################################
 #                            bpftool
 ###################################################################
@@ -19,13 +21,15 @@ PREFIX="${BUILD_DEPS_DIR}/install"
 
 BPFTOOL=${BPFTOOL:-bpftool}
 BPFTOOL_SRC_DIR=${BUILD_DEPS_DIR}/bpftool/src
+BPFTOOL_BUILD_LOG=${BUILD_DEPS_DIR}/bpftool.log
 cd ${BPFTOOL_SRC_DIR}
 
+echo "  Building libbpf and bpftool..."
 git submodule update --init
-make
+make &> ${BPFTOOL_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
-  echo "ERROR: Building bpftool failed."
+  echo "  ERROR: Building bpftool failed. Check ${BPFTOOL_BUILD_LOG}"
   exit 1
 fi
 
@@ -39,7 +43,7 @@ cp -r libbpf/include/* ${PREFIX}/include/
 
 if ! command -v ${BPFTOOL} &> /dev/null; then
   export PATH="${PREFIX}/bin:${PATH}"
-  echo "  No system bpftool found! Compiling libbpf and bpftool..."
+  echo "  No system bpftool found! Setting the PATH to use the bpftool we just built."
 else
   echo "  Using system bpftool."
 fi
@@ -50,23 +54,44 @@ fi
 # IGC expects its dependencies in a specific directory structure,
 # so recreate that.
 IGC_DIR="${BUILD_DEPS_DIR}/igc/"
-IGC_LOG="${BUILD_DEPS_DIR}/igc/build.log"
+IGC_BUILD_LOG="${BUILD_DEPS_DIR}/igc.log"
 
+# Clone the proper repos
 cd ${IGC_DIR}
-git clone https://github.com/intel/vc-intrinsics vc-intrinsics
-git clone -b release/14.x https://github.com/llvm/llvm-project llvm-project
-git clone -b ocl-open-140 https://github.com/intel/opencl-clang llvm-project/llvm/projects/opencl-clang
-git clone -b llvm_release_140 https://github.com/KhronosGroup/SPIRV-LLVM-Translator llvm-project/llvm/projects/llvm-spirv
-git clone https://github.com/KhronosGroup/SPIRV-Tools.git SPIRV-Tools
-git clone https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Headers
+if [ ! -d vc-intrinsics ]; then
+  git clone https://github.com/intel/vc-intrinsics vc-intrinsics
+fi
+if [ ! -d llvm-project ]; then
+  git clone -b release/14.x https://github.com/llvm/llvm-project llvm-project
+fi
+if [ ! -d llvm-project/llvm/projects/opencl-clang ]; then
+  git clone -b ocl-open-140 https://github.com/intel/opencl-clang llvm-project/llvm/projects/opencl-clang
+fi
+if [ ! -d llvm-project/llvm/projects/llvm-spirv ]; then
+  git clone -b llvm_release_140 https://github.com/KhronosGroup/SPIRV-LLVM-Translator llvm-project/llvm/projects/llvm-spirv
+fi
+if [ ! -d SPIRV-Tools ]; then
+  git clone https://github.com/KhronosGroup/SPIRV-Tools.git SPIRV-Tools
+fi
+if [ ! -d SPIRV-Headers ]; then
+  git clone https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Headers
+fi
 
+# Apply our patch
 cd ${IGC_DIR}/igc
-pwd
-git apply ${BUILD_DEPS_DIR}/iga.diff
+if ! patch -R -p1 -s -f --dry-run < ${BUILD_DEPS_DIR}/iga.diff; then
+  patch -p1 < ${BUILD_DEPS_DIR}/iga.diff &> ${IGC_BUILD_LOG}
+  RETVAL=$?
+  if [ ${RETVAL} -ne 0 ]; then
+    echo "  ERROR: The patch ${BUILD_DEPS_DIR}/iga.diff failed to apply."
+    echo "  Please check ${IGC_BUILD_LOG} for details."
+    exit 1
+  fi
+fi
 cd ${IGC_DIR}
 
 # Now build IGC
-echo "Building IGC..."
+echo "  Building IGC..."
 sudo rm -rf build
 mkdir -p build
 cd build
@@ -76,8 +101,28 @@ cmake \
   -DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.6 \
   -DCMAKE_INSTALL_PREFIX=${PREFIX} \
   ../igc \
-  &> ${IGC_LOG}
+  &>> ${IGC_BUILD_LOG}
+RETVAL=$?
+if [ ${RETVAL} -ne 0 ]; then
+  echo "  ERROR: IGC failed to build."
+  echo "  Please check ${IGC_BUILD_LOG} for details."
+  exit 1
+fi
 make -j$(nproc) \
-  &>> ${IGC_LOG}
+  &>> ${IGC_BUILD_LOG}
+RETVAL=$?
+if [ ${RETVAL} -ne 0 ]; then
+  echo "  ERROR: IGC failed to build."
+  echo "  Please check ${IGC_BUILD_LOG} for details."
+  exit 1
+fi
 make install \
-  &>> ${IGC_LOG}
+  &>> ${IGC_BUILD_LOG}
+RETVAL=$?
+if [ ${RETVAL} -ne 0 ]; then
+  echo "  ERROR: IGC failed to build."
+  echo "  Please check ${IGC_BUILD_LOG} for details."
+  exit 1
+fi
+  
+echo "Done building dependencies. Installed to ${PREFIX}."
