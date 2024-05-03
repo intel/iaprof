@@ -362,12 +362,17 @@ int handle_execbuf_start(void *data_arg)
 		print_execbuf_start(info);
 	}
 
+        /* Try to look for ELF headers in this process' address space. */
+        if(info->pid) {
+                find_elf_magic_bytes(info->pid);
+        }
+
 	/* This execbuffer call needs to be associated with all GEMs that
-     are referenced by this call. Buffers can be referenced in two ways:
-     1. Directly in the execbuffer call.
-     2. Through the ctx_id (which has an associated vm_id).
+           are referenced by this call. Buffers can be referenced in two ways:
+           1. Directly in the execbuffer call.
+           2. Through the ctx_id (which has an associated vm_id).
      
-     Here, we'll iterate over all buffers in the given vm_id. */
+           Here, we'll iterate over all buffers in the given vm_id. */
 	vm_id = info->vm_id;
 	pid = info->pid;
 	file = info->file;

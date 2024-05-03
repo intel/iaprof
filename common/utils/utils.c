@@ -7,6 +7,56 @@
 
 #include "utils/utils.h"
 
+#define MAX_CHARS_ADDR 16
+
+void find_elf_magic_bytes(pid_t pid, char debug) {
+	FILE *mem_file;
+	char filename[256], line[256], addr_str[MAX_CHARS_ADDR+1];
+        int i;
+        unsigned char *buf;
+        unsigned long addr;
+
+	/* Open the memory map */
+	sprintf(filename, "/proc/%ld/maps", (long)pid);
+	mem_file = fopen(filename, "r");
+	if (!mem_file) {
+		fprintf(stderr, "Failed to open %s!\n", filename);
+		return;
+	}
+
+	while (fgets(line, sizeof(line), mem_file)) {
+                /* Copy until we hit the '-', or until MAX_CHARS_ADDR characters */
+                i = 0;
+                while(i < MAX_CHARS_ADDR) {
+                        if((i == MAX_CHARS_ADDR + 1) || (line[i] == '-')) {
+                                addr_str[i] = 0;
+                                break;
+                        }
+                        addr_str[i] = line[i];
+                        i++;
+                }
+                addr = strtoul(addr_str, NULL, 16);
+                if(addr) {
+                        if(debug) {
+                                printf("Reading from 0x%lx...\n", addr);
+                        }
+                        buf = copy_buffer(pid, (uint64_t) addr, 8, debug);
+                        if(!buf) continue;
+                        if(debug) {
+                                for(i = 0; i < 8; i++) {
+                                        printf("%x ", buf[i]);
+                                }
+                                printf("\n");
+                        }
+                        free(buf);
+                }
+                
+	}
+
+	fclose(mem_file);
+	fflush(stdout);
+}
+
 void dump_buffer(unsigned char *kernel, uint64_t size, uint32_t id)
 {
 	char filename[256];

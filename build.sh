@@ -116,7 +116,7 @@ ${CC} ${LDFLAGS} \
   ${COMMON_DIR}/utils/utils.o \
   \
   -gdwarf-4 \
-  -o ${BASE_DIR}/bin/iaprof \
+  -o ${BASE_DIR}/iaprof \
   -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
