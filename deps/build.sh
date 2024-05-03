@@ -79,7 +79,7 @@ fi
 
 # Apply our patch
 cd ${IGC_DIR}/igc
-if ! patch -R -p1 -s -f --dry-run < ${BUILD_DEPS_DIR}/iga.diff; then
+if [ ! patch -R -p1 -s -f --dry-run < ${BUILD_DEPS_DIR}/iga.diff &>/dev/null ]; then
   patch -p1 < ${BUILD_DEPS_DIR}/iga.diff &> ${IGC_BUILD_LOG}
   RETVAL=$?
   if [ ${RETVAL} -ne 0 ]; then
