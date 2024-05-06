@@ -16,6 +16,7 @@
 #include <sys/wait.h>
 #include <pthread.h>
 #include <assert.h>
+#include <sys/time.h>
 
 #include <iga/iga.h>
 
@@ -255,7 +256,8 @@ void *collect_thread_main(void *a)
 {
 	uint8_t *perf_buf;
 	int perf_fd, i;
-	int retval, retry_eustalls, len, secs;
+	int retval, retry_eustalls, len, startsecs;
+	struct timeval tv;
 	sigset_t mask;
 
 	/* The collect thread should block SIGINT, so that all
@@ -287,12 +289,15 @@ void *collect_thread_main(void *a)
 	};
 
 	retry_eustalls = 0;
-	secs = 0;
+	gettimeofday(&tv, NULL);
+	startsecs = (int)tv.tv_sec;
+
 	while (collect_thread_should_stop == 0) {
+		gettimeofday(&tv, NULL);
 		/* Check if there are eustalls */
 		fprintf(stderr,
 			"\rStatus: profiling for %d secs, %d samples collected, %d samples unmatched. ",
-			secs++, g_samples, g_samples_unmatched);
+			(int)tv.tv_sec - startsecs, g_samples, g_samples_unmatched);
 		fflush(stderr);
 		retry_eustalls = 0;
 		pollfd.fd = perf_fd;
