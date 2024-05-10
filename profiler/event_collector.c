@@ -113,10 +113,7 @@ void update_buffer_copy(struct buffer_profile *gem)
 	tmp_buff = copy_buffer(gem->vm_bind_info.pid,
 			       gem->mapping_info.cpu_addr,
 			       gem->mapping_info.size, debug);
-	if (tmp_buff) {
-		if (gem->buff) {
-			free(gem->buff);
-		}
+	if (tmp_buff && !(gem->buff)) {
 		gem->buff = tmp_buff;
 		gem->buff_sz = gem->mapping_info.size;
 	}
@@ -268,7 +265,7 @@ int handle_vm_bind(void *data_arg)
 	}
 
 	/* Check to see if we've seen mmap get called on this file/handle pair
-     yet. If so, use that index, but if not, allocate a new one. */
+           yet. If so, use that index, but if not, allocate a new one. */
 	index = get_buffer_profile(info->pid, info->file, info->handle);
 	if (index == -1) {
 		index = grow_buffer_profiles();
@@ -362,11 +359,6 @@ int handle_execbuf_start(void *data_arg)
 		print_execbuf_start(info);
 	}
 
-        /* Try to look for ELF headers in this process' address space. */
-        if(info->pid) {
-                find_elf_magic_bytes(info->pid, debug);
-        }
-
 	/* This execbuffer call needs to be associated with all GEMs that
            are referenced by this call. Buffers can be referenced in two ways:
            1. Directly in the execbuffer call.
@@ -398,45 +390,46 @@ int handle_execbuf_start(void *data_arg)
 		}
 	}
 
-	/* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
-     address that contains the batchbuffer. Find this buffer and attempt to parse it. */
-	found = 0;
-	/*   iba = 0; */
-	for (n = 0; n < buffer_profile_used; n++) {
-		gem = &buffer_profile_arr[n];
-
-		if ((gem->vm_bind_info.file != file) ||
-		    (gem->vm_bind_info.gpu_addr != info->bb_offset)) {
-			/* This buffer doesn't match the one we're looking for */
-			continue;
-		}
-
-		if (!(gem->mapping_info.cpu_addr) ||
-		    !(gem->mapping_info.size)) {
-			/* No valid CPU address means we can't copy the batchbuffer */
-			continue;
-		}
-
-		/* Parse the batchbuffer */
-		found = 1;
-		update_buffer_copy(gem);
-		if (verbose) {
-			print_batchbuffer(info, &(gem->vm_bind_info));
-		}
-		parser = bb_parser_init();
-		bb_parser_parse(parser, gem, info->batch_start_offset,
-				info->batch_len);
-		if (parser->iba) {
-			iba = parser->iba;
-		}
-
-		break;
-	}
-	if (!found && debug) {
-		fprintf(stderr,
-			"WARNING: Unable to find a buffer that matches 0x%llx\n",
-			info->bb_offset);
-	}
+        if (!iba) {
+        	/* The execbuffer call specifies a handle (which is sometimes 0) and a GPU
+                address that contains the batchbuffer. Find this buffer and attempt to parse it. */
+        	found = 0;
+        	for (n = 0; n < buffer_profile_used; n++) {
+        		gem = &buffer_profile_arr[n];
+        
+        		if ((gem->vm_bind_info.file != file) ||
+        		    (gem->vm_bind_info.gpu_addr != info->bb_offset)) {
+        			/* This buffer doesn't match the one we're looking for */
+        			continue;
+        		}
+        
+        		if (!(gem->mapping_info.cpu_addr) ||
+        		    !(gem->mapping_info.size)) {
+        			/* No valid CPU address means we can't copy the batchbuffer */
+        			continue;
+        		}
+        
+        		/* Parse the batchbuffer */
+        		found = 1;
+        		update_buffer_copy(gem);
+        		if (verbose) {
+        			print_batchbuffer(info, &(gem->vm_bind_info));
+        		}
+        		parser = bb_parser_init();
+        		bb_parser_parse(parser, gem, info->batch_start_offset,
+        				info->batch_len);
+        		if (parser->iba) {
+        			iba = parser->iba;
+        		}
+        
+        		break;
+        	}
+        	if (!found && debug) {
+        		fprintf(stderr,
+        			"WARNING: Unable to find a buffer that matches 0x%llx\n",
+        			info->bb_offset);
+        	}
+        }
 
 	if (iba) {
 		for (n = 0; n < buffer_profile_used; n++) {
@@ -466,6 +459,13 @@ int handle_execbuf_end(void *data_arg)
 	if (verbose) {
 		print_execbuf_end(info);
 	}
+
+        #if 0
+        /* Try to look for ELF headers in this process' address space. */
+        if(info->pid) {
+                find_elf_magic_bytes(info->pid, debug);
+        }
+        #endif
 
 	return 0;
 }

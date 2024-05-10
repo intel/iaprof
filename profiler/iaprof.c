@@ -45,7 +45,7 @@ char verbose = 0;
 char debug = 0;
 char quiet = 0;
 char *g_sidecar = NULL;
-int g_samples = 0;
+int g_samples_matched = 0;
 int g_samples_unmatched = 0;
 
 static struct option long_options[] = {
@@ -296,8 +296,8 @@ void *collect_thread_main(void *a)
 		gettimeofday(&tv, NULL);
 		/* Check if there are eustalls */
 		fprintf(stderr,
-			"\rStatus: profiling for %d secs, %d samples collected, %d samples unmatched. ",
-			(int)tv.tv_sec - startsecs, g_samples, g_samples_unmatched);
+			"\rStatus: profiling for %d secs, %d samples matched, %d samples unmatched. ",
+			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
 		fflush(stderr);
 		retry_eustalls = 0;
 		pollfd.fd = perf_fd;
@@ -450,14 +450,14 @@ int main(int argc, char **argv)
 			"Exit requested (had not yet started profiling).\n");
 	}
 
-	if (verbose) {
-		printf("%d samples collected, %d samples unmatched.\n",
-		       g_samples, g_samples_unmatched);
-	}
-
 	/* Wait for the collection thread to finish */
 	stop_collect_thread();
 	pthread_join(collect_thread_id, NULL);
+
+	if (verbose) {
+		printf("%d samples matched, %d samples unmatched.\n",
+		       g_samples_matched, g_samples_unmatched);
+	}
 	fflush(stdout);
 
 /* Print out the final results */

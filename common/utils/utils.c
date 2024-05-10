@@ -11,10 +11,12 @@
 
 void find_elf_magic_bytes(pid_t pid, char debug) {
 	FILE *mem_file;
-	char filename[256], line[256], addr_str[MAX_CHARS_ADDR+1];
-        int i;
+	char filename[256], line[256],
+             start_addr_str[MAX_CHARS_ADDR+1], end_addr_str[MAX_CHARS_ADDR+1];
+        int i, n;
         unsigned char *buf;
-        unsigned long addr;
+        unsigned long start_addr, end_addr;
+        uint64_t size;
 
 	/* Open the memory map */
 	sprintf(filename, "/proc/%ld/maps", (long)pid);
@@ -29,24 +31,35 @@ void find_elf_magic_bytes(pid_t pid, char debug) {
                 i = 0;
                 while(i < MAX_CHARS_ADDR) {
                         if((i == MAX_CHARS_ADDR + 1) || (line[i] == '-')) {
-                                addr_str[i] = 0;
+                                start_addr_str[i] = 0;
                                 break;
                         }
-                        addr_str[i] = line[i];
+                        start_addr_str[i] = line[i];
                         i++;
                 }
-                addr = strtoul(addr_str, NULL, 16);
-                if(addr) {
-                        if(debug) {
-                                printf("Reading from 0x%lx...\n", addr);
+                i++;
+                n = 0;
+                while(n < MAX_CHARS_ADDR) {
+                        if((n == MAX_CHARS_ADDR + 1) || (line[i + n] == '-')) {
+                                end_addr_str[n] = 0;
+                                break;
                         }
-                        buf = copy_buffer(pid, (uint64_t) addr, 8, debug);
+                        end_addr_str[n] = line[i + n];
+                        n++;
+                }
+                start_addr = strtoul(start_addr_str, NULL, 16);
+                end_addr = strtoul(end_addr_str, NULL, 16);
+                size = end_addr - start_addr;
+                if(start_addr && end_addr) {
+                        buf = copy_buffer(pid, (uint64_t) start_addr, 4, debug);
                         if(!buf) continue;
-                        if(debug) {
-                                for(i = 0; i < 8; i++) {
-                                        printf("%x ", buf[i]);
+                        if (*((uint32_t *) buf) == 0x464c457f) {
+                                if(debug) {
+                                        printf("Reading from 0x%lx - 0x%lx...\n", start_addr, end_addr);
                                 }
-                                printf("\n");
+                                free(buf);
+                                buf = copy_buffer(pid, (uint64_t) start_addr, size, debug);
+                                dump_buffer(buf, size, start_addr);
                         }
                         free(buf);
                 }
@@ -57,22 +70,22 @@ void find_elf_magic_bytes(pid_t pid, char debug) {
 	fflush(stdout);
 }
 
-void dump_buffer(unsigned char *kernel, uint64_t size, uint32_t id)
+#define MAX_DUPLICATES 256
+void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
 {
 	char filename[256];
 	unsigned int i;
 	FILE *tmpfile;
 
-	for (i = 0; i < 10; i++) {
-		sprintf(filename, "/tmp/iaprof_%u_%u.bin", id, i);
+	for (i = 0; i < MAX_DUPLICATES; i++) {
+		sprintf(filename, "/tmp/iaprof_0x%lx_%u.bin", id, i);
 		tmpfile = fopen(filename, "r");
 		if (tmpfile) {
 			/* This file already exists, so go to the next filename */
 			fclose(tmpfile);
-			if (i == (10 - 1)) {
+			if (i == (MAX_DUPLICATES - 1)) {
 				fprintf(stderr,
-					"WARNING: Hit MAX_DUPLICATES for handle %u.\n",
-					id);
+					"WARNING: Hit MAX_DUPLICATES.\n");
 				return;
 			}
 		} else {
@@ -80,7 +93,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint32_t id)
 		}
 	}
 
-	printf("Writing ID %u to %s\n", id, filename);
+	printf("Writing ID 0x%lx to %s\n", id, filename);
 	tmpfile = fopen(filename, "w");
 	if (!tmpfile) {
 		fprintf(stderr, "WARNING: Failed to open %s\n", filename);
@@ -123,21 +136,12 @@ unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size, char debug
 	sprintf(filename, "/proc/%u/mem", pid);
 	mem_file = fopen(filename, "r");
 	if (!mem_file) {
-                if (debug) {
-        		fprintf(stderr,
-        			"WARNING: copy_buffer failed to open /proc/%u/mem!\n",
-        			pid);
-                }
 		return NULL;
 	}
 
 	/* Seek to the spot in the application's address space */
 	retval = fseeko(mem_file, ptr, SEEK_SET);
 	if (retval != 0) {
-                if (debug) {
-        		fprintf(stderr,
-        			"WARNING: copy_buffer failed to seek to 0x%lx!\n", ptr);
-                }
 		fclose(mem_file);
 		return NULL;
 	}
@@ -148,15 +152,11 @@ unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size, char debug
 	/* Read the data */
 	num_read = fread(data, 1, size, mem_file);
 	if (num_read != size) {
-		fprintf(stderr, "WARNING: copy_buffer failed to read 0x%lx!\n",
-			ptr);
 		if (ferror(mem_file)) {
-			perror("Error while reading file");
 			fclose(mem_file);
 			free(data);
 			return NULL;
 		} else if (feof(mem_file)) {
-			perror("End-of-file while reading file");
 			fclose(mem_file);
 			free(data);
 			return NULL;
