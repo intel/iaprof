@@ -116,6 +116,7 @@ static uint32_t *reg_ptr(struct bb_parser *parser, uint32_t offset, bool write)
 ******************************************************************************/
 #define CMD_TYPE(cmd) (((cmd) >> 29) & 7)
 #define CMD_MI 0
+#define CMD_2D 2
 #define CMD_3D_MEDIA 3
 
 #define OP_LEN_MI 9
@@ -137,6 +138,11 @@ uint32_t op_len(uint32_t *bb)
 			printf("cmd_type=CMD_3D_MEDIA\n");
 		}
 		return OP_LEN_3D_MEDIA;
+	case CMD_2D:
+		if (debug) {
+			printf("cmd_type=CMD_2D\n");
+		}
+		return OP_LEN_2D;
 	default:
 		if (debug) {
 			printf("cmd_type=UNKNOWN (0x%x)\n", CMD_TYPE(*bb));
@@ -151,6 +157,9 @@ uint32_t op_len(uint32_t *bb)
 #define MI_BATCH_BUFFER_START_DWORDS 3
 #define MI_BATCH_BUFFER_START_2ND_LEVEL(x) ((x) >> 22 & 1U)
 
+#define MI_PRT_BATCH_BUFFER_START 0x39
+#define MI_PRT_BATCH_BUFFER_START_DWORDS 3
+
 #define MI_CONDITIONAL_BATCH_BUFFER_END 0x36
 #define MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS 4
 
@@ -163,6 +172,9 @@ uint32_t op_len(uint32_t *bb)
 #define MI_PREDICATE 0x0c
 #define MI_PREDICATE_DWORDS 1
 
+#define MI_STORE_REGISTER_MEM 0x24
+#define MI_STORE_REGISTER_MEM_DWORDS 4
+
 #define MI_LOAD_REGISTER_IMM 0x22
 #define MI_LOAD_REGISTER_IMM_DWORDS 3
 
@@ -172,10 +184,18 @@ uint32_t op_len(uint32_t *bb)
 #define MI_LOAD_REGISTER_REG 0x2a
 #define MI_LOAD_REGISTER_REG_DWORDS 3
 
+#define MI_FLUSH_DW 0x26
+#define MI_FLUSH_DW_DWORDS 5
+
 #define MI_NOOP 0x00
 #define MI_NOOP_DWORDS 1
 
-/* 3D/Media Command: Pipeline Type(28:27) Opcode(26:24) Sub Opcode(23:16) */
+/* 2D/XY Commands */
+
+#define MEM_COPY 0x5a
+#define MEM_COPY_DWORDS 10
+
+/* 3D/Media Commands: Pipeline Type(28:27) Opcode(26:24) Sub Opcode(23:16) */
 #define OP_3D_MEDIA(sub_type, opcode, sub_opcode) \
 	((3 << 13) | ((sub_type) << 11) | ((opcode) << 8) | (sub_opcode))
 #define OP_3D ((3 << 13) | (0xF << 11) | (0xF << 8) | (0xFF))
@@ -191,6 +211,9 @@ uint32_t op_len(uint32_t *bb)
 
 #define STATE_SIP OP_3D_MEDIA(0x0, 0x1, 0x02)
 #define STATE_SIP_DWORDS 3
+
+#define STATE_SYSTEM_MEM_FENCE_ADDRESS OP_3D_MEDIA(0x0, 0x1, 0x9)
+#define STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS 3
 
 struct bb_parser *bb_parser_init()
 {
@@ -283,7 +306,7 @@ enum bb_parser_status mi_load_register_reg(struct bb_parser *parser, uint32_t *p
 
 enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
 {
-        return BB_PARSER_STATUS_NOTFOUND;
+        return BB_PARSER_STATUS_OK;
 }
 
 enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
@@ -423,6 +446,11 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
 		if (!parser->cur_cmd) {
 			op = (*dword_ptr) >> (32 - op_len(dword_ptr));
+                        if(CMD_TYPE(*dword_ptr) == CMD_2D) {
+                                op = op & 0x7F;
+                        } else if(CMD_TYPE(*dword_ptr) == CMD_3D_MEDIA) {
+                                op = op & OP_3D;
+                        }
 
 			/* Decode which op this is */
 			switch (op) {
@@ -434,6 +462,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 				parser->cur_num_dwords =
 					MI_BATCH_BUFFER_START_DWORDS;
 				break;
+			case MI_PRT_BATCH_BUFFER_START:
+				if (debug) {
+					printf("op=MI_PRT_BATCH_BUFFER_START\n");
+				}
+				parser->cur_cmd = MI_PRT_BATCH_BUFFER_START;
+				parser->cur_num_dwords =
+					MI_PRT_BATCH_BUFFER_START_DWORDS;
+				break;
 			case MI_NOOP:
 				if (debug) {
 					printf("op=MI_NOOP\n");
@@ -441,6 +477,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 				parser->cur_cmd = MI_NOOP;
 				parser->cur_num_dwords =
 					MI_NOOP_DWORDS;
+				break;
+			case MI_FLUSH_DW:
+				if (debug) {
+					printf("op=MI_FLUSH_DW\n");
+				}
+				parser->cur_cmd = MI_FLUSH_DW;
+				parser->cur_num_dwords =
+					MI_FLUSH_DW_DWORDS;
 				break;
 			case STATE_BASE_ADDRESS:
 				if (debug) {
@@ -456,6 +500,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 				}
 				parser->cur_cmd = STATE_SIP;
 				parser->cur_num_dwords = STATE_SIP_DWORDS;
+				break;
+			case STATE_SYSTEM_MEM_FENCE_ADDRESS:
+				if (debug) {
+					printf("op=STATE_SYSTEM_MEM_FENCE_ADDRESS\n");
+				}
+				parser->cur_cmd = STATE_SYSTEM_MEM_FENCE_ADDRESS;
+				parser->cur_num_dwords =
+					STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS;
 				break;
 			case COMPUTE_WALKER:
 				if (debug) {
@@ -487,6 +539,13 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 				}
 				parser->cur_cmd = MI_PREDICATE;
 				parser->cur_num_dwords = MI_PREDICATE_DWORDS;
+				break;
+			case MI_STORE_REGISTER_MEM:
+				if (debug) {
+					printf("op=MI_STORE_REGISTER_MEM\n");
+				}
+				parser->cur_cmd = MI_STORE_REGISTER_MEM;
+				parser->cur_num_dwords = MI_STORE_REGISTER_MEM_DWORDS;
 				break;
 			case MI_LOAD_REGISTER_IMM:
 				if (debug) {
@@ -524,6 +583,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 				parser->cur_num_dwords =
 					MI_SEMAPHORE_WAIT_DWORDS;
 				break;
+			case MEM_COPY:
+				if (debug) {
+					printf("op=MEM_COPY\n");
+				}
+				parser->cur_cmd = MEM_COPY;
+				parser->cur_num_dwords =
+					MEM_COPY_DWORDS;
+				break;
 			default:
 				if (debug) {
 					printf("op=UNKNOWN (0x%x)\n", op);
@@ -535,6 +602,12 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 		/* Consume this command's dwords */
 		switch (parser->cur_cmd) {
 		case MI_BATCH_BUFFER_START:
+			retval = mi_batch_buffer_start(parser, dword_ptr);
+                        if(retval != BB_PARSER_STATUS_OK) {
+                                return retval;
+                        }
+			break;
+		case MI_PRT_BATCH_BUFFER_START:
 			retval = mi_batch_buffer_start(parser, dword_ptr);
                         if(retval != BB_PARSER_STATUS_OK) {
                                 return retval;

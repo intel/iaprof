@@ -26,8 +26,8 @@
 * of type `struct buffer_profile`.
 ***************************************/
 
-int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle);
-int get_buffer_profile_by_binding(uint32_t pid, uint64_t file, uint32_t handle);
+int get_buffer_profile(uint64_t file, uint32_t handle);
+int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
 uint64_t grow_buffer_profiles();
 
@@ -36,6 +36,11 @@ struct buffer_profile {
 	struct vm_bind_info vm_bind_info;
 	struct mapping_info mapping_info;
 	struct execbuf_start_info exec_info;
+
+        /* i915 differentiates a buffer by the file pointer (or ctx_id)
+           and its integer handle, so we will too. */
+        uint32_t handle;
+        uint64_t file;
 
 	/* A copy of the buffer bytes itself */
 	uint64_t buff_sz;

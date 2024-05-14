@@ -26,9 +26,27 @@
 ***************************************/
 
 /* Looks up a buffer in the buffer_profile_arr by file/handle pair
+   Returns -1 if not found. */
+int get_buffer_profile(uint64_t file, uint32_t handle)
+{
+	int n;
+	struct buffer_profile *gem;
+
+	for (n = 0; n < buffer_profile_used; n++) {
+		gem = &buffer_profile_arr[n];
+		if ((gem->handle == handle) &&
+		    (gem->file == file)) {
+			return n;
+		}
+	}
+
+	return -1;
+}
+
+/* Looks up a buffer in the buffer_profile_arr by file/handle pair
    (using its mapping_info, or mmap call).
    Returns -1 if not found. */
-int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle)
+int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
 {
 	int n;
 	struct buffer_profile *gem;
@@ -36,8 +54,7 @@ int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle)
 	for (n = 0; n < buffer_profile_used; n++) {
 		gem = &buffer_profile_arr[n];
 		if ((gem->mapping_info.handle == handle) &&
-		    (gem->mapping_info.file == file) &&
-		    (gem->mapping_info.pid == pid)) {
+		    (gem->mapping_info.file == file)) {
 			return n;
 		}
 	}
@@ -48,7 +65,7 @@ int get_buffer_profile(uint32_t pid, uint64_t file, uint32_t handle)
 /* Looks up a buffer in the buffer_profile_arr by the file/handle pair
    found in its vm_bind_info (or vm_bind call).
    Returns -1 if not found. */
-int get_buffer_profile_by_binding(uint32_t pid, uint64_t file, uint32_t handle)
+int get_buffer_profile_by_binding(uint64_t file, uint32_t handle)
 {
 	int n;
 	struct buffer_profile *gem;
@@ -106,17 +123,66 @@ uint64_t grow_buffer_profiles()
 	return buffer_profile_used - 1;
 }
 
+/* Returns if the buffer contains "all" zeroes or not */
+char buff_all_zeroes(unsigned char *buff, uint64_t buff_sz)
+{
+        uint32_t *tmp_buff;
+        uint32_t search_size, i;
+        char found_nonzero;
+        
+        tmp_buff = (uint32_t *) buff;
+        
+        if ((!buff) || (!buff_sz)) {
+                return 1;
+        }
+        
+        /* Search just the first few dwords */
+        search_size = 16;
+        if (search_size > (buff_sz / sizeof(uint32_t))) {
+                search_size = buff_sz / sizeof(uint32_t);
+        }
+        
+        found_nonzero = 0;
+        for (i = 0; i < search_size; i++) {
+                if ((*tmp_buff) != 0) {
+                        found_nonzero = 1;
+                        break;
+                }
+                tmp_buff++;
+        }
+        
+        return !found_nonzero;
+}
+
 void update_buffer_copy(struct buffer_profile *gem)
 {
 	unsigned char *tmp_buff;
+        char new_all_zeroes, old_all_zeroes;
 
 	tmp_buff = copy_buffer(gem->vm_bind_info.pid,
 			       gem->mapping_info.cpu_addr,
 			       gem->mapping_info.size, debug);
-	if (tmp_buff && !(gem->buff)) {
-		gem->buff = tmp_buff;
-		gem->buff_sz = gem->mapping_info.size;
-	}
+
+        /* Check if either copy is "all zeroes" (at least, the beginning) */
+	old_all_zeroes = buff_all_zeroes(gem->buff, gem->buff_sz);
+        new_all_zeroes = buff_all_zeroes(tmp_buff, gem->mapping_info.size);
+        
+        if (old_all_zeroes && new_all_zeroes) {
+                fprintf(stderr, "WARNING: Tried to update the buffer for handle %u, but it's all zeroes.\n", gem->handle);
+                if (tmp_buff) {
+                        free(tmp_buff);
+                }
+                return;
+        } else if (new_all_zeroes) {
+                if (tmp_buff) {
+                        free(tmp_buff);
+                }
+                return;
+        }
+        
+        free(gem->buff);
+	gem->buff = tmp_buff;
+	gem->buff_sz = gem->mapping_info.size;
 }
 
 /***************************************
@@ -141,28 +207,15 @@ int handle_mapping(void *data_arg)
 		print_mapping(info);
 	}
 
-	/* First, check to see if we've already seen a mapping or a vm_bind called
-     on this file/handle pair. */
-	mapping_index = get_buffer_profile(info->pid, info->file, info->handle);
-	vm_bind_index = get_buffer_profile_by_binding(info->pid, info->file,
-						      info->handle);
-	if ((mapping_index != -1) && debug) {
-		fprintf(stderr,
-			"WARNING: Detected churn on pid=%u file=0x%llx handle=%u\n",
-			info->pid, info->file, info->handle);
-	}
-	if ((mapping_index == -1) && (vm_bind_index == -1)) {
-		/* Common case: this same file/handle pair wasn't already mapped. */
-		index = grow_buffer_profiles();
-	} else if ((mapping_index == -1) && (vm_bind_index != -1)) {
-		/* If we've seen this buffer's vm_bind already, use that index */
-		index = vm_bind_index;
-	} else {
-		/* In this case, mapping_index is not -1. Create a new buffer. */
-		index = grow_buffer_profiles();
-	}
+        /* Use an existing buffer_profile if available */
+        index = get_buffer_profile(info->file, info->handle);
+        if(index == -1) {
+                index = grow_buffer_profiles();
+        }
 
 	gem = &buffer_profile_arr[index];
+        gem->handle = info->handle;
+        gem->file = info->file;
 	memcpy(&(gem->mapping_info), info, sizeof(struct mapping_info));
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -205,10 +258,10 @@ int handle_unmap(void *data_arg)
 		print_unmap(info);
 	}
 
-	index = get_buffer_profile(info->pid, info->file, info->handle);
+	index = get_buffer_profile_by_mapping(info->file, info->handle);
 	if ((index == -1) && debug) {
 		fprintf(stderr,
-			"WARNING: handle_binary called on a mapping that hasn't happened yet.\n");
+			"WARNING: unmap called on handle %u with an mmap.\n", info->handle);
 		goto cleanup;
 	}
 	gem = &(buffer_profile_arr[index]);
@@ -264,15 +317,17 @@ int handle_vm_bind(void *data_arg)
 		print_vm_bind(info);
 	}
 
-	/* Check to see if we've seen mmap get called on this file/handle pair
-           yet. If so, use that index, but if not, allocate a new one. */
-	index = get_buffer_profile(info->pid, info->file, info->handle);
+        /* If we've already seen this file/handle pair (either via mmap or vm_bind),
+           use that buffer profile. */
+	index = get_buffer_profile(info->file, info->handle);
 	if (index == -1) {
 		index = grow_buffer_profiles();
 	}
 
 	/* Copy the vm_bind_info into the buffer's profile. */
 	gem = &(buffer_profile_arr[index]);
+        gem->handle = info->handle;
+        gem->file = info->file;
 	memcpy(&(gem->vm_bind_info), info, sizeof(struct vm_bind_info));
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -300,8 +355,8 @@ int handle_vm_unbind(void *data_arg)
 	}
 
 	/* Try to find the buffer that this is unbinding. Note that
-     info->handle is going to be 0 here, so we need to use
-     the GPU address to look it up. */
+           info->handle is going to be 0 here, so we need to use
+           the GPU address to look it up. */
 	index = get_buffer_profile_by_gpu_addr(info->gpu_addr);
 	if (index == -1) {
 		if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
