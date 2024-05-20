@@ -252,13 +252,39 @@ void stop_collect_thread()
 	collect_thread_should_stop = 1;
 }
 
+/* Checks for eustalls ready to be read */
+enum eustall_status poll_eustalls(int perf_fd, uint8_t *perf_buf)
+{
+        int retval, len;
+	enum eustall_status status;
+	struct pollfd pollfd = {
+		.events = POLLIN,
+	};
+
+	pollfd.fd = perf_fd;
+	retval = poll(&pollfd, 1, 1);
+	if (retval < 0) {
+		fprintf(stderr,
+		        "An error occurred while reading the EU stall file descriptor! Aborting.\n");
+		return EUSTALL_STATUS_ERROR;
+	} else if (retval > 0) {
+		/* There are samples to read */
+		len = read(perf_fd, perf_buf, p_user);
+		if (len > 0) {
+			return handle_eustall_samples(perf_buf, len);
+		}
+	}
+
+        return EUSTALL_STATUS_OK;
+}
+
 void *collect_thread_main(void *a)
 {
 	uint8_t *perf_buf;
-	int perf_fd, i;
-	int retval, retry_eustalls, len, startsecs;
+	int perf_fd, i, startsecs;
 	struct timeval tv;
 	sigset_t mask;
+        enum eustall_status status;
 
 	/* The collect thread should block SIGINT, so that all
      SIGINTs go to the main thread. */
@@ -284,11 +310,7 @@ void *collect_thread_main(void *a)
 		print_header();
 	collect_thread_profiling = 1;
 	perf_buf = malloc(p_user);
-	struct pollfd pollfd = {
-		.events = POLLIN,
-	};
 
-	retry_eustalls = 0;
 	gettimeofday(&tv, NULL);
 	startsecs = (int)tv.tv_sec;
 
@@ -299,38 +321,22 @@ void *collect_thread_main(void *a)
 			"\rStatus: profiling for %d secs, %d samples matched, %d samples unmatched. ",
 			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
 		fflush(stderr);
-		retry_eustalls = 0;
-		pollfd.fd = perf_fd;
-		retval = poll(&pollfd, 1, 1);
-		if (retval < 0) {
-			fprintf(stderr,
-				"An error occurred while readin the EU stall file descriptor! Aborting.\n");
-			goto cleanup;
-		} else if (retval > 0) {
-			/* There are samples to read */
-			len = read(perf_fd, perf_buf, p_user);
-			if (len > 0) {
-				retry_eustalls =
-					handle_eustall_samples(perf_buf, len);
-				if (retry_eustalls == -1) {
-					return NULL;
-				} else if (retry_eustalls >= 1) {
-					if (debug) {
-						fprintf(stderr,
-							"WARNING: Dropping %d eustalls on the floor.\n",
-							retry_eustalls);
-					}
-				}
-			}
-			/* If retval == 0, fall through */
-		}
+
+                status = poll_eustalls(perf_fd, perf_buf);
+                if (status == EUSTALL_STATUS_ERROR) {
+                        goto cleanup;
+                }
 
 		/* Sit for a bit on the GEM info ringbuffer */
-		ring_buffer__poll(bpf_info.rb, 1000);
+		ring_buffer__poll(bpf_info.rb, 100);
 	}
 
 	/* Once we've been told to clean up, check one last time */
-	ring_buffer__poll(bpf_info.rb, 1000);
+	ring_buffer__poll(bpf_info.rb, 1);
+        status = poll_eustalls(perf_fd, perf_buf);
+        if (status == EUSTALL_STATUS_ERROR) {
+                goto cleanup;
+        }
 
 cleanup:
 	free(perf_buf);

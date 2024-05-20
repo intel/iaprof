@@ -87,7 +87,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 {
 	struct prelim_drm_i915_stall_cntr_info info;
 	int i, n, num_not_found, num_found;
-	char found, search_stale, search_iba;
+	char found, search_stale;
 	uint64_t addr, start, end, offset, last_found_start, last_found_offset;
 	struct eustall_sample sample;
 	struct buffer_profile *gem, *last_found_gem;
@@ -97,7 +97,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 	if (pthread_rwlock_rdlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr,
 			"Failed to grab the buffer_profile_lock for reading.\n");
-		return -1;
+		return EUSTALL_STATUS_ERROR;
 	}
 
 	/* Get the timestamp */
@@ -109,32 +109,28 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
 	for (i = 0; i < len; i += 64) {
 		memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
 		memcpy(&info, perf_buf + i + 48, sizeof(info));
-		addr = ((uint64_t)sample.ip) << 3;
+		addr = (((uint64_t)sample.ip) << 3) + iba;
 
 		/* Look up this sample by the GPU address (sample.ip). If we find
-       multiple matches, that means that multiple contexts are using
-       the same virtual address, and there's no way to determine which
-       one the EU stall is associated with */
+                   multiple matches, that means that multiple contexts are using
+                   the same virtual address, and there's no way to determine which
+                   one the EU stall is associated with */
 		found = 0;
 		last_found_start = 0;
 		last_found_offset = 0;
 		last_found_gem = NULL;
 		search_stale = 0; /* Look at stale buffers, too? */
-		search_iba = 0; /* Mask with the Instruction Base Address */
+
+                if (!iba) {
+                        goto none_found;
+                }
+
 retry:
 		for (n = 0; n < buffer_profile_used; n++) {
 			gem = &buffer_profile_arr[n];
-			start = gem->vm_bind_info.gpu_addr & 0xffffffff;
+			start = gem->vm_bind_info.gpu_addr;
 			end = start + gem->vm_bind_info.size;
-
-			if (search_iba &&
-			    (!(iba) || ((gem->vm_bind_info.gpu_addr >> 32) !=
-					(iba >> 32)))) {
-				/* If we're only searching buffers that match the IBA, and
-				 * the top 32 bits doesn't match it, reject it */
-				continue;
-			}
-
+                        
 			if (gem->vm_bind_info.stale && (!search_stale)) {
 				continue;
 			}
@@ -144,12 +140,11 @@ retry:
 			}
 
 			if ((addr - start) > MAX_BINARY_SIZE) {
-				/* Don't count this buffer if the binary size isn't big enough
-				 * to contain it. This is a kludge that I'd rather avoid,
-				 * but sometimes, NEO will allocate huge swaths of the address
-				 * space that overlap with more reasonably-sized buffers that
-				 * actually contain data. */
-				continue;
+                                if (debug) {
+                                        fprintf(stderr, "WARNING: eustall gpu_addr=0x%llx", addr);
+                                        fprintf(stderr, " lands in handle=%u,", gem->handle);
+                                        fprintf(stderr, " which is bigger than MAX_BINARY_SIZE.\n");
+                                }
 			}
 
 			offset = addr - start;
@@ -166,12 +161,13 @@ retry:
 			continue;
 		}
 
+none_found:
 		/* Now that we've found 0+ matches, print or store them. */
 		if (found == 0) {
 			/* No matches found! */
 			if (!search_stale) {
-				/* If we haven't already retried for this stall,
-           search all buffers again but consider "stale" ones too. */
+				/* If we haven't already retried for this stall, 
+                                   search all buffers again but consider "stale" ones too. */
 				if (debug) {
 					printf("addr=0x%lx trying again\n",
 					       addr);
@@ -192,36 +188,12 @@ retry:
 					 time);
 			num_found++;
 		} else if (found > 1) {
-			/* Multiple buffers could claim this EU stall, but they all had
-         the same start addresses. */
-			if (!search_iba) {
-				/* We can try one more time, this time only including buffers whose
-           addresses match the top 32 bits of the IBA (Instruction Base Address). */
-				if (debug) {
-					printf("addr=0x%lx trying again with iba\n",
-					       addr);
-				}
-				search_iba = 1;
-				found = 0;
-				goto retry;
-			} else {
-				/* XXX: Temporary hack. Grabbing the last-seen buffer that matches
-           this GPU address. This was borne of a few situations in which I see
-           a vm_bind, but the application never calls vm_unbind. This can
-           be properly fixed by adding an implicit vm_unbind if a PID doesn't
-           exist anymore and the same GPU address shows up again. */
-				associate_sample(&sample, last_found_gem, addr,
-						 last_found_offset,
-						 info.subslice, time);
-				num_found++;
-
-				/* We've tried twice, bail out. */
-				if (verbose) {
-					print_eustall_churn(&sample, addr,
-							    last_found_offset,
-							    info.subslice,
-							    time);
-				}
+                        /* We'll have to just bail out */
+			if (verbose) {
+			        print_eustall_churn(&sample, addr,
+				                    last_found_offset,
+				                    info.subslice,
+					            time);
 			}
 		}
 	}
@@ -232,13 +204,19 @@ retry:
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to unlock the buffer_profile_lock.\n");
-		return -1;
+		return EUSTALL_STATUS_ERROR;
 	}
 
 	g_samples_matched += num_found;
 	g_samples_unmatched += num_not_found;
 
-	return num_not_found;
+        if (num_not_found) {
+                if (debug) {
+                        fprintf(stderr, "WARNING: Dropping %d eustall samples.\n", num_not_found);
+                }
+                return EUSTALL_STATUS_NOTFOUND;
+        }
+	return EUSTALL_STATUS_OK;
 }
 
 int configure_eustall()
@@ -319,27 +297,6 @@ int configure_eustall()
 		fprintf(stderr, "Failed to open the perf file descriptor.\n");
 		return -1;
 	}
-
-#if 0
-  /* Clear out the buffer */
-  struct pollfd pollfd = {
-    .events = POLLIN,
-    .fd = fd,
-  };
-  retval = poll(&pollfd, 1, 1);
-  if (retval < 0) {
-    fprintf(stderr,
-      "An error occurred while reading the EU stall file descriptor! Aborting.\n");
-    goto cleanup;
-  } else if (retval > 0) {
-    /* There are samples to read. Since we haven't even enabled collection yet,
-       discard them because they are stale. */
-    if(lseek(fd, p_user, SEEK_SET) == -1) {
-      fprintf(stderr, "Failed to seek to clear out EU stall samples. Aborting.\n");
-      goto cleanup;
-    }
-  }
-#endif
 
 	/* Enable the fd */
 	ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);

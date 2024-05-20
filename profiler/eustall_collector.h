@@ -3,6 +3,17 @@
 #include <inttypes.h>
 #include "event_collector.h"
 
+/******************************************************************************
+* Status
+* *********
+* Return types for the eustall collector.
+******************************************************************************/
+enum eustall_status {
+	EUSTALL_STATUS_OK,
+        EUSTALL_STATUS_ERROR,
+        EUSTALL_STATUS_NOTFOUND,
+};
+
 struct eustall_sample;
 struct offset_profile;
 
