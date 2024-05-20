@@ -41,6 +41,7 @@ struct syms_cache;
 
 struct syms_cache *syms_cache__new(int nr);
 struct syms *syms_cache__get_syms(struct syms_cache *syms_cache, int tgid);
+void syms_cache__reload_syms(struct syms_cache *syms_cache, int tgid);
 void syms_cache__free(struct syms_cache *syms_cache);
 
 struct partition {

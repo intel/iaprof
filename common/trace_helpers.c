@@ -789,6 +789,19 @@ void syms_cache__free(struct syms_cache *syms_cache)
 	free(syms_cache);
 }
 
+void syms_cache__reload_syms(struct syms_cache *syms_cache, int tgid)
+{
+  int i;
+  
+  for (i = 0; i < syms_cache->nr; i++) {
+    if (syms_cache->data[i].tgid == tgid) {
+  		syms__free(syms_cache->data[i].syms);
+    	syms_cache->data[i].syms = syms__load_pid(tgid);
+      return;
+    }
+  }
+}
+
 struct syms *syms_cache__get_syms(struct syms_cache *syms_cache, int tgid)
 {
 	void *tmp;
