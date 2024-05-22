@@ -4,6 +4,9 @@
 #include <bpf/bpf.h>
 #include <pthread.h>
 
+/* For demangling */
+#include <libiberty/demangle.h>
+
 #include "iaprof.h"
 #include "utils/utils.h"
 #include "stack_printer.h"
@@ -38,18 +41,18 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
 	const struct sym *sym;
 	int sfd, i, last_i;
 	size_t len, cur_len, new_len;
-	const char *to_copy;
-	char *dso_name, have_reloaded;
+	char *to_copy;
+	char *dso_name, have_reloaded, should_free;
 	unsigned long dso_offset;
 
-  if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
-    fprintf(stderr, "Error grabbing the syms_cache_lock. Aborting.\n");
-    exit(1);
-  }
+        if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
+                fprintf(stderr, "Error grabbing the syms_cache_lock. Aborting.\n");
+                exit(1);
+        }
 
 	if (pid == 0) {
 		*stack_str = strdup("[unknown]");
-    goto cleanup;
+                goto cleanup;
 	}
 
 	sfd = bpf_map__fd(bpf_info.obj->maps.stackmap);
@@ -63,11 +66,11 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
 	}
 	syms = syms_cache__get_syms(syms_cache, pid);
 	if (!syms) {
-    if (debug) {
-  		fprintf(stderr,
-  			"WARNING: Failed to get syms for PID %" PRIu32 "\n",
-  			pid);
-    }
+                if (debug) {
+        		fprintf(stderr,
+                                "WARNING: Failed to get syms for PID %" PRIu32 "\n",
+                                pid);
+                }
 		goto cleanup;
 	}
 
@@ -81,10 +84,11 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
 	for (i = 0; i < MAX_STACK_DEPTH && ip[i]; i++) {
 		last_i = i;
 	}
-  have_reloaded = 0;
+        have_reloaded = 0;
 
 	for (i = last_i; i >= 0; i--) {
 retry:
+                should_free = 0;
 		dso_name = NULL;
 		sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
 		cur_len = 0;
@@ -92,7 +96,12 @@ retry:
 			cur_len = strlen(*stack_str);
 		}
 		if (sym) {
-			to_copy = sym->name;
+                        to_copy = cplus_demangle(sym->name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
+                        should_free = 1;
+                        if (!to_copy) {
+        			to_copy = sym->name;
+                                should_free = 0;
+                        }
 		} else {
 			if (dso_name) {
 				to_copy = dso_name;
@@ -122,6 +131,9 @@ retry:
 		memset(*stack_str + cur_len, 0, new_len - cur_len);
 		strcpy(*stack_str + cur_len, to_copy);
 		(*stack_str)[new_len - 2] = ';';
+                if (should_free) {
+                        free(to_copy);
+                }
 	}
 
 cleanup:
