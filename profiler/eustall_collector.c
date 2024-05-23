@@ -141,7 +141,7 @@ retry:
 
 			if ((addr - start) > MAX_BINARY_SIZE) {
                                 if (debug) {
-                                        fprintf(stderr, "WARNING: eustall gpu_addr=0x%llx", addr);
+                                        fprintf(stderr, "WARNING: eustall gpu_addr=0x%lx", addr);
                                         fprintf(stderr, " lands in handle=%u,", gem->handle);
                                         fprintf(stderr, " which is bigger than MAX_BINARY_SIZE.\n");
                                 }

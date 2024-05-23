@@ -25,7 +25,7 @@ BPFTOOL_BUILD_LOG=${BUILD_DEPS_DIR}/bpftool.log
 cd ${BPFTOOL_SRC_DIR}
 
 echo "  Building libbpf and bpftool..."
-git submodule update --init
+# git submodule update --init
 make &> ${BPFTOOL_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
@@ -51,80 +51,16 @@ fi
 ###################################################################
 #                 Intel Graphics Compiler (IGC)
 ###################################################################
-# IGC expects its dependencies in a specific directory structure,
-# so recreate that.
-IGC_DIR="${BUILD_DEPS_DIR}/igc/"
+IGC_DIR="${BUILD_DEPS_DIR}/igc"
 IGC_BUILD_LOG="${BUILD_DEPS_DIR}/igc.log"
-
-# Clone the proper repos
+mkdir -p ${IGC_DIR}
 cd ${IGC_DIR}
-if [ ! -d vc-intrinsics ]; then
-  git clone https://github.com/intel/vc-intrinsics vc-intrinsics
-fi
-if [ ! -d llvm-project ]; then
-  git clone -b release/14.x https://github.com/llvm/llvm-project llvm-project
-fi
-if [ ! -d llvm-project/llvm/projects/opencl-clang ]; then
-  git clone -b ocl-open-140 https://github.com/intel/opencl-clang llvm-project/llvm/projects/opencl-clang
-fi
-if [ ! -d llvm-project/llvm/projects/llvm-spirv ]; then
-  git clone -b llvm_release_140 https://github.com/KhronosGroup/SPIRV-LLVM-Translator llvm-project/llvm/projects/llvm-spirv
-fi
-if [ ! -d SPIRV-Tools ]; then
-  git clone https://github.com/KhronosGroup/SPIRV-Tools.git SPIRV-Tools
-fi
-if [ ! -d SPIRV-Headers ]; then
-  git clone https://github.com/KhronosGroup/SPIRV-Headers.git SPIRV-Headers
+./build_igc.sh &> ${IGC_BUILD_LOG}
+RETVAL=$?
+if [ ${RETVAL} -ne 0 ]; then
+  echo "  ERROR: IGC failed to build."
+  echo "  Please check ${IGC_BUILD_LOG} for details."
+  exit 1
 fi
 
-# Apply our patch
-cd ${IGC_DIR}/igc
-patch -R -p1 -s -f --dry-run < ${BUILD_DEPS_DIR}/iga.diff &>/dev/null
-RETVAL=$?
-if [ ${RETVAL} -ne 0 ]; then
-  patch -p1 < ${BUILD_DEPS_DIR}/iga.diff &> ${IGC_BUILD_LOG}
-  RETVAL=$?
-  if [ ${RETVAL} -ne 0 ]; then
-    echo "  ERROR: The patch ${BUILD_DEPS_DIR}/iga.diff failed to apply."
-    echo "  Please check ${IGC_BUILD_LOG} for details."
-    exit 1
-  fi
-fi
-cd ${IGC_DIR}
-
-# Now build IGC
-echo "  Building IGC..."
-sudo rm -rf build
-mkdir -p build
-cd build
-cmake \
-  -DIGC_OPTION__LLVM_MODE=Source \
-  -DIGC_OPTION__LLVM_SOURCES_DIR=${IGC_DIR}/llvm-project \
-  -DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.6 \
-  -DCMAKE_INSTALL_PREFIX=${PREFIX} \
-  ../igc \
-  &>> ${IGC_BUILD_LOG}
-RETVAL=$?
-if [ ${RETVAL} -ne 0 ]; then
-  echo "  ERROR: IGC failed to build."
-  echo "  Please check ${IGC_BUILD_LOG} for details."
-  exit 1
-fi
-make -j$(nproc) \
-  &>> ${IGC_BUILD_LOG}
-RETVAL=$?
-if [ ${RETVAL} -ne 0 ]; then
-  echo "  ERROR: IGC failed to build."
-  echo "  Please check ${IGC_BUILD_LOG} for details."
-  exit 1
-fi
-make install \
-  &>> ${IGC_BUILD_LOG}
-RETVAL=$?
-if [ ${RETVAL} -ne 0 ]; then
-  echo "  ERROR: IGC failed to build."
-  echo "  Please check ${IGC_BUILD_LOG} for details."
-  exit 1
-fi
-  
 echo "Done building dependencies. Installed to ${PREFIX}."

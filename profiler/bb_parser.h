@@ -282,13 +282,13 @@ enum bb_parser_status mi_load_register_imm(struct bb_parser *parser, uint32_t *p
                 /* Bits 22:2 of the third dword contains the register offset */
                 parser->load_register_offset = (*ptr) & 0x3ffffe00;
                 if (debug) {
-                        printf("load_register_offset=0x%lx\n", *ptr);
+                        printf("load_register_offset=0x%x\n", *ptr);
                 }
         } else if (parser->in_cmd == 2) {
                 /* The entirety of the second dword contains the data dword */
                 parser->load_register_dword = *ptr;
                 if (debug) {
-                        printf("load_register_dword=0x%lx\n", *ptr);
+                        printf("load_register_dword=0x%x\n", *ptr);
                 }
         }
         return BB_PARSER_STATUS_OK;

@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <iga/iga.h>
+#include <iga/kv.h>
 #include "utils/hash_table.h"
 
 use_hash_table(uint64_t, uint64_t);
@@ -11,8 +12,5 @@ struct shader_profile {
 	hash_table(uint64_t, uint64_t) counts;
 };
 
-char *iga_status_to_str(iga_status_t status);
-iga_context_t *iga_init();
-char *iga_disassemble_single(iga_context_t *ctx, unsigned char *data);
-void iga_disassemble_shader(iga_context_t *ctx, unsigned char *data,
-			    size_t data_sz);
+struct kv_t *iga_init(unsigned char *buff, size_t buff_len);
+char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text, size_t *insn_text_len);
