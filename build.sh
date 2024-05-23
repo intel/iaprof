@@ -128,5 +128,6 @@ ${CC} ${LDFLAGS} \
   ${PREFIX}/lib/libbpf.a \
   -lelf -lz \
   -lstdc++ \
+  -liberty \
   ${PREFIX}/lib/libiga64.a
 echo ""
