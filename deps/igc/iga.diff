@@ -1,0 +1,138 @@
+diff --git a/visa/iga/IGALibrary/api/igad.h b/visa/iga/IGALibrary/api/igad.h
+index 5b94122da..c5bd9e504 100644
+--- a/visa/iga/IGALibrary/api/igad.h
++++ b/visa/iga/IGALibrary/api/igad.h
+@@ -192,11 +192,6 @@ typedef bool(CDECLATTRIBUTE *pIGAKVHasInstOpt)(const kv_t *kv, int32_t pc,
+ typedef uint32_t(CDECLATTRIBUTE *pIGAKVGetExecutionSize)(const kv_t *kv,
+                                                          int32_t pc);
+ 
+-#define IGA_KV_GET_SWSB_INFO "kv_get_swsb_info"
+-typedef bool(CDECLATTRIBUTE *pIGAKVGetSWSBInfo)(
+-    const kv_t *kv, int32_t pc, iga::SWSB_ENCODE_MODE encdoe_mode,
+-    iga::SWSB &swsb);
+-
+ #define IGA_KV_GET_NUMBER_SOURCES_STR "kv_get_number_sources"
+ typedef int32_t(CDECLATTRIBUTE *pIGAKVGetNumberSources)(const kv_t *kv,
+                                                         int32_t pc);
+@@ -419,7 +414,6 @@ typedef struct {
+   pIGAKVGetFlagSubReg kv_get_flag_subreg;
+   pIGAKVGetPredicate kv_get_predicate;
+   pIGAKVGetIsInversePred kv_get_inverse_predicate;
+-  pIGAKVGetSWSBInfo kv_get_swsb_info;
+   pIGAKVHasInstOpt kv_has_inst_opt;
+   pIGAKVGetSrcIndirectImmOff kv_get_source_indirect_imm_off;
+   pIGAKVGetDstIndirectImmOff kv_get_destination_indirect_imm_off;
+diff --git a/visa/iga/IGALibrary/api/kv.cpp b/visa/iga/IGALibrary/api/kv.cpp
+index a38139f95..04976eb33 100644
+--- a/visa/iga/IGALibrary/api/kv.cpp
++++ b/visa/iga/IGALibrary/api/kv.cpp
+@@ -89,7 +89,7 @@ public:
+ 
+ kv_t *kv_create(iga_gen_t gen_platf, const void *bytes, size_t bytes_len,
+                 iga_status_t *status, char *errbuf, size_t errbuf_cap,
+-                SWSB_ENCODE_MODE swsbMode) {
++                uint32_t swsbMode) {
+   if (errbuf && errbuf_cap > 0)
+     *errbuf = 0;
+ 
+@@ -107,7 +107,7 @@ kv_t *kv_create(iga_gen_t gen_platf, const void *bytes, size_t bytes_len,
+   KernelViewImpl *kvImpl = nullptr;
+   try {
+     kvImpl =
+-        new (std::nothrow) KernelViewImpl(*model, bytes, bytes_len, swsbMode);
++        new (std::nothrow) KernelViewImpl(*model, bytes, bytes_len, static_cast<iga::SWSB_ENCODE_MODE>(swsbMode));
+     if (!kvImpl) {
+       if (errbuf) {
+         iga::copyOutString(errbuf, errbuf_cap, nullptr, "failed to allocate");
+@@ -556,19 +556,6 @@ uint32_t kv_get_execution_size(const kv_t *kv, int32_t pc) {
+   return static_cast<uint32_t>(inst->getExecSize());
+ }
+ 
+-bool kv_get_swsb_info(const kv_t *kv, int32_t pc, SWSB_ENCODE_MODE,
+-                      SWSB &swsb) {
+-  if (!kv) {
+-    return false;
+-  }
+-  const Instruction *inst = getInstruction(kv, pc);
+-  if (!inst) {
+-    return false;
+-  }
+-  swsb = inst->getSWSB();
+-  return true;
+-}
+-
+ int32_t kv_get_number_sources(const kv_t *kv, int32_t pc) {
+   if (!kv) {
+     return -1;
+@@ -1157,4 +1144,4 @@ int32_t kv_get_syncfc(const kv_t *kv, int32_t pc) {
+ 
+   // for send, get_message_sfid to support decoding SFID from exDesc
+   return static_cast<int32_t>(inst->getSyncFc());
+-}
+\ No newline at end of file
++}
+diff --git a/visa/iga/IGALibrary/api/kv.h b/visa/iga/IGALibrary/api/kv.h
+index 12e3db1d1..1cc5f4489 100644
+--- a/visa/iga/IGALibrary/api/kv.h
++++ b/visa/iga/IGALibrary/api/kv.h
+@@ -10,7 +10,6 @@ SPDX-License-Identifier: MIT
+ #define IGA_KV_H
+ 
+ #include "iga.h"
+-#include "iga_types_swsb.hpp"
+ 
+ /*************************************************************************
+  *                                                                       *
+@@ -87,10 +86,9 @@ typedef enum {
+  */
+ IGA_API kv_t *kv_create(iga_gen_t plat, const void *bytes, size_t bytes_len,
+                         iga_status_t *status, char *errbuf, size_t errbuf_cap,
+-                        // if not specified, the swsb encoding mode will be
++                        // if set to 0, the swsb encoding mode will be
+                         // derived from platfrom by SWSB::getEncodeMode
+-                        iga::SWSB_ENCODE_MODE swsb_enc_mode =
+-                            iga::SWSB_ENCODE_MODE::SWSBInvalidMode);
++                        uint32_t swsb_enc_mode); /* use iga::SWSB_ENCODE_MODE */
+ 
+ /*
+  * Destroys a kernel view deallocating all resources sequestered by the kv_t
+@@ -367,13 +365,6 @@ IGA_API uint32_t kv_get_message_len_ext(const kv_t *kv, int32_t pc,
+  */
+ IGA_API uint32_t kv_get_execution_size(const kv_t *kv, int32_t pc);
+ 
+-/*
+- * Returns Software scoreboarding information.
+- */
+-IGA_API bool kv_get_swsb_info(const kv_t *kv, int32_t pc,
+-                              iga::SWSB_ENCODE_MODE encdoe_mode,
+-                              iga::SWSB &swsb);
+-
+ /*
+  * Returns number of sources this instruction has.
+  */
+diff --git a/visa/iga/IGALibrary/api/kv.hpp b/visa/iga/IGALibrary/api/kv.hpp
+index df1cc5f5e..6011dce50 100644
+--- a/visa/iga/IGALibrary/api/kv.hpp
++++ b/visa/iga/IGALibrary/api/kv.hpp
+@@ -53,7 +53,7 @@ public:
+       char *decodeLog = nullptr, size_t decodeLogLen = 0)
+       : m_kv(nullptr), m_disasm_status(IGA_SUCCESS), m_gen(platf) {
+     m_kv = kv_create(platf, bytes, bytesLength, &m_disasm_status, decodeLog,
+-                     decodeLogLen, swsb_mode);
++                     decodeLogLen, static_cast<uint32_t>(swsb_mode));
+   }
+ 
+   // The destructor automatically deallocates the underlying kernel view
+@@ -316,12 +316,6 @@ public:
+     return static_cast<iga::ExecSize>(kv_get_execution_size(m_kv, pc));
+   }
+ 
+-  iga::SWSB getSWSBInfo(int32_t pc, iga::SWSB_ENCODE_MODE encdoe_mode) const {
+-    iga::SWSB swsb;
+-    kv_get_swsb_info(m_kv, pc, encdoe_mode, swsb);
+-    return swsb;
+-  }
+-
+   // Returns opcode of the instruction
+   //
+   // N.B.: the opcode is not the same as the 7-bit value encoded in the

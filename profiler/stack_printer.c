@@ -41,7 +41,7 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
 	const struct sym *sym;
 	int sfd, i, last_i;
 	size_t len, cur_len, new_len;
-	char *to_copy;
+	const char *to_copy;
 	char *dso_name, have_reloaded, should_free;
 	unsigned long dso_offset;
 
@@ -132,7 +132,7 @@ retry:
 		strcpy(*stack_str + cur_len, to_copy);
 		(*stack_str)[new_len - 2] = ';';
                 if (should_free) {
-                        free(to_copy);
+                        free((void *) to_copy);
                 }
 	}
 

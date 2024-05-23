@@ -4,3 +4,4 @@ build.log
 build/
 llvm-project/
 vc-intrinsics/
+igc/

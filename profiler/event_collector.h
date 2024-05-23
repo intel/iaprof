@@ -55,6 +55,7 @@ struct buffer_profile {
 	/* Set if EU stalls are associated with this buffer */
 	unsigned char has_stalls;
 	struct shader_profile shader_profile;
+        struct kv_t *kv;
 };
 
 void update_buffer_copy(struct buffer_profile *gem);

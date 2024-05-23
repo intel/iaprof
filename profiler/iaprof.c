@@ -18,8 +18,6 @@
 #include <assert.h>
 #include <sys/time.h>
 
-#include <iga/iga.h>
-
 #include "iaprof.h"
 
 #include "common.h"
@@ -31,6 +29,7 @@
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
 #include "event_collector.h"
+#include "flamegraph_printer.h"
 #include "printer.h"
 
 /*******************
@@ -399,12 +398,6 @@ int main(int argc, char **argv)
 {
 	struct sigaction sa;
 	struct timespec leftover, request = { 1, 0 };
-	struct buffer_profile *gem;
-	int i, n;
-	struct offset_profile **found;
-	iga_context_t *ctx;
-	uint64_t tmp_offset, *tmp;
-	char *insn_text;
 	char *failed_decode = "[failed_decode]";
 
 	sanity_checks();
@@ -466,122 +459,5 @@ int main(int argc, char **argv)
 	}
 	fflush(stdout);
 
-/* Print out the final results */
-#define PRINT_FRONT_STACK()                           \
-	printf("%s;", gem->exec_info.name);           \
-	printf("%u;", gem->exec_info.pid);            \
-	if (gem->execbuf_stack_str) {                 \
-		printf("%s", gem->execbuf_stack_str); \
-	} else {                                      \
-		printf("[unknown];");                 \
-	}                                             \
-	printf("-;");                                 \
-	printf("%s_[g];", insn_text);
-
-	ctx = iga_init();
-	for (i = 0; i < buffer_profile_used; i++) {
-		gem = &buffer_profile_arr[i];
-		if (!gem->has_stalls)
-			continue;
-		if ((gem->exec_info.pid == 0) && debug) {
-			fprintf(stderr, "WARNING: PID for handle %u is zero!\n",
-				gem->mapping_info.handle);
-		}
-		hash_table_traverse(gem->shader_profile.counts, tmp_offset, tmp)
-		{
-			found = (struct offset_profile **)tmp;
-
-			/* First, disassemble the instruction */
-			if ((!gem->buff_sz) || (!gem->buff)) {
-				if (debug) {
-					fprintf(stderr,
-						"WARNING: Got an EU stall on a buffer we haven't copied yet. handle=%u\n",
-						gem->mapping_info.handle);
-				}
-				continue;
-			}
-			if (tmp_offset > gem->buff_sz) {
-				if (debug) {
-					fprintf(stderr,
-						"WARNING: Got an EU stall past the end of a buffer. ");
-					fprintf(stderr,
-						"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
-						gem->mapping_info.handle,
-						gem->buff, tmp_offset,
-						gem->buff_sz);
-				}
-				insn_text = failed_decode;
-			} else {
-				insn_text = iga_disassemble_single(
-					ctx, gem->buff + tmp_offset);
-				if (insn_text == NULL) {
-					insn_text = failed_decode;
-					fprintf(stderr,
-						"Failed disassembly happened at handle=%u offset=0x%lx\n",
-						gem->mapping_info.handle,
-						tmp_offset);
-				}
-				for (n = 0; n < strlen(insn_text); n++) {
-					if (insn_text[n] == ';') {
-						insn_text[n] = ',';
-					}
-				}
-			}
-
-			if ((*found)->active) {
-				PRINT_FRONT_STACK();
-				printf("active_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->active);
-			}
-			if ((*found)->other) {
-				PRINT_FRONT_STACK();
-				printf("other_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->other);
-			}
-			if ((*found)->control) {
-				PRINT_FRONT_STACK();
-				printf("control_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->control);
-			}
-			if ((*found)->pipestall) {
-				PRINT_FRONT_STACK();
-				printf("pipestall_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->pipestall);
-			}
-			if ((*found)->send) {
-				PRINT_FRONT_STACK();
-				printf("send_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->send);
-			}
-			if ((*found)->dist_acc) {
-				PRINT_FRONT_STACK();
-				printf("dist_acc_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->dist_acc);
-			}
-			if ((*found)->sbid) {
-				PRINT_FRONT_STACK();
-				printf("sbid_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->sbid);
-			}
-			if ((*found)->sync) {
-				PRINT_FRONT_STACK();
-				printf("sync_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->sync);
-			}
-			if ((*found)->inst_fetch) {
-				PRINT_FRONT_STACK();
-				printf("inst_fetch_[g];");
-				printf("0x%lx_[g] %u\n", tmp_offset,
-				       (*found)->inst_fetch);
-			}
-		}
-	}
+        print_flamegraph();
 }
