@@ -78,7 +78,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
 	FILE *tmpfile;
 
 	for (i = 0; i < MAX_DUPLICATES; i++) {
-		sprintf(filename, "/tmp/iaprof_0x%lx_%u.bin", id, i);
+		sprintf(filename, "/tmp/iaprof_%lu_%u.bin", id, i);
 		tmpfile = fopen(filename, "r");
 		if (tmpfile) {
 			/* This file already exists, so go to the next filename */

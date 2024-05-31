@@ -31,6 +31,7 @@
 #include "event_collector.h"
 #include "flamegraph_printer.h"
 #include "printer.h"
+#include "debug_printer.h"
 
 /*******************
 * COMMANDLINE ARGS *
@@ -459,5 +460,8 @@ int main(int argc, char **argv)
 	}
 	fflush(stdout);
 
+        if (debug) {
+                print_debug_profile();
+        }
         print_flamegraph();
 }

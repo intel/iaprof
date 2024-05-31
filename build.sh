@@ -100,6 +100,12 @@ ${CC} -gdwarf-4 -c \
   ${PROFILER_DIR}/flamegraph_printer.c \
   -o ${PROFILER_DIR}/flamegraph_printer.o
   
+# debug_printer.c
+${CC} -gdwarf-4 -c \
+  -I${COMMON_DIR} -I${PREFIX}/include \
+  ${PROFILER_DIR}/debug_printer.c \
+  -o ${PROFILER_DIR}/debug_printer.o
+  
 # stack_printer.c
 ${CC} -gdwarf-4 -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
@@ -125,6 +131,7 @@ ${CC} ${LDFLAGS} \
   ${PROFILER_DIR}/printer.o \
   ${PROFILER_DIR}/stack_printer.o \
   ${PROFILER_DIR}/flamegraph_printer.o \
+  ${PROFILER_DIR}/debug_printer.o \
   \
   ${COMMON_DIR}/utils/utils.o \
   \

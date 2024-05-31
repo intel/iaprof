@@ -464,9 +464,14 @@ int handle_execbuf_start(void *data_arg)
         			continue;
         		}
         
+                        /* Check to make sure we've got a copy */
+        		update_buffer_copy(gem);
+                        if ((!gem->buff) || (!gem->buff_sz)) {
+                                continue;
+                        }
+        
         		/* Parse the batchbuffer */
         		found = 1;
-        		update_buffer_copy(gem);
         		if (verbose) {
         			print_batchbuffer(info, &(gem->vm_bind_info));
         		}
@@ -515,12 +520,12 @@ int handle_execbuf_end(void *data_arg)
 		print_execbuf_end(info);
 	}
 
-        #if 0
+#if 0
         /* Try to look for ELF headers in this process' address space. */
         if(info->pid) {
                 find_elf_magic_bytes(info->pid, debug);
         }
-        #endif
+#endif
 
 	return 0;
 }
