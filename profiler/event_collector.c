@@ -530,6 +530,28 @@ int handle_execbuf_end(void *data_arg)
 	return 0;
 }
 
+int handle_uuid_create(void *data_arg)
+{
+	struct uuid_create_info *info;
+	int retval;
+
+	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+	info = (struct uuid_create_info *)data_arg;
+	if (verbose) {
+		print_uuid_create(info);
+	}
+
+	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+	return 0;
+}
+
 /* Runs each time a sample from the ringbuffer is collected.
    Samples can be one of four types:
    1. struct mapping_info. This is a struct collected when an `execbuffer` call is made,
@@ -561,6 +583,8 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 		return handle_execbuf_start(data_arg);
 	} else if (data_sz == sizeof(struct execbuf_end_info)) {
 		return handle_execbuf_end(data_arg);
+	} else if (data_sz == sizeof(struct uuid_create_info)) {
+		return handle_uuid_create(data_arg);
 	} else {
 		fprintf(stderr,
 			"Unknown data size when handling a sample: %lu\n",
@@ -669,6 +693,8 @@ int deinit_bpf_prog()
 
 	bpf_program__unload(bpf_info.munmap_prog);
 
+	bpf_program__unload(bpf_info.uuid_create_prog);
+
 	gem_collector_bpf__destroy(bpf_info.obj);
 
 	return 0;
@@ -750,6 +776,9 @@ int init_bpf_prog()
 
 	bpf_info.munmap_prog =
 		(struct bpf_program *)bpf_info.obj->progs.munmap_tp;
+
+	bpf_info.uuid_create_prog =
+		(struct bpf_program *)bpf_info.obj->progs.uuid_create_kprobe;
 
 	/*   bpf_info.vm_close_prog = (struct bpf_program *) bpf_info.obj->progs.vm_close_kprobe; */
 
@@ -876,6 +905,14 @@ int init_bpf_prog()
 				bpf_info.munmap_prog);
 	if (err != 0) {
 		fprintf(stderr, "Failed to attach a tracepoint!\n");
+		return -1;
+	}
+
+        /* uuid_create */
+	err = attach_kprobe("i915_debugger_uuid_create",
+			    bpf_info.uuid_create_prog, 1);
+	if (err != 0) {
+		fprintf(stderr, "Failed to attach a kprobe!\n");
 		return -1;
 	}
 

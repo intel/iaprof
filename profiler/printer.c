@@ -158,6 +158,19 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
 	return 0;
 }
 
+int print_uuid_create(struct uuid_create_info *info)
+{
+	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "uuid_create");
+	printf(" %-*llu", TIME_LEN, info->time);
+	printf(" %-*u", CPU_LEN, info->cpu);
+	printf(" %-*u", PID_LEN, info->pid);
+	printf(" %-*u", TID_LEN, info->tid);
+	printf(" handle=%u cpu_addr=0x%llx size=%llu\n",
+	       info->handle, info->cpu_addr, info->size);
+
+	return 0;
+}
+
 int print_total_eustall(uint64_t num, unsigned long long time)
 {
 	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");

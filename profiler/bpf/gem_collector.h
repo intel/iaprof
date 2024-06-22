@@ -4,7 +4,7 @@
 #define MAX_STACK_DEPTH 127
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 1024 * 1024
-#define RINGBUF_SIZE 4096 * 4096 * 16
+#define RINGBUF_SIZE 4096 * 4096 * 32
 
 /* GEN binary copying maximums */
 #define MAX_BINARY_SIZE 1024 * 1024
@@ -105,6 +105,16 @@ struct userptr_info {
 	__u32 pid, tid, cpu;
 	__u64 time;
 	char pad[8];
+};
+
+/* Collected from a i915_debugger_uuid_create call */
+struct uuid_create_info {
+        __u32 handle;
+        __u64 size;
+        __u64 cpu_addr;
+        unsigned char buff[MAX_BINARY_SIZE];
+	__u32 pid, tid, cpu;
+	__u64 time;
 };
 
 #endif

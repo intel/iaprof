@@ -81,6 +81,7 @@ int handle_mapping(void *data_arg);
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
 		  uint64_t src_sz);
 int handle_unmap(void *data_arg);
+int handle_uuid_create(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
 int handle_vm_unbind(void *data_arg);
@@ -145,6 +146,9 @@ struct bpf_info_t {
 
 	/* munmap */
 	struct bpf_program *munmap_prog;
+
+        /* uuid_create */
+        struct bpf_program *uuid_create_prog;
 
 	/* vm_close */
 	/*   struct bpf_program *vm_close_prog; */

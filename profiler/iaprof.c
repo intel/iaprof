@@ -170,6 +170,9 @@ void sanity_checks()
 	static_assert(sizeof(struct mapping_info) !=
 			      sizeof(struct execbuf_end_info),
 		      "mapping_info is the same size as execbuf_end_info");
+	static_assert(sizeof(struct mapping_info) !=
+			      sizeof(struct uuid_create_info),
+		      "mapping_info is the same size as uuid_create_info");
 
 	static_assert(sizeof(struct unmap_info) != sizeof(struct userptr_info),
 		      "unmap_info is the same size as userptr_info");
@@ -184,6 +187,9 @@ void sanity_checks()
 	static_assert(sizeof(struct unmap_info) !=
 			      sizeof(struct execbuf_end_info),
 		      "unmap_info is the same size as execbuf_end_info");
+	static_assert(sizeof(struct unmap_info) !=
+			      sizeof(struct uuid_create_info),
+		      "unmap_info is the same size as uuid_create_info");
 
 	static_assert(sizeof(struct userptr_info) !=
 			      sizeof(struct vm_bind_info),
@@ -197,6 +203,9 @@ void sanity_checks()
 	static_assert(sizeof(struct userptr_info) !=
 			      sizeof(struct execbuf_end_info),
 		      "userptr_info is the same size as execbuf_end_info");
+	static_assert(sizeof(struct userptr_info) !=
+			      sizeof(struct uuid_create_info),
+		      "userptr_info is the same size as uuid_create_info");
 
 	static_assert(sizeof(struct vm_bind_info) !=
 			      sizeof(struct vm_unbind_info),
@@ -207,6 +216,9 @@ void sanity_checks()
 	static_assert(sizeof(struct vm_bind_info) !=
 			      sizeof(struct execbuf_end_info),
 		      "vm_bind_info is the same size as execbuf_end_info");
+	static_assert(sizeof(struct vm_bind_info) !=
+			      sizeof(struct uuid_create_info),
+		      "vm_bind_info is the same size as uuid_create_info");
 
 	static_assert(sizeof(struct vm_unbind_info) !=
 			      sizeof(struct execbuf_start_info),
@@ -214,9 +226,21 @@ void sanity_checks()
 	static_assert(sizeof(struct vm_unbind_info) !=
 			      sizeof(struct execbuf_end_info),
 		      "vm_unbind_info is the same size as execbuf_end_info");
+	static_assert(sizeof(struct vm_unbind_info) !=
+			      sizeof(struct uuid_create_info),
+		      "vm_unbind_info is the same size as uuid_create_info");
 
 	static_assert(
 		sizeof(struct execbuf_start_info) !=
+			sizeof(struct execbuf_end_info),
+		"execbuf_start_info is the same size as execbuf_end_info");
+	static_assert(
+		sizeof(struct execbuf_start_info) !=
+			sizeof(struct uuid_create_info),
+		"execbuf_start_info is the same size as uuid_create_info");
+
+	static_assert(
+		sizeof(struct uuid_create_info) !=
 			sizeof(struct execbuf_end_info),
 		"execbuf_start_info is the same size as execbuf_end_info");
 }
@@ -316,12 +340,18 @@ void *collect_thread_main(void *a)
 
 	while (collect_thread_should_stop == 0) {
 		gettimeofday(&tv, NULL);
-		/* Check if there are eustalls */
+
+                /* Print the status line */
+                fprintf(stderr, "\r");
+                if (!isatty(STDERR_FILENO)) {
+                        fprintf(stderr, "\n");
+                }
 		fprintf(stderr,
-			"\rStatus: profiling for %d secs, %d samples matched, %d samples unmatched. ",
+			"Status: profiling for %d secs, %d samples matched, %d samples unmatched. ",
 			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
 		fflush(stderr);
 
+		/* Check if there are eustalls */
                 status = poll_eustalls(perf_fd, perf_buf);
                 if (status == EUSTALL_STATUS_ERROR) {
                         goto cleanup;

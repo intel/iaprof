@@ -924,6 +924,67 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 	return 0;
 }
 
+/***************************************
+* i915_debugger_uuid_create
+*
+* With debugging features enabled in the driver, the Compute Runtime
+* library will send an ELF binary (called a Zebin) of the GPU program
+* to the kernel driver. This results in a call to i915_debugger_uuid_create,
+* which we can trace here to intercept that ELF binary (which may
+* contain debug data).
+***************************************/
+
+SEC("kprobe/i915_debugger_uuid_create")
+int uuid_create_kprobe(struct pt_regs *ctx)
+{
+        struct i915_uuid_resource *resource;
+	struct uuid_create_info *bin;
+        u64 size;
+	int err;
+
+	resource = (struct i915_uuid_resource *) PT_REGS_PARM2(ctx);
+	if (!resource) {
+		return -1;
+	}
+
+	/* Reserve some space on the ringbuffer */
+	bin = bpf_ringbuf_reserve(&rb, sizeof(struct uuid_create_info), 0);
+	if (!bin) {
+		bpf_printk(
+			"WARNING: uuid_create failed to reserve in the ringbuffer.");
+		return -1;
+	}
+
+	bin->size = BPF_CORE_READ(resource, size);
+        bin->cpu_addr = (__u64) BPF_CORE_READ(resource, ptr);
+	bin->handle = BPF_CORE_READ(resource, handle);
+
+	bin->cpu = bpf_get_smp_processor_id();
+	bin->pid = bpf_get_current_pid_tgid() >> 32;
+	bin->tid = bpf_get_current_pid_tgid();
+	bin->time = bpf_ktime_get_ns();
+
+/*         bpf_printk("uuid_create size=%llu cpu_addr=0x%lx handle=%u\n", bin->size, bin->cpu_addr, bin->handle); */
+
+/*
+	size = bin->size;
+	if (size > MAX_BINARY_SIZE) {
+		size = MAX_BINARY_SIZE;
+	}
+	err = bpf_probe_read_user(bin->buff, size, (void *) bin->cpu_addr);
+	if (err) {
+		bpf_ringbuf_discard(bin, 0);
+		bpf_printk(
+			"WARNING: uuid_create failed to copy %lu bytes.",
+			size);
+		return -1;
+	}
+*/
+	bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
+
+	return 0;
+}
+
 char LICENSE[] SEC("license") = "GPL";
 
 #if 0

@@ -22,6 +22,7 @@ int print_execbuf_start(struct execbuf_start_info *info);
 int print_execbuf_gem(struct execbuf_start_info *info,
 		      struct vm_bind_info *vinfo);
 int print_execbuf_end(struct execbuf_end_info *einfo);
+int print_uuid_create(struct uuid_create_info *uuid);
 
 int print_total_eustall(uint64_t num, unsigned long long time);
 int print_eustall_reason(struct eustall_sample *sample);
