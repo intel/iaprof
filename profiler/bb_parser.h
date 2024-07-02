@@ -27,15 +27,20 @@ enum bb_parser_status {
 ******************************************************************************/
 struct bb_parser {
 	uint64_t pc[3];
+        uint64_t batch_len[3];
 	char pc_depth;
 	unsigned char in_cmd;
-	struct buffer_profile *gem;
 	uint64_t cur_cmd;
 	unsigned char cur_num_dwords;
 
-        /* The batch_len that the first-level batchbuffer
-           must adhere to. */
-        uint64_t first_level_batch_len;
+	struct buffer_profile *gem;
+        int gem_index;
+
+        /* Bookkeeping. Number of dwords that we've parsed. */
+        uint64_t num_dwords;
+        
+        /* Should we update the buffer for this? */
+        char *update_copy;
 
 	/* Instruction Base Address */
 	uint64_t iba;
@@ -129,22 +134,22 @@ uint32_t op_len(uint32_t *bb)
 {
 	switch (CMD_TYPE(*bb)) {
 	case CMD_MI:
-		if (debug) {
+		if (bb_debug) {
 			printf("cmd_type=CMD_MI\n");
 		}
 		return OP_LEN_MI;
 	case CMD_3D_MEDIA:
-		if (debug) {
+		if (bb_debug) {
 			printf("cmd_type=CMD_3D_MEDIA\n");
 		}
 		return OP_LEN_3D_MEDIA;
 	case CMD_2D:
-		if (debug) {
+		if (bb_debug) {
 			printf("cmd_type=CMD_2D\n");
 		}
 		return OP_LEN_2D;
 	default:
-		if (debug) {
+		if (bb_debug) {
 			printf("cmd_type=UNKNOWN (0x%x)\n", CMD_TYPE(*bb));
 		}
 		break;
@@ -218,12 +223,18 @@ uint32_t op_len(uint32_t *bb)
 struct bb_parser *bb_parser_init()
 {
 	struct bb_parser *parser;
+        int n;
 
 	parser = calloc(1, sizeof(struct bb_parser));
+        parser->update_copy = calloc(buffer_profile_used, sizeof(char));
+        for (n = 0; n < buffer_profile_used; n++) {
+                parser->update_copy[n] = 1;
+        }
+
 	return parser;
 }
 
-struct buffer_profile *find_jump_buffer(uint64_t bbsp)
+void find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
 	struct buffer_profile *gem;
 	uint64_t n, start, end;
@@ -233,16 +244,18 @@ struct buffer_profile *find_jump_buffer(uint64_t bbsp)
 		start = gem->vm_bind_info.gpu_addr;
 		end = start + gem->vm_bind_info.size;
 		if ((bbsp >= start) && (bbsp < end)) {
-			if (debug) {
+			if (bb_debug) {
 				printf("Found a matching batch buffer ");
 				printf("to jump to. handle=%u gpu_addr=0x%llx\n",
 				       gem->vm_bind_info.handle,
 				       gem->vm_bind_info.gpu_addr);
 			}
-			return gem;
+                        parser->gem = gem;
+                        parser->gem_index = n;
+			return;
 		}
 	}
-	return NULL;
+	return;
 }
 
 /******************************************************************************
@@ -281,13 +294,13 @@ enum bb_parser_status mi_load_register_imm(struct bb_parser *parser, uint32_t *p
 	if (parser->in_cmd == 1) {
                 /* Bits 22:2 of the third dword contains the register offset */
                 parser->load_register_offset = (*ptr) & 0x3ffffe00;
-                if (debug) {
+                if (bb_debug) {
                         printf("load_register_offset=0x%x\n", *ptr);
                 }
         } else if (parser->in_cmd == 2) {
                 /* The entirety of the second dword contains the data dword */
                 parser->load_register_dword = *ptr;
-                if (debug) {
+                if (bb_debug) {
                         printf("load_register_dword=0x%x\n", *ptr);
                 }
         }
@@ -316,12 +329,12 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 
         if (parser->in_cmd == 0) {
                 parser->enable_predication = *ptr & 0x8000;
-                if (debug) {
+                if (bb_debug) {
                         printf("enable_predication=%u\n", parser->enable_predication);
                 }
 	} else if (parser->in_cmd == 1) {
 		parser->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(*ptr);
-		if (debug) {
+		if (bb_debug) {
 			printf("bb2l=%u\n", parser->bb2l);
 		}
 		parser->bbsp = 0;
@@ -329,15 +342,9 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 	} else if (parser->in_cmd == 2) {
 		tmp = *ptr;
 		parser->bbsp |= tmp << 32;
-		if (debug) {
+		if (bb_debug) {
 			printf("bbsp=0x%lx\n", parser->bbsp);
 		}
-
-                /* We don't want to adhere to batch_len if we've jumped around
-                   and come back. */
-                if(parser->pc_depth == 1) {
-                        parser->first_level_batch_len = 0;
-                }
 
 		if (parser->bb2l && (parser->pc_depth == 1)) {
                         /* Advance the program counter by the number of dwords in
@@ -349,10 +356,9 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 		}
 		parser->pc[parser->pc_depth] = parser->bbsp - 4;
 
-		parser->gem = find_jump_buffer(parser->bbsp);
-
+		find_jump_buffer(parser, parser->bbsp);
 		if (!parser->gem) {
-			if (debug) {
+			if (bb_debug) {
 				fprintf(stderr,
 					"WARNING: Couldn't find a buffer ");
 				fprintf(stderr,
@@ -362,12 +368,15 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 			return BB_PARSER_STATUS_NOTFOUND;
 		}
 
-		update_buffer_copy(parser->gem);
+/*                 if (parser->update_copy[parser->gem_index]) { */
+/*         		update_buffer_copy(parser->gem); */
+/*                         parser->update_copy[parser->gem_index] = 0; */
+/*                 } */
 
 		if (!(parser->gem->buff)) {
 			/* We know we're supposed to jump *somewhere*, 
 			 * but can't. */
-			if (debug) {
+			if (bb_debug) {
 				fprintf(stderr, "WARNING: A batch buffer was");
 				fprintf(stderr,
 					" supposed to chain somewhere,");
@@ -398,14 +407,17 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 	uint32_t *dword_ptr, op;
 	uint64_t off, tmp, root_off;
         enum bb_parser_status retval;
+        
+        gem->parsed = 1;
 
 	/* Loop over 32-bit dwords. */
 	parser->pc_depth = 1;
 	parser->pc[parser->pc_depth] = gem->vm_bind_info.gpu_addr + offset;
-        parser->first_level_batch_len = size;
+        parser->batch_len[parser->pc_depth] = size;
 	parser->gem = gem;
 	parser->in_cmd = 0;
 	parser->cur_cmd = 0;
+        parser->num_dwords = 0;
 	while (parser->pc_depth > 0) {
 		off = parser->pc[parser->pc_depth] -
 		      parser->gem->vm_bind_info.gpu_addr;
@@ -413,36 +425,42 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
                 /* First check if we're overflowing the buffer */
                 if (off > parser->gem->buff_sz) {
-                        if (debug) {
+                        if (bb_debug) {
                                 printf("Stop because of buffer size. off=0x%lx sz=0x%lx\n",
                                        off, parser->gem->buff_sz);
                         }
                         return BB_PARSER_STATUS_BUFF_OVERFLOW;
                 }
 
-                /* Check if we need to stop */
-		if (parser->first_level_batch_len) {
+                /* XXX: The experimental mi_runner tool, an uncommitted PR to mesa,
+                   does not actually check the batch_len at all; it relies on seeing
+                   the proper MI_BATCH_BUFFER_END commands to stop the parsing.
+                   Should we do the same...? */
+		if (parser->batch_len[parser->pc_depth]) {
                         root_off = parser->pc[parser->pc_depth] -
                                    gem->vm_bind_info.gpu_addr - offset;
-                        if(root_off >= parser->first_level_batch_len) {
+                        if(root_off >= parser->batch_len[parser->pc_depth]) {
                                 /* Make sure we stop once we get to the end of the
                                    first-level batchbuffer commands (which in the i915
                                    kernel, is batch_len bytes long) */
-        			if (debug) {
+        			if (bb_debug) {
         				printf("Stop because of batch_len. off=0x%lx sz=0x%lx.\n",
-        				       root_off, parser->first_level_batch_len);
+        				       root_off, parser->batch_len[parser->pc_depth]);
         			}
         			return BB_PARSER_STATUS_OK;
                         }
 		}
 
-		if (debug) {
+		if (bb_debug) {
 			printf("size=0x%lx dword=0x%x offset=0x%lx\n", size,
 			       *dword_ptr, off);
 			printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
 			       parser->in_cmd, parser->cur_cmd,
 			       parser->cur_num_dwords);
 		}
+
+                /* Keep track of how many dwords we've parsed */
+                parser->num_dwords++;
 
 		if (!parser->cur_cmd) {
 			op = (*dword_ptr) >> (32 - op_len(dword_ptr));
@@ -455,7 +473,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 			/* Decode which op this is */
 			switch (op) {
 			case MI_BATCH_BUFFER_START:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_BATCH_BUFFER_START\n");
 				}
 				parser->cur_cmd = MI_BATCH_BUFFER_START;
@@ -463,7 +481,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_BATCH_BUFFER_START_DWORDS;
 				break;
 			case MI_PRT_BATCH_BUFFER_START:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_PRT_BATCH_BUFFER_START\n");
 				}
 				parser->cur_cmd = MI_PRT_BATCH_BUFFER_START;
@@ -471,7 +489,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_PRT_BATCH_BUFFER_START_DWORDS;
 				break;
 			case MI_NOOP:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_NOOP\n");
 				}
 				parser->cur_cmd = MI_NOOP;
@@ -479,7 +497,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_NOOP_DWORDS;
 				break;
 			case MI_FLUSH_DW:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_FLUSH_DW\n");
 				}
 				parser->cur_cmd = MI_FLUSH_DW;
@@ -487,7 +505,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_FLUSH_DW_DWORDS;
 				break;
 			case STATE_BASE_ADDRESS:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=STATE_BASE_ADDRESS\n");
 				}
 				parser->cur_cmd = STATE_BASE_ADDRESS;
@@ -495,14 +513,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					STATE_BASE_ADDRESS_DWORDS;
 				break;
 			case STATE_SIP:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=STATE_SIP\n");
 				}
 				parser->cur_cmd = STATE_SIP;
 				parser->cur_num_dwords = STATE_SIP_DWORDS;
 				break;
 			case STATE_SYSTEM_MEM_FENCE_ADDRESS:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=STATE_SYSTEM_MEM_FENCE_ADDRESS\n");
 				}
 				parser->cur_cmd = STATE_SYSTEM_MEM_FENCE_ADDRESS;
@@ -510,14 +528,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS;
 				break;
 			case COMPUTE_WALKER:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=COMPUTE_WALKER\n");
 				}
 				parser->cur_cmd = COMPUTE_WALKER;
 				parser->cur_num_dwords = COMPUTE_WALKER_DWORDS;
 				break;
 			case MI_BATCH_BUFFER_END:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_BATCH_BUFFER_END\n");
 				}
 				parser->cur_cmd = MI_BATCH_BUFFER_END;
@@ -525,7 +543,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_BATCH_BUFFER_END_DWORDS;
 				break;
 			case MI_CONDITIONAL_BATCH_BUFFER_END:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_CONDITIONAL_BATCH_BUFFER_END\n");
 				}
 				parser->cur_cmd =
@@ -534,49 +552,49 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS;
 				break;
 			case MI_PREDICATE:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_PREDICATE\n");
 				}
 				parser->cur_cmd = MI_PREDICATE;
 				parser->cur_num_dwords = MI_PREDICATE_DWORDS;
 				break;
 			case MI_STORE_REGISTER_MEM:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_STORE_REGISTER_MEM\n");
 				}
 				parser->cur_cmd = MI_STORE_REGISTER_MEM;
 				parser->cur_num_dwords = MI_STORE_REGISTER_MEM_DWORDS;
 				break;
 			case MI_LOAD_REGISTER_IMM:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_LOAD_REGISTER_IMM\n");
 				}
 				parser->cur_cmd = MI_LOAD_REGISTER_IMM;
 				parser->cur_num_dwords = MI_LOAD_REGISTER_IMM_DWORDS;
 				break;
 			case MI_LOAD_REGISTER_REG:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_LOAD_REGISTER_REG\n");
 				}
 				parser->cur_cmd = MI_LOAD_REGISTER_REG;
 				parser->cur_num_dwords = MI_LOAD_REGISTER_REG_DWORDS;
 				break;
 			case MI_LOAD_REGISTER_MEM:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_LOAD_REGISTER_MEM\n");
 				}
 				parser->cur_cmd = MI_LOAD_REGISTER_MEM;
 				parser->cur_num_dwords = MI_LOAD_REGISTER_MEM_DWORDS;
 				break;
 			case PIPE_CONTROL:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=PIPE_CONTROL\n");
 				}
 				parser->cur_cmd = PIPE_CONTROL;
 				parser->cur_num_dwords = PIPE_CONTROL_DWORDS;
 				break;
 			case MI_SEMAPHORE_WAIT:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MI_SEMAPHORE_WAIT\n");
 				}
 				parser->cur_cmd = MI_SEMAPHORE_WAIT;
@@ -584,7 +602,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MI_SEMAPHORE_WAIT_DWORDS;
 				break;
 			case MEM_COPY:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=MEM_COPY\n");
 				}
 				parser->cur_cmd = MEM_COPY;
@@ -592,7 +610,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 					MEM_COPY_DWORDS;
 				break;
 			default:
-				if (debug) {
+				if (bb_debug) {
 					printf("op=UNKNOWN (0x%x)\n", op);
 				}
 				break;
@@ -644,7 +662,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                  * stores the majority of the iba */
 				tmp = *dword_ptr;
 				parser->iba |= tmp << 32;
-				if (debug) {
+				if (bb_debug) {
 					printf("Found an IBA: 0x%lx\n",
 					       parser->iba);
 				}
@@ -677,13 +695,13 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
 		/* Next dword in the buffer */
 		parser->pc[parser->pc_depth] += 4;
-		if (debug) {
+		if (bb_debug) {
 			printf("Advancing the PC to 0x%lx\n",
 			       parser->pc[parser->pc_depth]);
 		}
 	}
 
-	if (debug) {
+	if (bb_debug) {
 		printf("Finished batchbuffer parsing.\n");
 	}
 	return BB_PARSER_STATUS_OK;

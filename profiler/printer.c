@@ -92,17 +92,16 @@ int print_vm_unbind(struct vm_unbind_info *info)
 	return 0;
 }
 
-int print_batchbuffer(struct execbuf_start_info *einfo,
-		      struct vm_bind_info *info)
+int print_batchbuffer(struct batchbuffer_info *info)
 {
 	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "batchbuffer");
-	printf(" %-*llu", TIME_LEN, einfo->time);
-	printf(" %-*u", CPU_LEN, einfo->cpu);
-	printf(" %-*u", PID_LEN, einfo->pid);
-	printf(" %-*u", TID_LEN, einfo->tid);
-	printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
-	       einfo->file, einfo->bb_handle, einfo->vm_id, einfo->bb_offset,
-	       einfo->batch_len);
+	printf(" %-*llu", TIME_LEN, info->time);
+	printf(" %-*u", CPU_LEN, info->cpu);
+	printf(" %-*u", PID_LEN, info->pid);
+	printf(" %-*u", TID_LEN, info->tid);
+	printf(" vm_id=%u gpu_addr=0x%llx size=%llu\n",
+	       info->vm_id, info->gpu_addr,
+	       info->buff_sz);
 
 	return 0;
 }
@@ -116,7 +115,8 @@ int print_execbuf_start(struct execbuf_start_info *info)
 	printf(" %-*u", CPU_LEN, info->cpu);
 	printf(" %-*u", PID_LEN, info->pid);
 	printf(" %-*u", TID_LEN, info->tid);
-	printf(" bb_handle=%u bb_offset=0x%llx ", info->bb_handle,
+        printf(" buff_sz=%llu ", info->buff_sz);
+	printf(" bb_offset=0x%llx ",
 	       info->bb_offset);
 	printf("ctx_id=%u vm_id=%u buffer_count=%u batch_len=0x%llx ",
 	       info->ctx_id, info->vm_id, info->buffer_count, info->batch_len);
@@ -153,6 +153,7 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
 	printf(" %-*u", CPU_LEN, einfo->cpu);
 	printf(" %-*u", PID_LEN, einfo->pid);
 	printf(" %-*u", TID_LEN, einfo->tid);
+        printf(" bb_handle=%u", einfo->bb_handle);
 	printf(" N/A\n");
 
 	return 0;

@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <pthread.h>
+#include <time.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -158,6 +159,10 @@ void update_buffer_copy(struct buffer_profile *gem)
 {
 	unsigned char *tmp_buff;
         char new_all_zeroes, old_all_zeroes;
+        
+        if (gem->mapped == 0) {
+                return;
+        }
 
 	tmp_buff = copy_buffer(gem->vm_bind_info.pid,
 			       gem->mapping_info.cpu_addr,
@@ -168,12 +173,13 @@ void update_buffer_copy(struct buffer_profile *gem)
         new_all_zeroes = buff_all_zeroes(tmp_buff, gem->mapping_info.size);
         
         if (old_all_zeroes && new_all_zeroes) {
-                fprintf(stderr, "WARNING: Tried to update the buffer for handle %u, but it's all zeroes.\n", gem->handle);
+                fprintf(stderr, "Both the current and updated buffer for handle %u are all zeroes.\n", gem->handle);
                 if (tmp_buff) {
                         free(tmp_buff);
                 }
                 return;
         } else if (new_all_zeroes) {
+                fprintf(stderr, "Can't update the buffer for handle %u because it's all zeroes now.\n", gem->handle);
                 if (tmp_buff) {
                         free(tmp_buff);
                 }
@@ -183,6 +189,7 @@ void update_buffer_copy(struct buffer_profile *gem)
         free(gem->buff);
 	gem->buff = tmp_buff;
 	gem->buff_sz = gem->mapping_info.size;
+        gem->parsed = 0;
 }
 
 /***************************************
@@ -216,6 +223,7 @@ int handle_mapping(void *data_arg)
 	gem = &buffer_profile_arr[index];
         gem->handle = info->handle;
         gem->file = info->file;
+        gem->mapped = 1;
 	memcpy(&(gem->mapping_info), info, sizeof(struct mapping_info));
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -265,6 +273,10 @@ int handle_unmap(void *data_arg)
 		goto cleanup;
 	}
 	gem = &(buffer_profile_arr[index]);
+        gem->mapped = 0;
+        if (gem->buff) {
+                free(gem->buff);
+        }
 	retval = handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
 			       info->size);
 	if (retval == -1) {
@@ -394,6 +406,52 @@ int handle_vm_unbind(void *data_arg)
 	return 0;
 }
 
+int handle_batchbuffer(void *data_arg)
+{
+        struct batchbuffer_info *info;
+        int n;
+        struct buffer_profile *gem;
+	uint32_t vm_id, pid;
+        uint64_t gpu_addr;
+        
+	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+	info = (struct batchbuffer_info *)data_arg;
+
+        /* Find the buffer that this batchbuffer is associated with */
+	vm_id = info->vm_id;
+	pid = info->pid;
+        gpu_addr = info->gpu_addr;
+	for (n = 0; n < buffer_profile_used; n++) {
+		gem = &buffer_profile_arr[n];
+		if ((gem->vm_bind_info.vm_id == vm_id) &&
+		    (gem->vm_bind_info.pid == pid) &&
+                    (gem->vm_bind_info.gpu_addr == gpu_addr)) {
+                	if (verbose) {
+                		print_batchbuffer(info);
+                	}
+                        /* Replace the current copy of this buffer */
+                        if (gem->buff) {
+                                free(gem->buff);
+                        }
+                        gem->buff = malloc(info->buff_sz);
+                        memcpy(gem->buff, info->buff, info->buff_sz);
+                        gem->buff_sz = info->buff_sz;
+                }
+                
+        }
+
+	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
+		return -1;
+	}
+
+        return 0;
+}
+
 int handle_execbuf_start(void *data_arg)
 {
 	char found;
@@ -403,6 +461,7 @@ int handle_execbuf_start(void *data_arg)
 	int n;
 	struct execbuf_start_info *info;
 	struct bb_parser *parser;
+        struct timespec parser_start, parser_end;
 
 	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -458,6 +517,7 @@ int handle_execbuf_start(void *data_arg)
         			continue;
         		}
         
+                        #if 0
         		if (!(gem->mapping_info.cpu_addr) ||
         		    !(gem->mapping_info.size)) {
         			/* No valid CPU address means we can't copy the batchbuffer */
@@ -466,18 +526,40 @@ int handle_execbuf_start(void *data_arg)
         
                         /* Check to make sure we've got a copy */
         		update_buffer_copy(gem);
+                        if (gem->parsed) {
+                                /* If we've already parsed this copy of the batchbuffer,
+                                   don't do it again! */
+                                continue;
+                        }
+                        #endif
+                        
+                        if (info->buff_sz == 0) {
+                                /* We didn't get a copy of the batchbuffer from BPF! */
+                                continue;
+                        }
+                        if (gem->buff) {
+                                free(gem->buff);
+                        }
+                        gem->buff = malloc(info->buff_sz);
+                        memcpy(gem->buff, info->buff, info->buff_sz);
+                        gem->buff_sz = info->buff_sz;
                         if ((!gem->buff) || (!gem->buff_sz)) {
                                 continue;
                         }
         
         		/* Parse the batchbuffer */
         		found = 1;
-        		if (verbose) {
-        			print_batchbuffer(info, &(gem->vm_bind_info));
-        		}
+                        clock_gettime(CLOCK_MONOTONIC, &parser_start);
         		parser = bb_parser_init();
         		bb_parser_parse(parser, gem, info->batch_start_offset,
         				info->batch_len);
+                        clock_gettime(CLOCK_MONOTONIC, &parser_end);
+                        if (verbose) {
+                                printf("Parsed %zu dwords in %.5f seconds.\n",
+                                       parser->num_dwords,
+                                       ((double)parser_end.tv_sec + 1.0e-9*parser_end.tv_nsec) - 
+                                       ((double)parser_start.tv_sec + 1.0e-9*parser_start.tv_nsec));
+                        }
         		if (parser->iba) {
         			iba = parser->iba;
         		}
@@ -530,6 +612,7 @@ int handle_execbuf_end(void *data_arg)
 	return 0;
 }
 
+#if 0
 int handle_uuid_create(void *data_arg)
 {
 	struct uuid_create_info *info;
@@ -551,6 +634,7 @@ int handle_uuid_create(void *data_arg)
 	}
 	return 0;
 }
+#endif
 
 /* Runs each time a sample from the ringbuffer is collected.
    Samples can be one of four types:
@@ -581,16 +665,21 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 		return handle_vm_unbind(data_arg);
 	} else if (data_sz == sizeof(struct execbuf_start_info)) {
 		return handle_execbuf_start(data_arg);
+	} else if (data_sz == sizeof(struct batchbuffer_info)) {
+		return handle_batchbuffer(data_arg);
 	} else if (data_sz == sizeof(struct execbuf_end_info)) {
 		return handle_execbuf_end(data_arg);
-	} else if (data_sz == sizeof(struct uuid_create_info)) {
-		return handle_uuid_create(data_arg);
 	} else {
 		fprintf(stderr,
 			"Unknown data size when handling a sample: %lu\n",
 			data_sz);
 		return -1;
 	}
+
+#if 0
+	} else if (data_sz == sizeof(struct uuid_create_info)) {
+		return handle_uuid_create(data_arg);
+#endif
 
 	return 0;
 }
@@ -693,7 +782,9 @@ int deinit_bpf_prog()
 
 	bpf_program__unload(bpf_info.munmap_prog);
 
+#if 0
 	bpf_program__unload(bpf_info.uuid_create_prog);
+#endif
 
 	gem_collector_bpf__destroy(bpf_info.obj);
 
@@ -777,8 +868,10 @@ int init_bpf_prog()
 	bpf_info.munmap_prog =
 		(struct bpf_program *)bpf_info.obj->progs.munmap_tp;
 
+#if 0
 	bpf_info.uuid_create_prog =
 		(struct bpf_program *)bpf_info.obj->progs.uuid_create_kprobe;
+#endif
 
 	/*   bpf_info.vm_close_prog = (struct bpf_program *) bpf_info.obj->progs.vm_close_kprobe; */
 
@@ -908,6 +1001,7 @@ int init_bpf_prog()
 		return -1;
 	}
 
+#if 0
         /* uuid_create */
 	err = attach_kprobe("i915_debugger_uuid_create",
 			    bpf_info.uuid_create_prog, 1);
@@ -915,6 +1009,7 @@ int init_bpf_prog()
 		fprintf(stderr, "Failed to attach a kprobe!\n");
 		return -1;
 	}
+#endif
 
 	/* XXX: Finish vm_close support in BPF and re-enable. This should
      free up any addresses bound to the VM. */

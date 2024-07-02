@@ -41,10 +41,12 @@ struct buffer_profile {
            and its integer handle, so we will too. */
         uint32_t handle;
         uint64_t file;
+        char mapped;
 
 	/* A copy of the buffer bytes itself */
 	uint64_t buff_sz;
 	unsigned char *buff;
+        char parsed;
 
 	/* The IBA (Instruction Base Address) associated with this buffer */
 	uint64_t iba;

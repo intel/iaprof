@@ -16,8 +16,7 @@ int print_unmap(struct unmap_info *info);
 int print_userptr(struct userptr_info *info);
 int print_vm_bind(struct vm_bind_info *info);
 int print_vm_unbind(struct vm_unbind_info *info);
-int print_batchbuffer(struct execbuf_start_info *einfo,
-		      struct vm_bind_info *info);
+int print_batchbuffer(struct batchbuffer_info *info);
 int print_execbuf_start(struct execbuf_start_info *info);
 int print_execbuf_gem(struct execbuf_start_info *info,
 		      struct vm_bind_info *vinfo);

@@ -45,13 +45,14 @@ done
 
 # Build common code
 COMMON_DIR="${BASE_DIR}/common"
+COMMON_FLAGS="-gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
 echo ""
 echo "Building ${COMMON_DIR}..."
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   ${COMMON_DIR}/drm_helper.c -o ${COMMON_DIR}/drm_helper.o
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   ${COMMON_DIR}/trace_helpers.c -o ${COMMON_DIR}/trace_helpers.o
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   ${COMMON_DIR}/uprobe_helpers.c -o ${COMMON_DIR}/uprobe_helpers.o
   
 # Create the bin directory
@@ -64,56 +65,56 @@ source build.sh
 cd ${PROFILER_DIR}
 
 # iaprof.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/iaprof.c \
   -o ${PROFILER_DIR}/iaprof.o
   
 # event_collector.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/event_collector.c \
   -o ${PROFILER_DIR}/event_collector.o
   
 # eustall_collector.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/eustall_collector.c \
   -o ${PROFILER_DIR}/eustall_collector.o
   
 # shader_decoder.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/shader_decoder.c \
   -o ${PROFILER_DIR}/shader_decoder.o
   
 # printer.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/printer.c \
   -o ${PROFILER_DIR}/printer.o
   
 # flamegraph_printer.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/flamegraph_printer.c \
   -o ${PROFILER_DIR}/flamegraph_printer.o
   
 # debug_printer.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/debug_printer.c \
   -o ${PROFILER_DIR}/debug_printer.o
   
 # stack_printer.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${PROFILER_DIR}/stack_printer.c \
   -o ${PROFILER_DIR}/stack_printer.o
   
 # utils.c
-${CC} -gdwarf-4 -c \
+${CC} ${COMMON_FLAGS} -c \
   -I${COMMON_DIR} -I${PREFIX}/include \
   ${COMMON_DIR}/utils/utils.c \
   -o ${COMMON_DIR}/utils/utils.o
@@ -135,7 +136,7 @@ ${CC} ${LDFLAGS} \
   \
   ${COMMON_DIR}/utils/utils.o \
   \
-  -gdwarf-4 \
+  ${COMMON_FLAGS} \
   -o ${BASE_DIR}/iaprof \
   -L${PREFIX}/lib \
   -lpthread \

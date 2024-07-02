@@ -79,8 +79,7 @@
 * OUTPUT MAP
 *
 * This is the "output" map, which userspace reads to get information
-* about GPU kernels running on the system. We fill it with `struct mapping_info`
-* values.
+* about GPU kernels running on the system.
 ***************************************/
 
 struct {
@@ -96,6 +95,28 @@ struct {
 } stackmap SEC(".maps");
 
 /***************************************
+* GPU->CPU Map
+*
+* This map uses `i915_gem_mmap_ioctl`, `i915_gem_mmap_offset_ioctl`, `i915_gem_mmap`
+* to maintain a map of GPU addresses to CPU ones. We then copy buffers out of the CPU
+* addresses when an execbuffer call is made.
+***************************************/
+struct cpu_mapping {
+        u64 addr;
+        u64 size;
+};
+struct gpu_mapping {
+        u64 addr;
+        u32 vm_id;
+};
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, struct gpu_mapping);
+        __type(value, struct cpu_mapping);
+} gpu_cpu_map SEC(".maps");
+
+/***************************************
 * mmap_wait_for_unmap
 *
 * This map stores addresses and sizes that have been mapped
@@ -109,26 +130,26 @@ struct {
 * once executed, further down in this program.
 ***************************************/
 
-struct mmap_wait_for_unmap_val {
-	u64 file;
-	u32 handle;
+struct file_handle_pair {
+        u64 file;
+        u32 handle;
 };
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);
 	__type(key, u64);
-	__type(value, struct mmap_wait_for_unmap_val);
+	__type(value, struct file_handle_pair);
 } mmap_wait_for_unmap SEC(".maps");
 
 int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
 {
-	struct mmap_wait_for_unmap_val unmap_val;
+	struct file_handle_pair unmap_val;
 	int retval;
 	u64 addr;
 
 	/* We also want to let munmap calls do a lookup with the address */
-	__builtin_memset(&unmap_val, 0, sizeof(struct mmap_wait_for_unmap_val));
+	__builtin_memset(&unmap_val, 0, sizeof(struct file_handle_pair));
 	unmap_val.file = file;
 	unmap_val.handle = handle;
 	addr = addr_arg;
@@ -143,17 +164,16 @@ int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
 /***************************************
 * i915_gem_mmap_ioctl
 *
-* The i915_gem_mmap_ioctl includes a GEM handle that the kernel
-* should map for a userspace application to read. All we have to do
-* is wait for this function to return, grab the pointer that it returns,
-* and pass that along to our userspace profiler.
+* i915_gem_mmap_ioctl maps an i915 buffer into the CPU's address
+* space. From it, we grab a CPU pointer, and place a
+* `struct mapping_info` in the ringbuffer.
 ***************************************/
 
+/* Stores args between the kprobe and kretprobe */
 struct mmap_ioctl_wait_for_ret_val {
 	struct drm_i915_gem_mmap *arg;
 	u64 file;
 };
-
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);
@@ -161,7 +181,7 @@ struct {
 	__type(value, struct mmap_ioctl_wait_for_ret_val);
 } mmap_ioctl_wait_for_ret SEC(".maps");
 
-/* Capture any pointers that userspace has mmap'd. */
+/* Kprobe */
 SEC("kprobe/i915_gem_mmap_ioctl")
 int mmap_ioctl_kprobe(struct pt_regs *ctx)
 {
@@ -182,12 +202,12 @@ int mmap_ioctl_kprobe(struct pt_regs *ctx)
 	return 0;
 }
 
-/* We have to wait for this function to return to read its address */
+/* Kretprobe */
 SEC("kretprobe/i915_gem_mmap_ioctl")
 int mmap_ioctl_kretprobe(struct pt_regs *ctx)
 {
 	u32 cpu, handle;
-	u64 addr;
+	u64 addr, status;
 	int retval;
 	void *lookup;
 	struct mmap_ioctl_wait_for_ret_val val;
@@ -207,6 +227,8 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
 	if (!info) {
 		bpf_printk(
 			"WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -243,15 +265,14 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
 * to get the GEM's handle, then i915_gem_mmap to see it get mmap'd.
 ***************************************/
 
+/* Structs for mmap/mmap_offset */
 struct mmap_wait_for_ret_val {
 	struct vm_area_struct *vma;
 };
-
 struct mmap_offset_wait_for_ret_val {
 	struct drm_i915_gem_mmap_offset *arg;
 	u64 file;
 };
-
 struct mmap_offset_wait_for_mmap_val {
 	u64 file;
 	u32 handle;
@@ -277,6 +298,13 @@ struct {
 	__type(key, u32);
 	__type(value, struct mmap_wait_for_ret_val);
 } mmap_wait_for_ret SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, struct file_handle_pair);
+        __type(value, u64);
+} file_handle_mapping SEC(".maps");
 
 /* Capture any pointers that userspace has mmap'd. */
 SEC("kprobe/i915_gem_mmap_offset_ioctl")
@@ -316,7 +344,7 @@ int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
 			 sizeof(struct mmap_offset_wait_for_ret_val));
 
 	/* At this point, this pointer to a drm_i915_gem_mmap_offset contains a handle
-     and a fake offset. Let's store them and read them when the mmap actually happens. */
+           and a fake offset. Let's store them and read them when the mmap actually happens. */
 	arg = val.arg;
 	file = val.file;
 	fake_offset = BPF_CORE_READ(arg, offset);
@@ -336,7 +364,8 @@ int mmap_offset_ioctl_kretprobe(struct pt_regs *ctx)
 	return 0;
 }
 
-/* At this point we've seen the i915_gem_mmap_offset_ioctl call for this GEM, from
+/* NOTE: This is NOT the same as i915_gem_mmap_ioctl.
+   At this point we've seen the i915_gem_mmap_offset_ioctl call for this GEM, from
    which we extracted the handle and the fake offset. Let's use the offset as a key,
    and from i915_gem_mmap get the virtual address of the mapping. */
 SEC("kprobe/i915_gem_mmap")
@@ -364,12 +393,13 @@ int mmap_kretprobe(struct pt_regs *ctx)
 {
 	int retval;
 	u32 cpu, page_shift;
-	u64 vm_pgoff, vm_start, vm_end;
+	u64 vm_pgoff, vm_start, vm_end, status;
 	void *lookup;
 	struct mmap_wait_for_ret_val val;
 	struct mmap_offset_wait_for_mmap_val offset_val;
 	struct vm_area_struct *vma;
 	struct mapping_info *info;
+        struct file_handle_pair pair = {};
 
 	/* Get the vma from the kprobe */
 	cpu = bpf_get_smp_processor_id();
@@ -385,18 +415,25 @@ int mmap_kretprobe(struct pt_regs *ctx)
 	vm_end = BPF_CORE_READ(vma, vm_end);
 	vm_pgoff = vm_pgoff << page_shift;
 
-	/* Get the GEM handle from the previous i915_gem_mmap_offset_ioctl call. */
+	/* Get the handle from the previous i915_gem_mmap_offset_ioctl call. */
 	lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
 	if (!lookup)
 		return -1;
 	__builtin_memcpy(&offset_val, lookup,
 			 sizeof(struct mmap_offset_wait_for_mmap_val));
 
+        /* Add this file/handle/cpu_addr to be seen by a future vm_bind */
+        pair.handle = offset_val.handle;
+        pair.file = offset_val.file;
+	bpf_map_update_elem(&file_handle_mapping, &pair, &vm_start, 0);
+
 	/* Reserve some space on the ringbuffer */
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
 	if (!info) {
 		bpf_printk(
 			"WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -461,7 +498,8 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
 {
 	int err;
 	u32 cpu;
-	u64 size;
+	u64 size, status;
+        unsigned handle;
 	struct drm_i915_gem_userptr *arg;
 	void *lookup;
 	struct userptr_info *bin;
@@ -479,8 +517,11 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
 	/* Reserve some space on the ringbuffer */
 	bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
 	if (!bin) {
+                handle = BPF_CORE_READ(arg, handle);
 		bpf_printk(
-			"WARNING: userptr_ioctl failed to reserve in the ringbuffer.");
+			"WARNING: userptr_ioctl failed to reserve in the ringbuffer for handle %u.", handle);
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -500,9 +541,11 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
 	}
 	err = bpf_probe_read_user(bin->buff, size, (void *)bin->cpu_addr);
 	if (err) {
-		bpf_ringbuf_discard(bin, 0);
+		bpf_ringbuf_discard(bin, BPF_RB_FORCE_WAKEUP);
 		bpf_printk("WARNING: userptr_ioctl failed to copy %lu bytes.",
 			   size);
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 	bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
@@ -624,11 +667,11 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
 {
 	u32 cpu;
 	struct vm_bind_ioctl_wait_for_ret_val val;
-  struct prelim_drm_i915_gem_vm_bind *arg;
+        struct prelim_drm_i915_gem_vm_bind *arg;
   
 	__builtin_memset(&val, 0,
 			 sizeof(struct vm_bind_ioctl_wait_for_ret_val));
-  arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
+        arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
 	val.arg = arg;
 	val.file = PT_REGS_PARM3(ctx);
 	cpu = bpf_get_smp_processor_id();
@@ -643,11 +686,18 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
 SEC("kretprobe/i915_gem_vm_bind_ioctl")
 int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 {
-	u32 cpu;
+	u32 cpu, handle, vm_id;
+        u64 status, size;
 	struct prelim_drm_i915_gem_vm_bind *arg;
 	struct vm_bind_ioctl_wait_for_ret_val val;
 	void *lookup;
 	struct vm_bind_info *info;
+
+        /* For getting the cpu_addr */
+        u64 cpu_addr, gpu_addr;
+        struct file_handle_pair pair = {};
+        struct cpu_mapping cmapping = {};
+        struct gpu_mapping gmapping = {};
 
 	/* Grab the argument from the kprobe */
 	cpu = bpf_get_smp_processor_id();
@@ -658,20 +708,43 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 			 sizeof(struct vm_bind_ioctl_wait_for_ret_val));
 	arg = val.arg;
 
+        /* Get the CPU address from any mappings that have happened */
+        handle = BPF_CORE_READ(arg, handle);
+        pair.handle = handle;
+        pair.file = val.file;
+        lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
+        if (!lookup)
+                return -1;
+        cpu_addr = *((u64 *)lookup);
+        
+        /* Maintain a map of GPU->CPU addrs */
+        size = BPF_CORE_READ(arg, length);
+        gpu_addr = BPF_CORE_READ(arg, start);
+        if (size && gpu_addr) {
+                vm_id = BPF_CORE_READ(arg, vm_id);
+                cmapping.size = size;
+                cmapping.addr = cpu_addr;
+                gmapping.addr = gpu_addr;
+                gmapping.vm_id = vm_id;
+        	bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
+        }
+
 	/* Reserve some space on the ringbuffer */
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
 	if (!info) {
 		bpf_printk(
-			"WARNING: vm_callback failed to reserve in the ringbuffer.");
+			"WARNING: vm_bind_ioctl failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
 	/* vm_bind specific values */
 	info->file = val.file;
-	info->handle = BPF_CORE_READ(arg, handle);
-	info->vm_id = BPF_CORE_READ(arg, vm_id);
-	info->gpu_addr = BPF_CORE_READ(arg, start);
-	info->size = BPF_CORE_READ(arg, length);
+	info->handle = handle;
+	info->vm_id = vm_id;
+	info->gpu_addr = gpu_addr;
+	info->size = size;
 	info->offset = BPF_CORE_READ(arg, offset);
 
 	info->cpu = bpf_get_smp_processor_id();
@@ -681,6 +754,8 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 	info->time = bpf_ktime_get_ns();
 
 	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+
+        /* Execbuffer needs to know that this GPU addr relates to this vm_id/handle combination. */
 
 /* 	bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start)); */
 
@@ -692,7 +767,7 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
 {
 	struct vm_unbind_info *info;
 	struct prelim_drm_i915_gem_vm_bind *arg;
-	u64 file;
+	u64 file, status;
 
 	arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
 	file = PT_REGS_PARM3(ctx);
@@ -701,7 +776,9 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
 	if (!info) {
 		bpf_printk(
-			"WARNING: vm_callback failed to reserve in the ringbuffer.");
+			"WARNING: vm_unbind_ioctl failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -739,8 +816,8 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 	struct vm_area_struct *vma;
 
 	/* For checking */
-	struct mmap_wait_for_unmap_val *val;
-	u64 addr;
+	struct file_handle_pair *val;
+	u64 addr, status;
 
 	/* For sending to execbuffer */
 	int zero = 0;
@@ -760,7 +837,9 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 	bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
 	if (!bin) {
 		bpf_printk(
-			"WARNING: munmap_tp failed to reserve in the ringbuffer.");
+			"WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.", val->handle);
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -780,10 +859,12 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 	}
 	err = bpf_probe_read_user(bin->buff, size, (void *)bin->cpu_addr);
 	if (err) {
-		bpf_ringbuf_discard(bin, 0);
+		bpf_ringbuf_discard(bin, BPF_RB_FORCE_WAKEUP);
 		bpf_printk(
 			"WARNING: munmap_tp failed to copy %lu bytes from cpu_addr=0x%lx.",
 			size, addr);
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 	bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
@@ -811,17 +892,78 @@ struct {
 	__type(value, struct execbuffer_wait_for_ret_val);
 } execbuffer_wait_for_ret SEC(".maps");
 
+struct vm_callback_ctx {
+        u32 vm_id;
+        u64 bits_to_match, bb_addr;
+};
+
+static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
+                        struct cpu_mapping *cmapping, struct vm_callback_ctx *ctx)
+{
+        int err;
+        struct batchbuffer_info *info = NULL;
+        u64 status, size;
+        
+        /*
+           We only care about this buffer if it:
+           1. Has the same vm_id as the batchbuffer for this execbuffer call.
+           2. Has the same upper bits as the batchbuffer in this execbuffer call.
+        */
+        if ((gmapping->vm_id != ctx->vm_id) ||
+            ((gmapping->addr & ctx->bits_to_match) != ctx->bits_to_match) ||
+            (gmapping->addr == ctx->bb_addr)) {
+                return 0;
+        }
+	info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
+	if (!info) {
+		bpf_printk(
+			"WARNING: vm_callback failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
+		return 1;
+        }
+        
+        /* Common stuff */
+	info->cpu = bpf_get_smp_processor_id();
+	info->pid = bpf_get_current_pid_tgid() >> 32;
+	info->tid = bpf_get_current_pid_tgid();
+	info->time = bpf_ktime_get_ns();
+
+        info->gpu_addr = gmapping->addr;
+        info->vm_id = ctx->vm_id;
+
+	size = cmapping->size;
+	if (size > MAX_BINARY_SIZE) {
+		size = MAX_BINARY_SIZE;
+	}
+	err = bpf_probe_read_user(info->buff, size, (void *) cmapping->addr);
+        info->buff_sz = size;
+	if (err) {
+		bpf_printk(
+			"WARNING: vm_callback failed to copy %lu bytes.",
+			size);
+                info->buff_sz = 0;
+	}
+	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        bpf_printk("batchbuffer %u 0x%lx %lu", ctx->vm_id, gmapping->addr, cmapping->size);
+        return 0;
+}
+
 SEC("kprobe/i915_gem_do_execbuffer")
 int do_execbuffer_kprobe(struct pt_regs *ctx)
 {
+        int err;
 	struct execbuffer_wait_for_ret_val val;
 	u32 cpu, ctx_id, vm_id, handle, batch_index, batch_start_offset,
-		buffer_count;
-	u64 file, batch_len, offset;
+            buffer_count;
+	u64 file, cpu_addr, batch_len, offset, size, status;
 	struct execbuf_start_info *info;
 	struct drm_i915_gem_execbuffer2 *execbuffer;
 	struct drm_i915_gem_exec_object2 *objects;
 	void *val_ptr;
+        struct cpu_mapping cmapping = {};
+        struct gpu_mapping gmapping = {};
+        struct vm_callback_ctx vm_callback_ctx = {};
 
 	/* Read arguments */
 	file = (u64)PT_REGS_PARM2(ctx);
@@ -850,41 +992,76 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
 		}
 	}
 
+        /* Determine where the batchbuffer is stored (and how long it is).
+           The index that it's in is determined by a flag -- it can either
+           be the first or the last batch. */
+        batch_index =
+                (BPF_CORE_READ(execbuffer, flags) & I915_EXEC_BATCH_FIRST) ?
+                0 : BPF_CORE_READ(execbuffer, buffer_count) - 1;
+        batch_start_offset = BPF_CORE_READ(execbuffer, batch_start_offset);
+        batch_len = BPF_CORE_READ(execbuffer, batch_len);
+        buffer_count = BPF_CORE_READ(execbuffer, buffer_count);
+        if (batch_index == 0) {
+                /* If the index is 0 (the vast majority of the time it is), we can
+                   just directly read the `objects` pointer. */
+                handle = BPF_CORE_READ(objects, handle);
+                offset = BPF_CORE_READ(objects, offset);
+        } else {
+                handle = 0xffffffff;
+                offset = 0xffffffffffffffff;
+        }
+        
+        /* Now iterate over all buffers in the same VM as the batchbuffer */
+        vm_callback_ctx.vm_id = vm_id;
+        vm_callback_ctx.bits_to_match = offset & 0xffffffffff000000;
+        vm_callback_ctx.bb_addr = offset;
+        if (bpf_for_each_map_elem(&gpu_cpu_map, vm_callback, &vm_callback_ctx, 0) < 0) {
+                bpf_printk("ERROR in vm_callback");
+                return -1;
+        }
+
 	/* Reserve some space on the ringbuffer, into which we can copy things */
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
-	if (!info)
+	if (!info) {
+		bpf_printk(
+			"WARNING: execbuffer failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
+        }
 
-	/* Determine where the batchbuffer is stored (and how long it is).
-     The index that it's in is determined by a flag -- it can either
-     be the first or the last batch. */
-	batch_index =
-		(BPF_CORE_READ(execbuffer, flags) & I915_EXEC_BATCH_FIRST) ?
-			0 :
-			BPF_CORE_READ(execbuffer, buffer_count) - 1;
-	batch_start_offset = BPF_CORE_READ(execbuffer, batch_start_offset);
-	batch_len = BPF_CORE_READ(execbuffer, batch_len);
-	buffer_count = BPF_CORE_READ(execbuffer, buffer_count);
-	if (batch_index == 0) {
-		/* If the index is 0 (the vast majority of the time it is), we can
-       just directly read the `objects` pointer. */
-		handle = BPF_CORE_READ(objects, handle);
-		offset = BPF_CORE_READ(objects, offset);
-	} else {
-		handle = 0xffffffff;
-		offset = 0xffffffffffffffff;
-	}
-
+        /* Find a possible CPU mapping for the primary batchbuffer.
+           If we can, go ahead and grab a copy of it! */
+        gmapping.vm_id = vm_id;
+        gmapping.addr = offset;
+        val_ptr = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
+        if (val_ptr) {
+        	__builtin_memcpy(&cmapping, val_ptr,
+        			 sizeof(struct cpu_mapping));
+        	size = cmapping.size;
+        	if (size > MAX_BINARY_SIZE) {
+        		size = MAX_BINARY_SIZE;
+        	}
+        	err = bpf_probe_read_user(info->buff, size, (void *) cmapping.addr);
+                info->buff_sz = size;
+        	if (err) {
+        		bpf_printk(
+        			"WARNING: execbuffer failed to copy %lu bytes.",
+        			size);
+                        info->buff_sz = 0;
+        	}
+                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cmapping.addr, cmapping.size);
+        } else {
+                info->buff_sz = 0;
+        }
+        
 	/* execbuffer-specific stuff */
 	info->file = file;
 	info->vm_id = vm_id;
 	info->ctx_id = ctx_id;
-	info->batch_index = batch_index;
 	info->batch_start_offset = batch_start_offset;
-	info->batch_len = batch_len;
-	info->buffer_count = buffer_count;
-	info->bb_handle = handle;
-	info->bb_offset = offset;
+        info->batch_len = BPF_CORE_READ(execbuffer, batch_len);
+        info->bb_offset = offset;
 
 	info->cpu = cpu;
 	info->pid = bpf_get_current_pid_tgid() >> 32;
@@ -902,6 +1079,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 {
 	struct execbuf_end_info *einfo;
 	struct execbuffer_wait_for_ret_val *val;
+        struct drm_i915_gem_exec_object2 *objects;
 	u32 cpu;
 
 	cpu = bpf_get_smp_processor_id();
@@ -910,7 +1088,8 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 		return -1;
 	}
 	val = (struct execbuffer_wait_for_ret_val *)arg;
-
+        objects = (struct drm_i915_gem_exec_object2 *)val->objects;
+        
 	/* Output the end of an execbuffer to the ringbuffer */
 	einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
 	if (!einfo)
@@ -919,6 +1098,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 	einfo->pid = bpf_get_current_pid_tgid() >> 32;
 	einfo->tid = bpf_get_current_pid_tgid();
 	einfo->time = bpf_ktime_get_ns();
+        einfo->bb_handle = BPF_CORE_READ(objects, handle);
 	bpf_ringbuf_submit(einfo, BPF_RB_FORCE_WAKEUP);
 
 	return 0;
@@ -934,12 +1114,13 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 * contain debug data).
 ***************************************/
 
+#if 0
 SEC("kprobe/i915_debugger_uuid_create")
 int uuid_create_kprobe(struct pt_regs *ctx)
 {
         struct i915_uuid_resource *resource;
 	struct uuid_create_info *bin;
-        u64 size;
+        u64 size, status;
 	int err;
 
 	resource = (struct i915_uuid_resource *) PT_REGS_PARM2(ctx);
@@ -952,6 +1133,8 @@ int uuid_create_kprobe(struct pt_regs *ctx)
 	if (!bin) {
 		bpf_printk(
 			"WARNING: uuid_create failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
 		return -1;
 	}
 
@@ -984,6 +1167,7 @@ int uuid_create_kprobe(struct pt_regs *ctx)
 
 	return 0;
 }
+#endif
 
 char LICENSE[] SEC("license") = "GPL";
 

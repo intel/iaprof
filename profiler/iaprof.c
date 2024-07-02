@@ -43,6 +43,7 @@
 int pid = 0;
 char verbose = 0;
 char debug = 0;
+char bb_debug = 0;
 char quiet = 0;
 char *g_sidecar = NULL;
 int g_samples_matched = 0;
@@ -51,6 +52,7 @@ int g_samples_unmatched = 0;
 static struct option long_options[] = {
 	{ "debug", no_argument, 0, 'd' }, { "help", no_argument, 0, 'h' },
 	{ "quiet", no_argument, 0, 'q' }, { "verbose", no_argument, 0, 'v' },
+        { "batchbuffer-debug", no_argument, 0, 'b'},
 	{ "version", no_argument, 0, 0 }, { 0 }
 };
 
@@ -61,11 +63,12 @@ void usage()
 	printf("        iaprof > profile.txt            # profile until Ctrl-C.\n");
 	printf("        iaprof sleep 30 > profile.txt   # profile for 30 seconds.\n");
 	printf("\noptional arguments:\n");
-	printf("        -d, --debug     debug\n");
-	printf("        -h, --help      help\n");
-	printf("        -q, --quiet     quiet\n");
-	printf("        -v, --verbose   verbose\n");
-	printf("        command         profile system-wide while command runs\n\n");
+	printf("        -d, --debug              debug\n");
+	printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
+	printf("        -h, --help               help\n");
+	printf("        -q, --quiet              quiet\n");
+	printf("        -v, --verbose            verbose\n");
+	printf("        command                  profile system-wide while command runs\n\n");
 	printf("Version: %s\n", GIT_COMMIT_HASH);
 }
 
@@ -85,13 +88,16 @@ int read_opts(int argc, char **argv)
 
 	while (1) {
 		option_index = 0;
-		c = getopt_long(argc, argv, "dhv", long_options, &option_index);
+		c = getopt_long(argc, argv, "dbhqv", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
 		switch (c) {
 		case 'd':
 			debug = 1;
+			break;
+		case 'b':
+			bb_debug = 1;
 			break;
 		case 'h':
 			usage();
@@ -171,8 +177,8 @@ void sanity_checks()
 			      sizeof(struct execbuf_end_info),
 		      "mapping_info is the same size as execbuf_end_info");
 	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct uuid_create_info),
-		      "mapping_info is the same size as uuid_create_info");
+			      sizeof(struct batchbuffer_info),
+		      "mapping_info is the same size as batchbuffer_info");
 
 	static_assert(sizeof(struct unmap_info) != sizeof(struct userptr_info),
 		      "unmap_info is the same size as userptr_info");
@@ -188,8 +194,8 @@ void sanity_checks()
 			      sizeof(struct execbuf_end_info),
 		      "unmap_info is the same size as execbuf_end_info");
 	static_assert(sizeof(struct unmap_info) !=
-			      sizeof(struct uuid_create_info),
-		      "unmap_info is the same size as uuid_create_info");
+			      sizeof(struct batchbuffer_info),
+		      "unmap_info is the same size as batchbuffer_info");
 
 	static_assert(sizeof(struct userptr_info) !=
 			      sizeof(struct vm_bind_info),
@@ -204,8 +210,8 @@ void sanity_checks()
 			      sizeof(struct execbuf_end_info),
 		      "userptr_info is the same size as execbuf_end_info");
 	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct uuid_create_info),
-		      "userptr_info is the same size as uuid_create_info");
+			      sizeof(struct batchbuffer_info),
+		      "userptr_info is the same size as batchbuffer_info");
 
 	static_assert(sizeof(struct vm_bind_info) !=
 			      sizeof(struct vm_unbind_info),
@@ -217,8 +223,8 @@ void sanity_checks()
 			      sizeof(struct execbuf_end_info),
 		      "vm_bind_info is the same size as execbuf_end_info");
 	static_assert(sizeof(struct vm_bind_info) !=
-			      sizeof(struct uuid_create_info),
-		      "vm_bind_info is the same size as uuid_create_info");
+			      sizeof(struct batchbuffer_info),
+		      "vm_bind_info is the same size as batchbuffer_info");
 
 	static_assert(sizeof(struct vm_unbind_info) !=
 			      sizeof(struct execbuf_start_info),
@@ -227,8 +233,8 @@ void sanity_checks()
 			      sizeof(struct execbuf_end_info),
 		      "vm_unbind_info is the same size as execbuf_end_info");
 	static_assert(sizeof(struct vm_unbind_info) !=
-			      sizeof(struct uuid_create_info),
-		      "vm_unbind_info is the same size as uuid_create_info");
+			      sizeof(struct batchbuffer_info),
+		      "vm_unbind_info is the same size as batchbuffer_info");
 
 	static_assert(
 		sizeof(struct execbuf_start_info) !=
@@ -236,11 +242,11 @@ void sanity_checks()
 		"execbuf_start_info is the same size as execbuf_end_info");
 	static_assert(
 		sizeof(struct execbuf_start_info) !=
-			sizeof(struct uuid_create_info),
-		"execbuf_start_info is the same size as uuid_create_info");
+			sizeof(struct batchbuffer_info),
+		"execbuf_start_info is the same size as batchbuffer_info");
 
 	static_assert(
-		sizeof(struct uuid_create_info) !=
+		sizeof(struct batchbuffer_info) !=
 			sizeof(struct execbuf_end_info),
 		"execbuf_start_info is the same size as execbuf_end_info");
 }
@@ -311,7 +317,7 @@ void *collect_thread_main(void *a)
         enum eustall_status status;
 
 	/* The collect thread should block SIGINT, so that all
-     SIGINTs go to the main thread. */
+           SIGINTs go to the main thread. */
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGINT);
 	if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
