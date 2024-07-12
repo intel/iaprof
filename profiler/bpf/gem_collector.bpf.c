@@ -22,34 +22,34 @@
 *
 * From each function, we get:
 *
-* 1. i915_gem_mmap_ioctl
+* A. i915_gem_mmap_ioctl
 *    - handle ID
 *    - CPU address
 *    - size
 *
-* 2. i915_gem_mmap_offset_ioctl
+* B. i915_gem_mmap_offset_ioctl
 *    - handle ID
 *    - file offset (later passed to i915_gem_mmap_ioctl)
 *
-* 3. i915_gem_pwrite_ioctl
+* C. i915_gem_pwrite_ioctl
 *    - handle ID
 *    - CPU address
 *    - size
 *
-* 4. i915_gem_userptr_ioctl
+* D. i915_gem_userptr_ioctl
 *    - handle ID
 *    - CPU address
 *    - size
 *
 * For discrete devices, we also trace:
 * 
-* 1. i915_gem_vm_bind_ioctl
+* A. i915_gem_vm_bind_ioctl
 *    - handle ID
 *    - GPU address
 *    - size
 *    - VM ID
 *
-* 2. i915_gem_context_create_ioctl
+* B. i915_gem_context_create_ioctl
 *    - Context ID
 *    - VM ID
 ***************************************/
@@ -767,10 +767,25 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
 {
 	struct vm_unbind_info *info;
 	struct prelim_drm_i915_gem_vm_bind *arg;
-	u64 file, status;
+	u64 file, status, gpu_addr;
+        u32 vm_id;
+        struct gpu_mapping mapping = {};
+        int retval = 0;
 
 	arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
 	file = PT_REGS_PARM3(ctx);
+
+        /* Get the address and VM that's getting unbound */
+        vm_id = BPF_CORE_READ(arg, vm_id);
+	gpu_addr = BPF_CORE_READ(arg, start);
+
+        /* Clean up this mapping in the gpu_cpu_map */
+        mapping.vm_id = vm_id;
+        mapping.addr = gpu_addr;
+        retval = bpf_map_delete_elem(&gpu_cpu_map, &mapping);
+        if (retval < 0) {
+                bpf_printk("WARNING: vm_unbind_ioctl failed to delete from the gpu_cpu_map.");
+        }
 
 	/* Reserve some space on the ringbuffer */
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
@@ -785,8 +800,8 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
 	/* vm_unbind specific values */
 	info->file = file;
 	info->handle = BPF_CORE_READ(arg, handle);
-	info->vm_id = BPF_CORE_READ(arg, vm_id);
-	info->gpu_addr = BPF_CORE_READ(arg, start);
+	info->vm_id = vm_id;
+	info->gpu_addr = gpu_addr;
 	info->size = BPF_CORE_READ(arg, length);
 	info->offset = BPF_CORE_READ(arg, offset);
 
