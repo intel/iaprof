@@ -43,3 +43,36 @@ int ioctl_do(int fd, unsigned long request, void *arg)
   } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
   return ret;
 }
+
+#define MAX_DUPLICATES 256
+void dump_buffer(unsigned char *kernel, uint64_t size, char *name)
+{
+  char filename[256];
+  unsigned int i;
+  FILE *tmpfile;
+  
+  for (i = 0; i < MAX_DUPLICATES; i++) {
+    sprintf(filename, "/tmp/%s.bin", name);
+    tmpfile = fopen(filename, "r");
+    if (tmpfile) {
+      /* This file already exists, so go to the next filename */
+      fclose(tmpfile);
+      if (i == (MAX_DUPLICATES - 1)) {
+        fprintf(stderr,
+                "WARNING: Hit MAX_DUPLICATES.\n");
+        return;
+      }
+    } else {
+      break;
+    }
+  }
+  
+  printf("Writing to %s\n", filename);
+  tmpfile = fopen(filename, "w");
+  if (!tmpfile) {
+    fprintf(stderr, "WARNING: Failed to open %s\n", filename);
+    return;
+  }
+  fwrite(kernel, sizeof(unsigned char), size, tmpfile);
+  fclose(tmpfile);
+}

@@ -41,31 +41,31 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event)
   
   uuid = (struct prelim_drm_i915_debug_event_uuid *) event;
   
-  if (event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE) {
-    if (uuid->payload_size) {
-      read_uuid.client_handle = uuid->client_handle;
-      read_uuid.handle = uuid->handle;
-      read_uuid.payload_size = uuid->payload_size;
-      read_uuid.payload_ptr = (uint64_t) malloc(uuid->payload_size);
-      retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
-      
-      if (retval != 0) {
-        fprintf(stderr, "  Failed to read a UUID!\n");
-        free((void *) read_uuid.payload_ptr);
-        return;
-      }
-      
-      memcpy(uuid_str, read_uuid.uuid, 37);
-      printf("  Got UUID of size %llu: %s\n", read_uuid.payload_size, uuid_str);
-      data = (unsigned char *) read_uuid.payload_ptr;
-      for (i = 0; i < read_uuid.payload_size; i++) {
-        if (i > 0) printf(":");
-        printf("%02X", data[i]);
-      }
-      printf("\n");
-      printf("%s\n", data);
-    }
+  /* Only look at UUIDs being created with a nonzero size */
+  if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
+    return;
   }
+  if (!uuid->payload_size) {
+    return;
+  }
+  
+  read_uuid.client_handle = uuid->client_handle;
+  read_uuid.handle = uuid->handle;
+  read_uuid.payload_size = uuid->payload_size;
+  read_uuid.payload_ptr = (uint64_t) malloc(uuid->payload_size);
+  retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
+  
+  if (retval != 0) {
+    fprintf(stderr, "  Failed to read a UUID!\n");
+    free((void *) read_uuid.payload_ptr);
+    return;
+  }
+  
+  memcpy(uuid_str, read_uuid.uuid, 37);
+  printf("  Got UUID of size %llu: %s\n", read_uuid.payload_size, uuid_str);
+  data = (unsigned char *) read_uuid.payload_ptr;
+  
+  dump_buffer((unsigned char *) read_uuid.payload_ptr, read_uuid.payload_size, uuid_str);
 }
 
 int read_event(int debug_fd, struct prelim_drm_i915_debug_event *event)
