@@ -14,13 +14,18 @@
 #include <linux/bpf.h>
 
 #include "iaprof.h"
+
+#include "printers/stack/stack_printer.h"
+#include "printers/printer.h"
+
+#include "gpu_parsers/bb_parser.h"
+
 #include "bpf/gem_collector.h"
 #include "bpf/gem_collector.skel.h"
-#include "stack_printer.h"
-#include "printer.h"
-#include "event_collector.h"
+#include "bpf_i915_collector.h"
+#include "collectors/debug_i915/debug_i915_collector.h"
+
 #include "utils/utils.h"
-#include "bb_parser.h"
 
 /***************************************
 * Buffer Profile Array
@@ -313,6 +318,34 @@ int handle_userptr(void *data_arg)
 	return 0;
 }
 
+int handle_vm_create(void *data_arg)
+{
+	struct buffer_profile *gem;
+	int index;
+	struct vm_create_info *info;
+
+	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+	info = (struct vm_create_info *)data_arg;
+	if (verbose) {
+		print_vm_create(info);
+	}
+
+        /* Register the PID with the debug_i915 collector */
+        init_debug_i915(devinfo.fd, info->pid);
+
+
+	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 int handle_vm_bind(void *data_arg)
 {
 	struct buffer_profile *gem;
@@ -517,22 +550,6 @@ int handle_execbuf_start(void *data_arg)
         			continue;
         		}
         
-                        #if 0
-        		if (!(gem->mapping_info.cpu_addr) ||
-        		    !(gem->mapping_info.size)) {
-        			/* No valid CPU address means we can't copy the batchbuffer */
-        			continue;
-        		}
-        
-                        /* Check to make sure we've got a copy */
-        		update_buffer_copy(gem);
-                        if (gem->parsed) {
-                                /* If we've already parsed this copy of the batchbuffer,
-                                   don't do it again! */
-                                continue;
-                        }
-                        #endif
-                        
                         if (info->buff_sz == 0) {
                                 /* We didn't get a copy of the batchbuffer from BPF! */
                                 continue;
@@ -602,13 +619,6 @@ int handle_execbuf_end(void *data_arg)
 		print_execbuf_end(info);
 	}
 
-#if 0
-        /* Try to look for ELF headers in this process' address space. */
-        if(info->pid) {
-                find_elf_magic_bytes(info->pid, debug);
-        }
-#endif
-
 	return 0;
 }
 
@@ -659,6 +669,8 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 		return handle_unmap(data_arg);
 	} else if (data_sz == sizeof(struct userptr_info)) {
 		return handle_userptr(data_arg);
+	} else if (data_sz == sizeof(struct vm_create_info)) {
+		return handle_vm_create(data_arg);
 	} else if (data_sz == sizeof(struct vm_bind_info)) {
 		return handle_vm_bind(data_arg);
 	} else if (data_sz == sizeof(struct vm_unbind_info)) {
@@ -702,9 +714,9 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret)
 	}
 
 	/* XXX: Experiment with attach_mode parameter.
-     Set it to PROBE_ATTACH_MODE_LEGACY so that we can check
-     the number of events that we missed.
-  */
+           Set it to PROBE_ATTACH_MODE_LEGACY so that we can check
+           the number of events that we missed.
+        */
 	memset(&opts, 0, sizeof(opts));
 	opts.retprobe = ret;
 	opts.sz = sizeof(opts);
@@ -748,7 +760,7 @@ int attach_tracepoint(const char *category, const char *func,
 	return 0;
 }
 
-int deinit_bpf_prog()
+int deinit_bpf_i915()
 {
 	uint64_t i;
 	int retval;
@@ -768,6 +780,8 @@ int deinit_bpf_prog()
 	bpf_program__unload(bpf_info.mmap_offset_ioctl_ret_prog);
 	bpf_program__unload(bpf_info.mmap_prog);
 	bpf_program__unload(bpf_info.mmap_ret_prog);
+
+	bpf_program__unload(bpf_info.vm_create_ioctl_prog);
 
 	bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
 	bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
@@ -791,10 +805,12 @@ int deinit_bpf_prog()
 	return 0;
 }
 
-int init_bpf_prog()
+int init_bpf_i915()
 {
 	int err;
 	struct bpf_object_open_opts opts = { 0 };
+
+        check_bpf_type_sizes();
 
 	opts.sz = sizeof(struct bpf_object_open_opts);
 #if 0
@@ -843,6 +859,9 @@ int init_bpf_prog()
 		(struct bpf_program *)
 			bpf_info.obj->progs.userptr_ioctl_kretprobe;
 
+	bpf_info.vm_create_ioctl_prog =
+		(struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kprobe;
+
 	bpf_info.vm_bind_ioctl_prog =
 		(struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
 	bpf_info.vm_bind_ioctl_ret_prog =
@@ -882,6 +901,11 @@ int init_bpf_prog()
 			"Failed to create a new ring buffer. You're most likely not root.\n");
 		return -1;
 	}
+
+        bpf_info.rb_fd = bpf_map__fd(bpf_info.obj->maps.rb);
+        bpf_info.epoll_fd = ring_buffer__epoll_fd(bpf_info.rb);
+        printf("epoll_fd = %d\n", bpf_info.epoll_fd);
+        printf("rb_fb = %d\n", bpf_info.rb_fd);
 
 	/* XXX: Finish pwrite support in BPF and re-enable. It's another way to
      write to a buffer object via the CPU. */
@@ -938,6 +962,14 @@ int init_bpf_prog()
 	}
 	err = attach_kprobe("i915_gem_userptr_ioctl",
 			    bpf_info.userptr_ioctl_ret_prog, 1);
+	if (err != 0) {
+		fprintf(stderr, "Failed to attach a kprobe!\n");
+		return -1;
+	}
+
+	/* i915_gem_vm_create_ioctl */
+	err = attach_kprobe("i915_gem_vm_create_ioctl",
+			    bpf_info.vm_create_ioctl_prog, 0);
 	if (err != 0) {
 		fprintf(stderr, "Failed to attach a kprobe!\n");
 		return -1;
@@ -1033,4 +1065,46 @@ void print_ringbuf_stats()
 	avail = ring__avail_data_size(ring_buffer__ring(bpf_info.rb, 0));
 	size = ring__size(ring_buffer__ring(bpf_info.rb, 0));
 	printf("GEM ringbuf usage: %lu / %lu\n", avail, size);
+}
+
+/*******************
+*  SANITY CHECKS   *
+* **************** *
+* These macro hacks check the sizes of the `*_info` structs, to make sure
+* that they're unique. It throws a static assertion if any match.
+*******************/
+
+/* Macro hacks */
+#define STRINGIFY(x) STRINGIFY_(x)
+#define STRINGIFY_(x) #x
+#define EMPTY()
+#define DEFER(id) id EMPTY()
+#define OBSTRUCT(...) __VA_ARGS__ DEFER(EMPTY)()
+#define EXPAND(...) __VA_ARGS__
+#define EVAL(...)  EVAL1(__VA_ARGS__)
+#define EVAL1(...) __VA_ARGS__
+
+#define BPF_TYPE_SIZES_LIST(X, ...) \
+        X(struct mapping_info, __VA_ARGS__) \
+        X(struct unmap_info, __VA_ARGS__) \
+        X(struct vm_create_info, __VA_ARGS__) \
+        X(struct vm_bind_info, __VA_ARGS__) \
+        X(struct vm_unbind_info, __VA_ARGS__) \
+        X(struct execbuf_start_info, __VA_ARGS__) \
+        X(struct batchbuffer_info, __VA_ARGS__) \
+        X(struct execbuf_end_info, __VA_ARGS__) \
+        X(struct userptr_info, __VA_ARGS__)
+        
+#define BPF_TYPE_SIZES_LIST_INDIRECT(...) BPF_TYPE_SIZES_LIST(__VA_ARGS__)
+
+#define X2(type1, type2) \
+    static_assert((strcmp(STRINGIFY(type1), STRINGIFY(type2)) == 0) || \
+                  (sizeof(type1) != sizeof(type2)));
+                  
+#define X1(type1, ...) \
+  DEFER(BPF_TYPE_SIZES_LIST_INDIRECT)(X2, type1)
+        
+void check_bpf_type_sizes()
+{
+        EVAL(BPF_TYPE_SIZES_LIST(X1))
 }

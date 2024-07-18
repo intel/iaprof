@@ -4,6 +4,7 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
+CFLAGS="${CFLAGS} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
@@ -13,6 +14,9 @@ LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
 cd ${BASE_DIR}
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(git rev-parse HEAD)
+
+SRC_DIR="${BASE_DIR}/src"
+COMMON_FLAGS="${CFLAGS} -I${SRC_DIR}"
 
 # Commandline arguments
 DO_DEPS=false
@@ -41,100 +45,145 @@ for dep in ${LOCAL_DEPS[@]}; do
     echo "  2. Check the above output for dependency build errors."
     exit 1
   fi
+  LDFLAGS="${LDFLAGS} ${dep}"
 done
 
-# Build common code
-COMMON_DIR="${BASE_DIR}/common"
-COMMON_FLAGS="-gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
-echo ""
-echo "Building ${COMMON_DIR}..."
+####################
+#   DRM HELPERS    #
+####################
+DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
+echo "Building ${DRM_HELPERS_DIR}..."
+
 ${CC} ${COMMON_FLAGS} -c \
-  ${COMMON_DIR}/drm_helper.c -o ${COMMON_DIR}/drm_helper.o
-${CC} ${COMMON_FLAGS} -c \
-  ${COMMON_DIR}/trace_helpers.c -o ${COMMON_DIR}/trace_helpers.o
-${CC} ${COMMON_FLAGS} -c \
-  ${COMMON_DIR}/uprobe_helpers.c -o ${COMMON_DIR}/uprobe_helpers.o
+  ${DRM_HELPERS_DIR}/drm_helpers.c \
+  -o ${DRM_HELPERS_DIR}/drm_helpers.o
   
-# Create the bin directory
-mkdir -p ${BASE_DIR}/bin
+####################
+#   I915 HELPERS    #
+####################
+I915_HELPERS_DIR="${SRC_DIR}/i915_helpers"
+echo "Building ${I915_HELPERS_DIR}..."
 
-PROFILER_DIR="${BASE_DIR}/profiler"
-echo "Building ${PROFILER_DIR}..."
-cd ${PROFILER_DIR}/bpf
+${CC} ${COMMON_FLAGS} -c \
+  ${I915_HELPERS_DIR}/i915_helpers.c \
+  -o ${I915_HELPERS_DIR}/i915_helpers.o
+  
+####################
+#   BPF HELPERS    #
+####################
+BPF_HELPERS_DIR="${SRC_DIR}/bpf_helpers"
+echo "Building ${BPF_HELPERS_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  ${BPF_HELPERS_DIR}/trace_helpers.c \
+  -o ${BPF_HELPERS_DIR}/trace_helpers.o
+${CC} ${COMMON_FLAGS} -c \
+  ${BPF_HELPERS_DIR}/uprobe_helpers.c \
+  -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
+  
+####################
+#   COLLECTORS     #
+####################
+COLLECTORS_DIR="${SRC_DIR}/collectors"
+echo "Building ${COLLECTORS_DIR}..."
+
+cd ${COLLECTORS_DIR}/bpf_i915/bpf
 source build.sh
-cd ${PROFILER_DIR}
+cd ${BASE_DIR}
 
-# iaprof.c
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -std=c2x \
+  ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
+  -o ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
+  -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${COLLECTORS_DIR}/eustall/eustall_collector.c \
+  -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+  
+####################
+#    PRINTERS      #
+####################
+PRINTERS_DIR="${SRC_DIR}/printers"
+
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/printer.c \
+  -o ${PRINTERS_DIR}/printer.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
+  -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/debug/debug_printer.c \
+  -o ${PRINTERS_DIR}/debug/debug_printer.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/stack/stack_printer.c \
+  -o ${PRINTERS_DIR}/stack/stack_printer.o
+  
+####################
+#     UTILS        #
+####################
+UTILS_DIR="${SRC_DIR}/utils"
+echo "Building ${UTILS_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  ${UTILS_DIR}/utils.c \
+  -o ${UTILS_DIR}/utils.o
+  
+####################
+#   GPU PARSERS    #
+####################
+GPU_PARSERS_DIR="${SRC_DIR}/gpu_parsers"
+echo "Building ${GPU_PARSERS_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${GPU_PARSERS_DIR}/shader_decoder.c \
+  -o ${GPU_PARSERS_DIR}/shader_decoder.o
+
+####################
+#     IAPROF       #
+####################
+
 ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/iaprof.c \
-  -o ${PROFILER_DIR}/iaprof.o
-  
-# event_collector.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/event_collector.c \
-  -o ${PROFILER_DIR}/event_collector.o
-  
-# eustall_collector.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/eustall_collector.c \
-  -o ${PROFILER_DIR}/eustall_collector.o
-  
-# shader_decoder.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/shader_decoder.c \
-  -o ${PROFILER_DIR}/shader_decoder.o
-  
-# printer.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/printer.c \
-  -o ${PROFILER_DIR}/printer.o
-  
-# flamegraph_printer.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/flamegraph_printer.c \
-  -o ${PROFILER_DIR}/flamegraph_printer.o
-  
-# debug_printer.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/debug_printer.c \
-  -o ${PROFILER_DIR}/debug_printer.o
-  
-# stack_printer.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${PROFILER_DIR}/stack_printer.c \
-  -o ${PROFILER_DIR}/stack_printer.o
-  
-# utils.c
-${CC} ${COMMON_FLAGS} -c \
-  -I${COMMON_DIR} -I${PREFIX}/include \
-  ${COMMON_DIR}/utils/utils.c \
-  -o ${COMMON_DIR}/utils/utils.o
+  -I${PREFIX}/include \
+  ${SRC_DIR}/iaprof.c \
+  -o ${SRC_DIR}/iaprof.o
   
 ${CC} ${LDFLAGS} \
-  ${COMMON_DIR}/drm_helper.o \
-  ${COMMON_DIR}/trace_helpers.o \
-  ${COMMON_DIR}/uprobe_helpers.o \
+  ${DRM_HELPERS_DIR}/drm_helpers.o \
+  ${I915_HELPERS_DIR}/i915_helpers.o \
   \
-  ${PROFILER_DIR}/iaprof.o \
-  ${PROFILER_DIR}/event_collector.o \
-  ${PROFILER_DIR}/eustall_collector.o \
-  ${PROFILER_DIR}/shader_decoder.o \
+  ${BPF_HELPERS_DIR}/trace_helpers.o \
+  ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   \
-  ${PROFILER_DIR}/printer.o \
-  ${PROFILER_DIR}/stack_printer.o \
-  ${PROFILER_DIR}/flamegraph_printer.o \
-  ${PROFILER_DIR}/debug_printer.o \
+  ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o \
+  ${COLLECTORS_DIR}/eustall/eustall_collector.o \
+  ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o \
   \
-  ${COMMON_DIR}/utils/utils.o \
+  ${PRINTERS_DIR}/printer.o \
+  ${PRINTERS_DIR}/stack/stack_printer.o \
+  ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o \
+  ${PRINTERS_DIR}/debug/debug_printer.o \
+  \
+  ${UTILS_DIR}/utils.o \
+  \
+  ${GPU_PARSERS_DIR}/shader_decoder.o \
+  \
+  ${SRC_DIR}/iaprof.o \
   \
   ${COMMON_FLAGS} \
   -o ${BASE_DIR}/iaprof \

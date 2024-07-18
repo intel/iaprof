@@ -162,7 +162,6 @@ int main(int argc, char **argv)
     
     /* Read the event(s) */
     result = 0;
-    max_loop_count = 3;
     do {
       memset(event, 0, sizeof(struct prelim_drm_i915_debug_event));
       event->size = MAX_EVENT_SIZE;
@@ -170,8 +169,9 @@ int main(int argc, char **argv)
       event->flags = 0;
       
       result = read_event(debug_fd, event);
-      max_loop_count--;
       
-    } while ((result == 0) && (max_loop_count > 0));
+    } while (result == 0);
   }
+  
+  fflush(stdout);
 }

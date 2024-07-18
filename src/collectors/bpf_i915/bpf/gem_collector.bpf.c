@@ -645,6 +645,39 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
 }
 
 /***************************************
+* i915_gem_vm_create_ioctl
+*
+* Look for new virtual address spaces that userspace is creating.
+***************************************/
+
+SEC("kprobe/i915_gem_vm_create_ioctl")
+int vm_create_ioctl_kprobe(struct pt_regs *ctx)
+{
+        struct vm_create_info *info;
+        u64 status;
+        
+	/* Reserve some space on the ringbuffer */
+	info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
+	if (!info) {
+		bpf_printk(
+			"WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
+		return -1;
+	}
+
+	info->cpu = bpf_get_smp_processor_id();
+	info->pid = bpf_get_current_pid_tgid() >> 32;
+	info->tid = bpf_get_current_pid_tgid();
+	info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+	info->time = bpf_ktime_get_ns();
+
+	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+
+        return 0;
+}
+
+/***************************************
 * i915_gem_vm_bind_ioctl
 *
 * Look for virtual addresses that userspace is trying to [un]bind.

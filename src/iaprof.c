@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <getopt.h>
-#include <poll.h>
+#include <sys/epoll.h>
 #include <time.h>
 #include <string.h>
 #include <inttypes.h>
@@ -20,18 +20,23 @@
 
 #include "iaprof.h"
 
-#include "common.h"
-#include "utils/utils.h"
-#include "drm_helper.h"
+/* Helpers */
+#include "drm_helpers/drm_helpers.h"
+#include "i915_helpers/i915_helpers.h"
 
-#include "eustall_collector.h"
-#include "shader_decoder.h"
-#include "bpf/gem_collector.h"
-#include "bpf/gem_collector.skel.h"
-#include "event_collector.h"
-#include "flamegraph_printer.h"
-#include "printer.h"
-#include "debug_printer.h"
+/* Collectors */
+#include "collectors/eustall/eustall_collector.h"
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/bpf_i915/bpf/gem_collector.h"
+#include "collectors/bpf_i915/bpf/gem_collector.skel.h"
+#include "collectors/debug_i915/debug_i915_collector.h"
+
+/* Printers */
+#include "printers/printer.h"
+#include "printers/flamegraph/flamegraph_printer.h"
+#include "printers/debug/debug_printer.h"
+
+#include "gpu_parsers/shader_decoder.h"
 
 /*******************
 * COMMANDLINE ARGS *
@@ -146,111 +151,6 @@ void print_status(const char *msg)
 	}
 }
 
-/* XXX This is a nasty hack! We're using a ringbuffer to send structs
-   from the BPF program to userspace. We're not just using one type of
-   struct, though; we're using a separate struct type per type of event.
-   Because reading a ringbuffer sample doesn't give you the *type*, just
-   a *size*, the only way to differentiate these samples is by their size.
-   
-   Therefore, we need to ensure that none of the structs that will be
-   placed in the ringbuffer are the same size. We do this with this
-   long list of assertions.
-   
-   Perhaps I should quarantine this into a separate file...? */
-void sanity_checks()
-{
-	static_assert(sizeof(struct mapping_info) != sizeof(struct unmap_info),
-		      "mapping_info is the same size as unmap_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct userptr_info),
-		      "mapping_info is the same size as userptr_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct vm_bind_info),
-		      "mapping_info is the same size as vm_bind_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct vm_unbind_info),
-		      "mapping_info is the same size as vm_unbind_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct execbuf_start_info),
-		      "mapping_info is the same size as execbuf_start_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct execbuf_end_info),
-		      "mapping_info is the same size as execbuf_end_info");
-	static_assert(sizeof(struct mapping_info) !=
-			      sizeof(struct batchbuffer_info),
-		      "mapping_info is the same size as batchbuffer_info");
-
-	static_assert(sizeof(struct unmap_info) != sizeof(struct userptr_info),
-		      "unmap_info is the same size as userptr_info");
-	static_assert(sizeof(struct unmap_info) != sizeof(struct vm_bind_info),
-		      "unmap_info is the same size as vm_bind_info");
-	static_assert(sizeof(struct unmap_info) !=
-			      sizeof(struct vm_unbind_info),
-		      "unmap_info is the same size as vm_unbind_info");
-	static_assert(sizeof(struct unmap_info) !=
-			      sizeof(struct execbuf_start_info),
-		      "unmap_info is the same size as execbuf_start_info");
-	static_assert(sizeof(struct unmap_info) !=
-			      sizeof(struct execbuf_end_info),
-		      "unmap_info is the same size as execbuf_end_info");
-	static_assert(sizeof(struct unmap_info) !=
-			      sizeof(struct batchbuffer_info),
-		      "unmap_info is the same size as batchbuffer_info");
-
-	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct vm_bind_info),
-		      "userptr_info is the same size as vm_bind_info");
-	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct vm_unbind_info),
-		      "userptr_info is the same size as vm_unbind_info");
-	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct execbuf_start_info),
-		      "userptr_info is the same size as execbuf_start_info");
-	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct execbuf_end_info),
-		      "userptr_info is the same size as execbuf_end_info");
-	static_assert(sizeof(struct userptr_info) !=
-			      sizeof(struct batchbuffer_info),
-		      "userptr_info is the same size as batchbuffer_info");
-
-	static_assert(sizeof(struct vm_bind_info) !=
-			      sizeof(struct vm_unbind_info),
-		      "vm_bind_info is the same size as vm_unbind_info");
-	static_assert(sizeof(struct vm_bind_info) !=
-			      sizeof(struct execbuf_start_info),
-		      "vm_bind_info is the same size as execbuf_start_info");
-	static_assert(sizeof(struct vm_bind_info) !=
-			      sizeof(struct execbuf_end_info),
-		      "vm_bind_info is the same size as execbuf_end_info");
-	static_assert(sizeof(struct vm_bind_info) !=
-			      sizeof(struct batchbuffer_info),
-		      "vm_bind_info is the same size as batchbuffer_info");
-
-	static_assert(sizeof(struct vm_unbind_info) !=
-			      sizeof(struct execbuf_start_info),
-		      "vm_unbind_info is the same size as execbuf_start_info");
-	static_assert(sizeof(struct vm_unbind_info) !=
-			      sizeof(struct execbuf_end_info),
-		      "vm_unbind_info is the same size as execbuf_end_info");
-	static_assert(sizeof(struct vm_unbind_info) !=
-			      sizeof(struct batchbuffer_info),
-		      "vm_unbind_info is the same size as batchbuffer_info");
-
-	static_assert(
-		sizeof(struct execbuf_start_info) !=
-			sizeof(struct execbuf_end_info),
-		"execbuf_start_info is the same size as execbuf_end_info");
-	static_assert(
-		sizeof(struct execbuf_start_info) !=
-			sizeof(struct batchbuffer_info),
-		"execbuf_start_info is the same size as batchbuffer_info");
-
-	static_assert(
-		sizeof(struct batchbuffer_info) !=
-			sizeof(struct execbuf_end_info),
-		"execbuf_start_info is the same size as execbuf_end_info");
-}
-
 /*******************
 *     COLLECT      *
 *******************/
@@ -265,8 +165,14 @@ struct buffer_profile *buffer_profile_arr = NULL;
 size_t buffer_profile_size = 0, buffer_profile_used = 0;
 uint64_t iba = 0;
 
+/* Collector info */
+struct device_info devinfo = {};
 struct bpf_info_t bpf_info = {};
-int perf_fd;
+struct eustall_info_t eustall_info = {};
+struct debug_i915_info_t debug_i915_info = {};
+#define MAX_EPOLL_EVENTS 64
+
+/* Thread and interval */
 pthread_t collect_thread_id;
 pthread_t sidecar_thread_id;
 static int interval_num = 0;
@@ -282,68 +188,132 @@ void stop_collect_thread()
 	collect_thread_should_stop = 1;
 }
 
-/* Checks for eustalls ready to be read */
-enum eustall_status poll_eustalls(int perf_fd, uint8_t *perf_buf)
+void add_to_epoll_fd(int fd)
 {
-        int retval, len;
-	enum eustall_status status;
-	struct pollfd pollfd = {
-		.events = POLLIN,
-	};
-
-	pollfd.fd = perf_fd;
-	retval = poll(&pollfd, 1, 1);
-	if (retval < 0) {
-		fprintf(stderr,
-		        "An error occurred while reading the EU stall file descriptor! Aborting.\n");
-		return EUSTALL_STATUS_ERROR;
-	} else if (retval > 0) {
-		/* There are samples to read */
-		len = read(perf_fd, perf_buf, p_user);
-		if (len > 0) {
-			return handle_eustall_samples(perf_buf, len);
-		}
-	}
-
-        return EUSTALL_STATUS_OK;
+        struct epoll_event e = {};
+        
+        printf("Adding fd %d to the epoll_fd\n", fd);
+        e.events = EPOLLIN;
+        e.data.fd = fd;
+        if (epoll_ctl(bpf_info.epoll_fd, EPOLL_CTL_ADD, fd, &e) < 0) {
+                fprintf(stderr, "Failed to add to the ringbuffer's epoll instance. Aborting.\n");
+                exit(1);
+        }
 }
 
-void *collect_thread_main(void *a)
+void init_collect_thread()
 {
-	uint8_t *perf_buf;
-	int perf_fd, i, startsecs;
-	struct timeval tv;
 	sigset_t mask;
-        enum eustall_status status;
-
+        int retval;
+        
 	/* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
 	sigemptyset(&mask);
 	sigaddset(&mask, SIGINT);
 	if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
 		fprintf(stderr, "Error blocking signal. Aborting.\n");
-		return NULL;
+		return;
 	}
 
-	/* Initialize the BPF program */
-	init_bpf_prog();
+        /* We'll need the i915 driver for multiple collectors */
+	retval = open_first_driver(&devinfo);
+	if (retval != 0) {
+		fprintf(stderr, "Failed to open any drivers. Aborting.\n");
+		exit(1);
+	}
 
-	/* Initialize the EU stall collection */
-	perf_fd = configure_eustall();
-	if (perf_fd < 0) {
+	/* Get information about the device */
+	if (get_drm_device_info(&devinfo) != 0) {
+		fprintf(stderr, "Failed to get device info. Aborting.\n");
+		exit(1);
+	}
+
+	if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
+		fprintf(stderr, "Failed to get engine info. Aborting.\n");
+		exit(1);
+	}
+
+
+        /* BPF collector */
+        init_bpf_i915();
+        
+        /* EU stall collector. Add to the epoll_fd that the bpf_i915
+           collector created. */
+        if (init_eustall(&devinfo)) {
 		fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
 		exit(1);
 	}
+}
+
+int handle_fd_read(struct epoll_event *event)
+{
+        int len, retval;
+        enum eustall_status status;
+        
+        if ((event->events & EPOLLERR) ||
+            (event->events & EPOLLHUP)) {
+                /* Error or hangup. Abort! */
+                fprintf(stderr, "Encountered an error in one");
+                fprintf(stderr, "of the file descriptors. Aborting.\n");
+                return -1;
+        }
+        if (!(event->events & EPOLLIN)) {
+                /* The fd is not ready to be read, so skip it */
+                fprintf(stderr, "WARNING: EPOLLIN was not set. Why were we awoken?\n");
+                return 0;
+        }
+        printf("Got EPOLLIN on fd %d.\n", event->data.fd);
+        if (event->data.fd == eustall_info.perf_fd) {
+                /* eustall collector */
+                printf("Got an eustall sample!\n");
+        		len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
+        		if (len > 0) {
+        			status = handle_eustall_samples(eustall_info.perf_buf, len);
+                                if (status != EUSTALL_STATUS_OK) {
+                                        fprintf(stderr,
+                                               "WARNING: Got an error handling eustall samples!\n");
+                                }
+                        }
+        } else if (event->data.fd == 0) {
+                /* bpf_i915 collector. Note that libbpf sets event->data.fd to
+                   ring_cnt, which, because we only have one ringbuffer, is zero. */
+                printf("Got a BPF sample!\n");
+                retval = ring_buffer__consume(bpf_info.rb);
+                if (retval < 0) {
+                        printf("ring_buffer__consume failed. Aborting.\n");
+                        exit(1);
+                } else {
+                        printf("Ring buffer processed %d records.\n", retval);
+                }
+        } else {
+                /* debug_i915 collector */
+                printf("Got a debug sample on fd %d!\n", event->data.fd);
+                read_debug_i915_events(event->data.fd);
+        }
+        
+        return 0;
+}
+
+void *collect_thread_main(void *a)
+{
+	int i, startsecs, nfds;
+	struct timeval tv;
+        struct epoll_event *events;
+        
+        init_collect_thread();
+        
+        events = calloc(MAX_EPOLL_EVENTS, sizeof(struct epoll_event));
+
 	if (collect_thread_should_stop == 0)
 		print_status("Profiling... Ctrl-C to end.\n");
+
 	if (verbose)
 		print_header();
-	collect_thread_profiling = 1;
-	perf_buf = malloc(p_user);
 
 	gettimeofday(&tv, NULL);
 	startsecs = (int)tv.tv_sec;
 
+	collect_thread_profiling = 1;
 	while (collect_thread_should_stop == 0) {
 		gettimeofday(&tv, NULL);
 
@@ -357,27 +327,25 @@ void *collect_thread_main(void *a)
 			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
 		fflush(stderr);
 
-		/* Check if there are eustalls */
-                status = poll_eustalls(perf_fd, perf_buf);
-                if (status == EUSTALL_STATUS_ERROR) {
-                        goto cleanup;
+                /* Poll on the epoll instance */
+                nfds = epoll_wait(bpf_info.epoll_fd, events, MAX_EPOLL_EVENTS, 100);
+                if (nfds == -1) {
+                        fprintf(stderr, "There was an error calling epoll_wait. Aborting.\n");
+                        exit(1);
                 }
-
-		/* Sit for a bit on the GEM info ringbuffer */
-		ring_buffer__poll(bpf_info.rb, 100);
+                if (nfds == 0) {
+                        continue;
+                }
+                printf("There are %d fds ready to be read.\n", nfds);
+                for (i = 0; i < nfds; i++) {
+                        printf("Got fd %d\n", events[i].data.fd);
+                        handle_fd_read(&events[i]);
+                }
 	}
 
-	/* Once we've been told to clean up, check one last time */
-	ring_buffer__poll(bpf_info.rb, 1);
-        status = poll_eustalls(perf_fd, perf_buf);
-        if (status == EUSTALL_STATUS_ERROR) {
-                goto cleanup;
-        }
-
 cleanup:
-	free(perf_buf);
-	close(perf_fd);
-	deinit_bpf_prog();
+	close(eustall_info.perf_fd);
+	deinit_bpf_i915();
 
 	return NULL;
 }
@@ -437,7 +405,6 @@ int main(int argc, char **argv)
 	struct timespec leftover, request = { 1, 0 };
 	char *failed_decode = "[failed_decode]";
 
-	sanity_checks();
 	read_opts(argc, argv);
 	check_permissions();
 

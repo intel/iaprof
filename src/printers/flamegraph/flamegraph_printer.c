@@ -1,8 +1,11 @@
 #include "iaprof.h"
-#include "flamegraph_printer.h"
-#include "event_collector.h"
-#include "eustall_collector.h"
-#include "shader_decoder.h"
+
+#include "printers/flamegraph/flamegraph_printer.h"
+
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/eustall/eustall_collector.h"
+
+#include "gpu_parsers/shader_decoder.h"
 
 /* Macro to print a flamegraph line */
 #define PRINT_FRONT_STACK()                           \

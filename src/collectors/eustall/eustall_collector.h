@@ -1,7 +1,33 @@
 #pragma once
 
 #include <inttypes.h>
-#include "event_collector.h"
+
+#include "drm_helpers/drm_helpers.h"
+
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+
+/******************************************************************************
+* Defaults
+******************************************************************************/
+
+#define DEFAULT_SAMPLE_RATE 7	/* HW events per sample, max 7 in i915 */
+/* XXX ^^^ increase i915 max as this is too low and generates excessive samples */
+#define DEFAULT_DSS_BUF_SIZE (128 * 1024)
+#define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
+#define DEFAULT_POLL_PERIOD_NS 1000000000	/* userspace wakeup interval */
+#define DEFAULT_EVENT_COUNT 1000	/* aggregation: number of events to trigger poll read */
+
+/******************************************************************************
+* eustall_info
+* *********
+* Struct that stores information about the eustall "perf" buffer.
+******************************************************************************/
+
+struct eustall_info_t {
+        int perf_fd;
+        uint8_t perf_buf[DEFAULT_USER_BUF_SIZE];
+};
+extern struct eustall_info_t eustall_info;
 
 /******************************************************************************
 * Status
@@ -21,7 +47,7 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 		     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
 		     unsigned long long time);
 int handle_eustall_samples(uint8_t *perf_buf, int len);
-int configure_eustall();
+int init_eustall(device_info *devinfo);
 
 /***************************************
   * offset_profile

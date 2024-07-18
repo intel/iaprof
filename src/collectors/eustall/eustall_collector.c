@@ -4,15 +4,17 @@
 #include <poll.h>
 #include <drm/i915_drm_prelim.h>
 
-#include "drm_helper.h"
-#include "i915_helper.h"
-
 #include "iaprof.h"
-#include "eustall_collector.h"
-#include "gpu_kernel_decoder.h"
-#include "event_collector.h"
-#include "shader_decoder.h"
-#include "printer.h"
+
+#include "drm_helpers/drm_helpers.h"
+#include "i915_helpers/i915_helpers.h"
+
+#include "collectors/eustall/eustall_collector.h"
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+
+#include "gpu_parsers/shader_decoder.h"
+
+#include "printers/printer.h"
 
 uint64_t uint64_t_hash(uint64_t i)
 {
@@ -219,47 +221,28 @@ none_found:
 	return EUSTALL_STATUS_OK;
 }
 
-int configure_eustall()
+int init_eustall(device_info *devinfo)
 {
-	struct device_info *devinfo;
 	struct i915_engine_class_instance *engine_class;
 	int i, fd, found, retval;
 	uint64_t *properties;
 	size_t properties_size;
-
-	/* Grab the i915 driver file descriptor */
-	devinfo = open_first_driver();
-	if (!devinfo) {
-		fprintf(stderr, "Failed to open any drivers. Aborting.\n");
-		exit(1);
-	}
-
-	/* Get information about the device */
-	if (get_drm_device_info(devinfo) != 0) {
-		fprintf(stderr, "Failed to get device info. Aborting.\n");
-		exit(1);
-	}
-
-	if (i915_query_engines(devinfo->fd, &(devinfo->engine_info)) != 0) {
-		fprintf(stderr, "Failed to get engine info. Aborting.\n");
-		exit(1);
-	}
 
 	i = 0;
 	properties_size = sizeof(uint64_t) * 5 * 2;
 	properties = malloc(properties_size);
 
 	properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_BUF_SZ;
-	properties[i++] = p_size;
+	properties[i++] = DEFAULT_DSS_BUF_SIZE;
 
 	properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_SAMPLE_RATE;
-	properties[i++] = p_rate;
+	properties[i++] = DEFAULT_SAMPLE_RATE;
 
 	properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_POLL_PERIOD;
-	properties[i++] = p_poll_period;
+	properties[i++] = DEFAULT_POLL_PERIOD_NS;
 
 	properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT;
-	properties[i++] = p_event_count;
+	properties[i++] = DEFAULT_EVENT_COUNT;
 
 	properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS;
 	properties[i++] = 4;
@@ -301,10 +284,12 @@ int configure_eustall()
 	/* Enable the fd */
 	ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
 
+        /* Add the fd to the epoll_fd */
+        eustall_info.perf_fd = fd;
+        add_to_epoll_fd(fd);
+
 cleanup:
-	/* Free up the device info */
-	free_driver(devinfo);
 	free(properties);
 
-	return fd;
+	return 0;
 }

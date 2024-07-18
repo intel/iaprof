@@ -12,7 +12,7 @@
 #include <inttypes.h>
 #include <drm/i915_drm_prelim.h>
 
-#include "drm_helper.h"
+#include "drm_helpers/drm_helpers.h"
 
 void ioctl_err(int err)
 {
@@ -55,12 +55,11 @@ int ioctl_do(int fd, unsigned long request, void *arg)
 	return ret;
 }
 
-device_info *open_first_driver()
+int open_first_driver(device_info *devinfo)
 {
 	int i, fd;
 	char filename[80], name[16] = "";
 	drm_version_t version;
-	device_info *devinfo;
 
 	/* Loop until we successfully open a device */
 	for (i = 0; i < 16; i++) {
@@ -101,15 +100,14 @@ device_info *open_first_driver()
 	/* We didn't find any devices */
 	if (fd == -1) {
 		fprintf(stderr, "Failed to find any devices.\n");
-		return NULL;
+		return -1;
 	}
 
 	/* Copy the final values into the struct */
-	devinfo = calloc(1, sizeof(device_info));
 	strcpy(devinfo->name, version.name);
 	devinfo->fd = fd;
 
-	return devinfo;
+	return 0;
 }
 
 int open_sysfs_dir(int fd)

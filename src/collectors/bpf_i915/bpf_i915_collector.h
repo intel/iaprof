@@ -17,7 +17,7 @@
 #include <bpf/libbpf.h>
 
 #include "bpf/gem_collector.h"
-#include "shader_decoder.h"
+#include "gpu_parsers/shader_decoder.h"
 
 /***************************************
 * Buffer Profile Array
@@ -83,9 +83,9 @@ int handle_mapping(void *data_arg);
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
 		  uint64_t src_sz);
 int handle_unmap(void *data_arg);
-int handle_uuid_create(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
+int handle_vm_create(void *data_arg);
 int handle_vm_unbind(void *data_arg);
 int handle_execbuf_start(void *data_arg);
 int handle_execbuf_end(void *data_arg);
@@ -101,13 +101,14 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz);
 int attach_kprobe(const char *func, struct bpf_program *prog, int ret);
 int attach_tracepoint(const char *category, const char *func,
 		      struct bpf_program *prog);
-int deinit_bpf_prog();
-int init_bpf_prog();
+int deinit_bpf_i915();
+int init_bpf_i915();
 
 /* Stores information about the BPF programs, ringbuffer, etc. */
 struct bpf_info_t {
 	struct gem_collector_bpf *obj;
 	struct ring_buffer *rb;
+        int epoll_fd, rb_fd;
 	struct bpf_map **map;
 
 	/* Links to the BPF programs */
@@ -131,6 +132,9 @@ struct bpf_info_t {
 	struct bpf_program *userptr_ioctl_prog;
 	struct bpf_program *userptr_ioctl_ret_prog;
 
+	/* i915_gem_vm_create_ioctl */
+	struct bpf_program *vm_create_ioctl_prog;
+
 	/* i915_gem_vm_bind_ioctl */
 	struct bpf_program *vm_bind_ioctl_prog;
 	struct bpf_program *vm_bind_ioctl_ret_prog;
@@ -149,10 +153,18 @@ struct bpf_info_t {
 	/* munmap */
 	struct bpf_program *munmap_prog;
 
-        /* uuid_create */
-        struct bpf_program *uuid_create_prog;
-
 	/* vm_close */
 	/*   struct bpf_program *vm_close_prog; */
 };
 extern struct bpf_info_t bpf_info;
+
+/***************************************
+* BPF Types
+**********************
+* These types are passed to userspace via
+* the ringbuffer. The only way to identify them
+* on the userspace side is by their size, so make sure
+* their size is unique.
+***************************************/
+
+void check_bpf_type_sizes();

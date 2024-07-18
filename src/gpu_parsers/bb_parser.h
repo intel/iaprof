@@ -3,7 +3,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
-#include "event_collector.h"
+
+#include "collectors/bpf_i915/bpf_i915_collector.h"
 
 /* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
 /* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */

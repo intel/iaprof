@@ -8,10 +8,14 @@
 #include <libiberty/demangle.h>
 
 #include "iaprof.h"
+
+#include "bpf_helpers/trace_helpers.h"
 #include "utils/utils.h"
-#include "stack_printer.h"
-#include "event_collector.h"
-#include "bpf/gem_collector.skel.h"
+
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/bpf_i915/bpf/gem_collector.skel.h"
+
+#include "printers/stack/stack_printer.h"
 
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;

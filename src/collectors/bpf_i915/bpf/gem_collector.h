@@ -39,6 +39,13 @@ struct unmap_info {
 	__u64 time;
 };
 
+/* Collected from a vm_create */
+struct vm_create_info {
+	__u32 pid, tid, cpu;
+	__u64 time;
+	int stackid;
+};
+
 /* Collected from a vm_bind */
 struct vm_bind_info {
 	__u64 file;
@@ -116,16 +123,6 @@ struct userptr_info {
 	__u32 pid, tid, cpu;
 	__u64 time;
 	char pad[8];
-};
-
-/* Collected from a i915_debugger_uuid_create call */
-struct uuid_create_info {
-        __u32 handle;
-        __u64 size;
-        __u64 cpu_addr;
-        unsigned char buff[MAX_BINARY_SIZE];
-	__u32 pid, tid, cpu;
-	__u64 time;
 };
 
 #endif

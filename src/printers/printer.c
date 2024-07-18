@@ -1,9 +1,10 @@
 #include "printer.h"
 
-#include "bpf/gem_collector.h"
-#include "bpf/gem_collector.skel.h"
-#include "eustall_collector.h"
-#include "stack_printer.h"
+#include "collectors/bpf_i915/bpf/gem_collector.h"
+#include "collectors/bpf_i915/bpf/gem_collector.skel.h"
+#include "collectors/eustall/eustall_collector.h"
+
+#include "printers/stack/stack_printer.h"
 
 int print_header()
 {
@@ -60,6 +61,17 @@ int print_userptr(struct userptr_info *info)
 	printf(" %-*u", TID_LEN, info->tid);
 	printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n", info->file,
 	       info->handle, info->cpu_addr, info->size);
+
+	return 0;
+}
+
+int print_vm_create(struct vm_create_info *info)
+{
+	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_create");
+	printf(" %-*llu", TIME_LEN, info->time);
+	printf(" %-*u", CPU_LEN, info->cpu);
+	printf(" %-*u", PID_LEN, info->pid);
+	printf(" %-*u\n", TID_LEN, info->tid);
 
 	return 0;
 }
@@ -155,19 +167,6 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
 	printf(" %-*u", TID_LEN, einfo->tid);
         printf(" bb_handle=%u", einfo->bb_handle);
 	printf(" N/A\n");
-
-	return 0;
-}
-
-int print_uuid_create(struct uuid_create_info *info)
-{
-	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "uuid_create");
-	printf(" %-*llu", TIME_LEN, info->time);
-	printf(" %-*u", CPU_LEN, info->cpu);
-	printf(" %-*u", PID_LEN, info->pid);
-	printf(" %-*u", TID_LEN, info->tid);
-	printf(" handle=%u cpu_addr=0x%llx size=%llu\n",
-	       info->handle, info->cpu_addr, info->size);
 
 	return 0;
 }

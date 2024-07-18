@@ -51,8 +51,12 @@ fi
 ###################################################################
 #                 Intel Graphics Compiler (IGC)
 ###################################################################
+
 IGC_DIR="${BUILD_DEPS_DIR}/igc"
 IGC_BUILD_LOG="${BUILD_DEPS_DIR}/igc.log"
+
+echo "  Building IGC..."
+
 mkdir -p ${IGC_DIR}
 cd ${IGC_DIR}
 ./build_igc.sh &> ${IGC_BUILD_LOG}

@@ -9,19 +9,6 @@
 *    DISCOVERY     *
 *******************/
 
-#define DEFAULT_SAMPL_RATE 7	/* HW events per sample, max 7 in i915 */
-/* XXX ^^^ increase i915 max as this is too low and generates excessive samples */
-#define DEFAULT_DSS_BUF_SIZE (128 * 1024)
-#define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS 1000000000	/* userspace wakeup interval */
-#define DEFAULT_EVENT_COUNT 1000	/* aggregation: number of events to trigger poll read */
-
-static uint64_t p_poll_period = DEFAULT_POLL_PERIOD_NS;
-static uint32_t p_event_count = DEFAULT_EVENT_COUNT;
-static uint32_t p_user = DEFAULT_USER_BUF_SIZE;
-static uint32_t p_size = DEFAULT_DSS_BUF_SIZE;
-static uint8_t p_rate = DEFAULT_SAMPL_RATE;
-
 #define DRIVER_BASE "/dev/dri/card"
 
 typedef struct device_info {
@@ -41,7 +28,7 @@ static const uint32_t pvc_ids[] = { 0x0b69, 0x0bd0, 0x0bd5, 0x0bd6, 0x0bd7,
 
 void ioctl_err(int err);
 int ioctl_do(int fd, unsigned long request, void *arg);
-device_info *open_first_driver();
+int open_first_driver(device_info *devinfo);
 int open_sysfs_dir(int fd);
 bool read_fd_uint64(int fd, uint64_t *out_value);
 bool read_sysfs(int sysfs_dir_fd, const char *file_path, uint64_t *out_value);
