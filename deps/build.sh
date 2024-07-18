@@ -25,7 +25,6 @@ BPFTOOL_BUILD_LOG=${BUILD_DEPS_DIR}/bpftool.log
 cd ${BPFTOOL_SRC_DIR}
 
 echo "  Building libbpf and bpftool..."
-# git submodule update --init
 make &> ${BPFTOOL_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
@@ -66,5 +65,21 @@ if [ ${RETVAL} -ne 0 ]; then
   echo "  Please check ${IGC_BUILD_LOG} for details."
   exit 1
 fi
+
+
+###################################################################
+#                           Elfutils
+###################################################################
+
+ELFUTILS_SRC_DIR=${BUILD_DEPS_DIR}/elfutils
+ELFUTILS_BUILD_LOG=${BUILD_DEPS_DIR}/elfutils.log
+cd ${ELFUTILS_SRC_DIR}
+
+echo "  Building elfutils..."
+
+autoreconf -i -f &> ${ELFUTILS_BUILD_LOG} && \
+./configure --enable-maintainer-mode --prefix=${PREFIX} &> ${ELFUTILS_BUILD_LOG} && \
+make &> ${ELFUTILS_BUILD_LOG} && \
+make install &> ${ELFUTILS_BUILD_LOG}
 
 echo "Done building dependencies. Installed to ${PREFIX}."

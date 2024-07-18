@@ -262,32 +262,26 @@ int handle_fd_read(struct epoll_event *event)
                 fprintf(stderr, "WARNING: EPOLLIN was not set. Why were we awoken?\n");
                 return 0;
         }
-        printf("Got EPOLLIN on fd %d.\n", event->data.fd);
         if (event->data.fd == eustall_info.perf_fd) {
                 /* eustall collector */
-                printf("Got an eustall sample!\n");
-        		len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
-        		if (len > 0) {
-        			status = handle_eustall_samples(eustall_info.perf_buf, len);
-                                if (status != EUSTALL_STATUS_OK) {
-                                        fprintf(stderr,
-                                               "WARNING: Got an error handling eustall samples!\n");
-                                }
+		len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
+		if (len > 0) {
+			status = handle_eustall_samples(eustall_info.perf_buf, len);
+                        if (status != EUSTALL_STATUS_OK) {
+                                fprintf(stderr,
+                                        "WARNING: Got an error handling eustall samples!\n");
                         }
+                }
         } else if (event->data.fd == 0) {
                 /* bpf_i915 collector. Note that libbpf sets event->data.fd to
                    ring_cnt, which, because we only have one ringbuffer, is zero. */
-                printf("Got a BPF sample!\n");
                 retval = ring_buffer__consume(bpf_info.rb);
                 if (retval < 0) {
                         printf("ring_buffer__consume failed. Aborting.\n");
                         exit(1);
-                } else {
-                        printf("Ring buffer processed %d records.\n", retval);
                 }
         } else {
                 /* debug_i915 collector */
-                printf("Got a debug sample on fd %d!\n", event->data.fd);
                 read_debug_i915_events(event->data.fd);
         }
         
@@ -336,9 +330,7 @@ void *collect_thread_main(void *a)
                 if (nfds == 0) {
                         continue;
                 }
-                printf("There are %d fds ready to be read.\n", nfds);
                 for (i = 0; i < nfds; i++) {
-                        printf("Got fd %d\n", events[i].data.fd);
                         handle_fd_read(&events[i]);
                 }
 	}
