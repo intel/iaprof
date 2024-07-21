@@ -30,8 +30,8 @@ void print_debug_profile()
                    PID, and that we have a copy of it */
 		if (!gem->has_stalls)
 			continue;
-		if ((!gem->buff_sz) || (!gem->buff))
-			continue;
+/* 		if ((!gem->buff_sz) || (!gem->buff)) */
+/* 			continue; */
 
                 print_debug_kernel_profile(gem);
 	}

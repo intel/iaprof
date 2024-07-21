@@ -3,6 +3,7 @@
 #include "printers/flamegraph/flamegraph_printer.h"
 
 #include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/debug_i915/debug_i915_collector.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #include "gpu_parsers/shader_decoder.h"
@@ -17,6 +18,7 @@
 		printf("[unknown];");                 \
 	}                                             \
 	printf("-;");                                 \
+        printf("%s;", tmp_gpu_symbol);                \
 	printf("%s_[g];", tmp_insn_text);
 
 /* Returns 0 on success, -1 for failure */
@@ -24,6 +26,10 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset, char **insn_text
 {
         uint32_t opcode;
         char retval;
+        
+        if (!(gem->buff_sz) || !(gem->buff)) {
+                return -1;
+        }
         
 	if (offset > gem->buff_sz) {
 		if (debug) {
@@ -60,16 +66,28 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset, char **insn_text
 void print_kernel_flamegraph(struct buffer_profile *gem, char **insn_text, size_t *insn_text_len)
 {
         int n;
-        uint64_t offset, *tmp;
+        uint64_t offset, *tmp, addr;
         struct offset_profile **found;
         char *failed_decode = "[failed_decode]";
+        char *failed_gpu_symbols = "[failed gpu symbols]";
         char retval;
-        char *tmp_insn_text;
+        char *tmp_insn_text, *tmp_gpu_symbol;
+        
+        printf("flamegraph for handle=%u pid=%d\n", gem->handle, gem->exec_info.pid);
         
         /* Iterate over the offsets that we have EU stalls for */
 	hash_table_traverse(gem->shader_profile.counts, offset, tmp) {
 		found = (struct offset_profile **) tmp;
 
+                /* Get the GPU symbol, if available */
+                if (gem->exec_info.pid) {
+                        addr = gem->vm_bind_info.gpu_addr + offset;
+                        tmp_gpu_symbol = debug_i915_get_sym(gem->exec_info.pid, addr);
+                } else {
+                        tmp_gpu_symbol = failed_gpu_symbols;
+                }
+
+                /* Disassemble to get the instruction */
                 retval = get_insn_text(gem, offset, insn_text, insn_text_len);
                 if (retval != 0) {
                         tmp_insn_text = failed_decode;
@@ -156,16 +174,15 @@ void print_flamegraph()
 			continue;
 		if ((gem->exec_info.pid == 0) && debug) {
 			fprintf(stderr, "WARNING: PID for handle %u is zero!\n",
-				gem->mapping_info.handle);
+				gem->handle);
 		}
 		if ((!gem->buff_sz) || (!gem->buff)) {
 			if (debug) {
 				fprintf(stderr,
 					"WARNING: Got an EU stall on a buffer");
-                                fprintf(stderr, "we haven't copied yet. handle=%u\n",
-					gem->mapping_info.handle);
+                                fprintf(stderr, " we haven't copied yet. handle=%u\n",
+					gem->handle);
 			}
-			continue;
 		}
 
                 print_kernel_flamegraph(gem, &insn_text, &insn_text_len);

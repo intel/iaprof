@@ -424,7 +424,7 @@ int main(int argc, char **argv)
 	sigemptyset(&sa.sa_mask);
 	if (sigaction(SIGINT, &sa, NULL) == -1) {
 		fprintf(stderr,
-			"Error creating interval signal handler. Aborting.\n");
+			"Error creating SIGINT handler. Aborting.\n");
 		exit(1);
 	}
 

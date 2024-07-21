@@ -133,10 +133,6 @@ retry:
 			start = gem->vm_bind_info.gpu_addr;
 			end = start + gem->vm_bind_info.size;
                         
-			if (gem->vm_bind_info.stale && (!search_stale)) {
-				continue;
-			}
-
 			if ((addr < start) || (addr >= end)) {
 				continue;
 			}
@@ -152,9 +148,9 @@ retry:
 			offset = addr - start;
 
 			if (debug) {
-				printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx gpu_addr=0x%llx iba=0x%lx\n",
-				       (uint64_t)sample.ip, addr, start, offset,
-				       gem->vm_bind_info.gpu_addr, iba);
+				printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx handle=%u vm_id=%u stale=%u gpu_addr=0x%llx iba=0x%lx\n",
+				       (uint64_t)sample.ip, addr, start, offset, gem->handle, gem->vm_id,
+				       gem->vm_bind_info.stale, gem->vm_bind_info.gpu_addr, iba);
 			}
 			found++;
 			last_found_start = start;

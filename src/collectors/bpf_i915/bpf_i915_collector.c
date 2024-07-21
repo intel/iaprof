@@ -31,6 +31,23 @@
 * Buffer Profile Array
 ***************************************/
 
+/* Looks up a buffer in the buffer_profile_arr by handle/vm_id pair. */
+int get_buffer_binding(uint32_t handle, uint32_t vm_id)
+{
+        int n;
+        struct buffer_profile *gem;
+        
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &buffer_profile_arr[n];
+                if ((gem->handle == handle) &&
+                    (gem->vm_id == vm_id)) {
+                        return n;
+                }
+        }
+        
+        return -1;
+}
+
 /* Looks up a buffer in the buffer_profile_arr by file/handle pair
    Returns -1 if not found. */
 int get_buffer_profile(uint64_t file, uint32_t handle)
@@ -362,9 +379,7 @@ int handle_vm_bind(void *data_arg)
 		print_vm_bind(info);
 	}
 
-        /* If we've already seen this file/handle pair (either via mmap or vm_bind),
-           use that buffer profile. */
-	index = get_buffer_profile(info->file, info->handle);
+	index = get_buffer_binding(info->handle, info->vm_id);
 	if (index == -1) {
 		index = grow_buffer_profiles();
 	}
@@ -372,7 +387,7 @@ int handle_vm_bind(void *data_arg)
 	/* Copy the vm_bind_info into the buffer's profile. */
 	gem = &(buffer_profile_arr[index]);
         gem->handle = info->handle;
-        gem->file = info->file;
+        gem->vm_id = info->vm_id;
 	memcpy(&(gem->vm_bind_info), info, sizeof(struct vm_bind_info));
 
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -1071,7 +1086,9 @@ void print_ringbuf_stats()
 *  SANITY CHECKS   *
 * **************** *
 * These macro hacks check the sizes of the `*_info` structs, to make sure
-* that they're unique. It throws a static assertion if any match.
+* that they're unique. It throws a static assertion if any match. If you
+* add any new struct types to the BPF ringbuf, add them to the
+* `BPF_TYPE_SIZES_LIST` macro.
 *******************/
 
 /* Macro hacks */

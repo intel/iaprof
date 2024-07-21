@@ -39,7 +39,7 @@ struct buffer_profile {
 
         /* i915 differentiates a buffer by the file pointer (or ctx_id)
            and its integer handle, so we will too. */
-        uint32_t handle;
+        uint32_t handle, vm_id;
         uint64_t file;
         char mapped;
 

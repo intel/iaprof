@@ -193,5 +193,6 @@ ${CC} ${LDFLAGS} \
   -lelf -lz \
   -lstdc++ \
   -liberty \
+  ${PREFIX}/lib/libelf.a \
   ${PREFIX}/lib/libiga64.a
 echo ""
