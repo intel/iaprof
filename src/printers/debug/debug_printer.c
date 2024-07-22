@@ -9,6 +9,7 @@
 
 #include "utils/utils.h"
 
+#if 0
 void print_debug_kernel_profile(struct buffer_profile *gem)
 {
         printf("kernel handle=%u gpu_addr=0x%llx size=%lu\n", gem->handle,
@@ -37,3 +38,4 @@ void print_debug_profile()
 	}
         
 }
+#endif

@@ -434,7 +434,8 @@ int main(int argc, char **argv)
         		fflush(stderr);
         
                         /* We've woken up at the end of an interval. Print this interval's results. */
-                        
+                        print_interval_flamegraph();
+                        clear_interval_profiles();
 		}
 	}
 	if (collect_thread_profiling) {
@@ -454,8 +455,10 @@ int main(int argc, char **argv)
 	}
 	fflush(stdout);
 
+#if 0
         if (debug) {
                 print_debug_profile();
         }
         print_flamegraph();
+#endif
 }

@@ -76,7 +76,7 @@ void print_kernel_flamegraph(struct buffer_profile *gem, char **insn_text, size_
         printf("flamegraph for handle=%u pid=%d\n", gem->handle, gem->exec_info.pid);
         
         /* Iterate over the offsets that we have EU stalls for */
-	hash_table_traverse(gem->shader_profile.counts, offset, tmp) {
+	hash_table_traverse(interval_profile_arr[gem->index].counts, offset, tmp) {
 		found = (struct offset_profile **) tmp;
 
                 /* Get the GPU symbol, if available */
@@ -152,6 +152,7 @@ void print_kernel_flamegraph(struct buffer_profile *gem, char **insn_text, size_
 	}
 }
 
+#if 0
 /* Prints a flamegraph for everything we've collected */
 void print_flamegraph()
 {
@@ -188,6 +189,7 @@ void print_flamegraph()
                 print_kernel_flamegraph(gem, &insn_text, &insn_text_len);
 	}
 }
+#endif
 
 void print_interval_flamegraph()
 {
@@ -206,7 +208,7 @@ void print_interval_flamegraph()
 
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
-		if (!gem->has_stalls)
+		if (!interval_profile_arr[i].has_stalls)
 			continue;
 		if ((!gem->buff_sz) || (!gem->buff)) {
 			if (debug) {

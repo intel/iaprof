@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "iaprof.h"
 #include "shader_decoder.h"

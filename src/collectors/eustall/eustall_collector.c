@@ -9,6 +9,8 @@
 #include "drm_helpers/drm_helpers.h"
 #include "i915_helpers/i915_helpers.h"
 
+#include "stores/buffer_profile.h"
+
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 
@@ -44,17 +46,16 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 	struct offset_profile **found;
 	struct offset_profile *profile;
 
-	/* First, ensure that we've already initialized the shader-specific
-     data structures */
-	if (gem->has_stalls == 0) {
-		gem->shader_profile.counts =
+        /* Make sure we're initialized */
+	if (interval_profile_arr[gem->index].has_stalls == 0) {
+		interval_profile_arr[gem->index].counts =
 			hash_table_make(uint64_t, uint64_t, uint64_t_hash);
-		if (!(gem->shader_profile.counts)) {
+		if (!(interval_profile_arr[gem->index].counts)) {
 			fprintf(stderr,
 				"WARNING: Failed to create a hash table.\n");
 			return -1;
 		}
-		gem->has_stalls = 1;
+		interval_profile_arr[gem->index].has_stalls = 1;
 	}
 
 	if (verbose) {
@@ -64,11 +65,11 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 
 	/* Check if this offset has been seen yet */
 	found = (struct offset_profile **)hash_table_get_val(
-		gem->shader_profile.counts, offset);
+		interval_profile_arr[gem->index].counts, offset);
 	if (!found) {
 		/* We have to allocate a struct of counts */
 		profile = calloc(1, sizeof(struct offset_profile));
-		hash_table_insert(gem->shader_profile.counts, offset,
+		hash_table_insert(interval_profile_arr[gem->index].counts, offset,
 				  (uint64_t)profile);
 		found = &profile;
 	}

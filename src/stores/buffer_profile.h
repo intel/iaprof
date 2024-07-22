@@ -8,6 +8,8 @@
 #include "collectors/bpf_i915/bpf/main.h"
 #include "gpu_parsers/shader_decoder.h"
 
+#include "utils/hash_table.h"
+
 /***************************************
 * Buffer Profile Array
 **********************
@@ -18,9 +20,13 @@
 int get_buffer_profile(uint64_t file, uint32_t handle);
 int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
+int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle);
+int get_buffer_binding(uint32_t handle, uint32_t vm_id);
 uint64_t grow_buffer_profiles();
+void clear_interval_profiles();
 
-/* Stores information about a single buffer */
+/* Stores information about a single buffer. We overwrite and accumulate
+   these interval after interval. */
 struct buffer_profile {
 	struct vm_bind_info vm_bind_info;
 	struct mapping_info mapping_info;
@@ -44,15 +50,26 @@ struct buffer_profile {
 	char *execbuf_stack_str;
 
 	/* Set if EU stalls are associated with this buffer */
-	unsigned char has_stalls;
-	struct shader_profile shader_profile;
         struct kv_t *kv;
+        
+        /* Index of this GEM */
+        size_t index;
 };
 
-void update_buffer_copy(struct buffer_profile *gem);
+use_hash_table(uint64_t, uint64_t);
+
+/* Stores per-interval profiles. */
+struct interval_profile {
+        unsigned char has_stalls;
+        
+	/* The EU stalls. Key is the offset into the binary,
+           value is a pointer to the struct of EU stall counts */
+	hash_table(uint64_t, uint64_t) counts;
+};
 
 /* Global array, including a lock, size, and "used" counter,
    of buffer profiles. */
 extern pthread_rwlock_t buffer_profile_lock;
 extern struct buffer_profile *buffer_profile_arr;
+extern struct interval_profile *interval_profile_arr;
 extern size_t buffer_profile_size, buffer_profile_used;
