@@ -187,5 +187,36 @@ void print_flamegraph()
 
                 print_kernel_flamegraph(gem, &insn_text, &insn_text_len);
 	}
+}
+
+void print_interval_flamegraph()
+{
+        int i;
+        struct buffer_profile *gem;
+        struct offset_profile **found;
+        uint64_t tmp_offset, *tmp;
         
+        /* For storing the mnemonic and the string's length */
+        char *insn_text = 0;
+        size_t insn_text_len = 0;
+        
+        /* Iterate over each buffer */
+	for (i = 0; i < buffer_profile_used; i++) {
+		gem = &buffer_profile_arr[i];
+
+                /* Make sure the buffer is a GPU kernel, that we have a valid
+                   PID, and that we have a copy of it */
+		if (!gem->has_stalls)
+			continue;
+		if ((!gem->buff_sz) || (!gem->buff)) {
+			if (debug) {
+				fprintf(stderr,
+					"WARNING: Got an EU stall on a buffer");
+                                fprintf(stderr, " we haven't copied yet. handle=%u\n",
+					gem->handle);
+			}
+		}
+
+                print_kernel_flamegraph(gem, &insn_text, &insn_text_len);
+	}
 }

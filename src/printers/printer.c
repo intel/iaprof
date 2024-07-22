@@ -1,7 +1,7 @@
 #include "printer.h"
 
-#include "collectors/bpf_i915/bpf/gem_collector.h"
-#include "collectors/bpf_i915/bpf/gem_collector.skel.h"
+#include "collectors/bpf_i915/bpf/main.h"
+#include "collectors/bpf_i915/bpf/main.skel.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #include "printers/stack/stack_printer.h"
@@ -165,8 +165,31 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
 	printf(" %-*u", CPU_LEN, einfo->cpu);
 	printf(" %-*u", PID_LEN, einfo->pid);
 	printf(" %-*u", TID_LEN, einfo->tid);
-        printf(" bb_handle=%u", einfo->bb_handle);
 	printf(" N/A\n");
+
+	return 0;
+}
+
+int print_request(struct request_info *rinfo)
+{
+	printf("%-*.*s", EVENT_LEN, EVENT_LEN, "request");
+	printf(" %-*llu", TIME_LEN, rinfo->time);
+	printf(" %-*u", CPU_LEN, 0);
+	printf(" %-*u", PID_LEN, 0);
+	printf(" %-*u", TID_LEN, 0);
+        printf(" type=");
+        if (rinfo->type == REQUEST_SUBMIT) {
+                printf("submit");
+        } else if (rinfo->type == REQUEST_RETIRE) {
+                printf("retire");
+        } else if (rinfo->type == REQUEST_IN) {
+                printf("in");
+        } else if (rinfo->type == REQUEST_OUT) {
+                printf("out");
+        }
+        printf(" seqno=%u", rinfo->seqno);
+        printf(" ctx=%u", rinfo->ctx);
+        printf("\n");
 
 	return 0;
 }

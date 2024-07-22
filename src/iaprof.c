@@ -20,6 +20,8 @@
 
 #include "iaprof.h"
 
+#include "stores/buffer_profile.h"
+
 /* Helpers */
 #include "drm_helpers/drm_helpers.h"
 #include "i915_helpers/i915_helpers.h"
@@ -27,8 +29,8 @@
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
-#include "collectors/bpf_i915/bpf/gem_collector.h"
-#include "collectors/bpf_i915/bpf/gem_collector.skel.h"
+#include "collectors/bpf_i915/bpf/main.h"
+#include "collectors/bpf_i915/bpf/main.skel.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 
 /* Printers */
@@ -155,16 +157,6 @@ void print_status(const char *msg)
 *     COLLECT      *
 *******************/
 
-/**
-  Global array of GEMs that we've seen.
-  This is what we'll search through when we get an
-  EU stall sample.
-**/
-pthread_rwlock_t buffer_profile_lock = PTHREAD_RWLOCK_INITIALIZER;
-struct buffer_profile *buffer_profile_arr = NULL;
-size_t buffer_profile_size = 0, buffer_profile_used = 0;
-uint64_t iba = 0;
-
 /* Collector info */
 struct device_info devinfo = {};
 struct bpf_info_t bpf_info = {};
@@ -290,8 +282,7 @@ int handle_fd_read(struct epoll_event *event)
 
 void *collect_thread_main(void *a)
 {
-	int i, startsecs, nfds;
-	struct timeval tv;
+	int i, nfds;
         struct epoll_event *events;
         
         init_collect_thread();
@@ -304,22 +295,9 @@ void *collect_thread_main(void *a)
 	if (verbose)
 		print_header();
 
-	gettimeofday(&tv, NULL);
-	startsecs = (int)tv.tv_sec;
 
 	collect_thread_profiling = 1;
 	while (collect_thread_should_stop == 0) {
-		gettimeofday(&tv, NULL);
-
-                /* Print the status line */
-                fprintf(stderr, "\r");
-                if (!isatty(STDERR_FILENO)) {
-                        fprintf(stderr, "\n");
-                }
-		fprintf(stderr,
-			"Status: profiling for %d secs, %d samples matched, %d samples unmatched. ",
-			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
-		fflush(stderr);
 
                 /* Poll on the epoll instance */
                 nfds = epoll_wait(bpf_info.epoll_fd, events, MAX_EPOLL_EVENTS, 100);
@@ -356,6 +334,7 @@ int start_collect_thread()
 
 	return 0;
 }
+
 
 /*******************
 *      SIDECAR     *
@@ -395,6 +374,8 @@ int main(int argc, char **argv)
 {
 	struct sigaction sa;
 	struct timespec leftover, request = { 1, 0 };
+	struct timeval tv;
+        int startsecs;
 	char *failed_decode = "[failed_decode]";
 
 	read_opts(argc, argv);
@@ -428,6 +409,9 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	gettimeofday(&tv, NULL);
+        startsecs = (int) tv.tv_sec;
+
 	/* The collector thread is starting profiling rougly now.. */
 	if (g_sidecar) {
 		/* Wait until sidecar command finishes */
@@ -436,6 +420,21 @@ int main(int argc, char **argv)
 		/* Wait until we get a signal (Ctrl-C) */
 		while (!main_thread_should_stop) {
 			nanosleep(&request, &leftover);
+
+        		gettimeofday(&tv, NULL);
+        
+                        /* Print the status line */
+                        fprintf(stderr, "\r");
+                        if (!isatty(STDERR_FILENO)) {
+                                fprintf(stderr, "\n");
+                        }
+        		fprintf(stderr,
+        			"Status: profiling for %d secs, %d samples matched, %d samples unmatched. ",
+        			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
+        		fflush(stderr);
+        
+                        /* We've woken up at the end of an interval. Print this interval's results. */
+                        
 		}
 	}
 	if (collect_thread_profiling) {

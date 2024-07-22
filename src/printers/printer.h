@@ -2,7 +2,7 @@
 
 #include <bpf/bpf.h>
 
-#include "collectors/bpf_i915/bpf/gem_collector.h"
+#include "collectors/bpf_i915/bpf/main.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #define EVENT_LEN 14
@@ -23,6 +23,7 @@ int print_execbuf_start(struct execbuf_start_info *info);
 int print_execbuf_gem(struct execbuf_start_info *info,
 		      struct vm_bind_info *vinfo);
 int print_execbuf_end(struct execbuf_end_info *einfo);
+int print_request(struct request_info *rinfo);
 
 int print_total_eustall(uint64_t num, unsigned long long time);
 int print_eustall_reason(struct eustall_sample *sample);

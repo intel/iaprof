@@ -108,7 +108,7 @@ struct batchbuffer_info {
 
 /* Collected from the end of an execbuffer */
 struct execbuf_end_info {
-	__u32 cpu, pid, tid, bb_handle;
+	__u32 cpu, pid, tid;
 	__u64 time;
 };
 
@@ -123,6 +123,22 @@ struct userptr_info {
 	__u32 pid, tid, cpu;
 	__u64 time;
 	char pad[8];
+};
+
+/* Collected from the tracepoints i915_request_* */
+enum i915_request_type {
+        REQUEST_SUBMIT,
+        REQUEST_IN,
+        REQUEST_OUT,
+        REQUEST_RETIRE
+};
+
+struct request_info {
+        enum i915_request_type type;
+        __u32 seqno;
+        __u32 ctx;
+        __u64 time;
+        char pad[16];
 };
 
 #endif

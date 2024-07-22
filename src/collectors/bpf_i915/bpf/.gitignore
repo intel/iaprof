@@ -1,4 +1,2 @@
-drm.h
-i915.h
-vmlinux.h
-gem_collector.skel.h
+generated_headers
+main.skel.h

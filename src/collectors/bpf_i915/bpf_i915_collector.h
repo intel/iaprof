@@ -1,7 +1,7 @@
 #pragma once
 
 /***************************************
-* GEM Collector
+* bpf_i915
 ***************
 * This file receives samples from the BPF programs'
 * ringbuffer. Its primary purpose is maintaining
@@ -16,57 +16,8 @@
 #include <sys/types.h>
 #include <bpf/libbpf.h>
 
-#include "bpf/gem_collector.h"
+#include "bpf/main.h"
 #include "gpu_parsers/shader_decoder.h"
-
-/***************************************
-* Buffer Profile Array
-**********************
-* These functions simply maintain a global array
-* of type `struct buffer_profile`.
-***************************************/
-
-int get_buffer_profile(uint64_t file, uint32_t handle);
-int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
-int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
-uint64_t grow_buffer_profiles();
-
-/* Stores information about a single buffer */
-struct buffer_profile {
-	struct vm_bind_info vm_bind_info;
-	struct mapping_info mapping_info;
-	struct execbuf_start_info exec_info;
-
-        /* i915 differentiates a buffer by the file pointer (or ctx_id)
-           and its integer handle, so we will too. */
-        uint32_t handle, vm_id;
-        uint64_t file;
-        char mapped;
-
-	/* A copy of the buffer bytes itself */
-	uint64_t buff_sz;
-	unsigned char *buff;
-        char parsed;
-
-	/* The IBA (Instruction Base Address) associated with this buffer */
-	uint64_t iba;
-
-	/* The stack where this buffer was execbuffer'd */
-	char *execbuf_stack_str;
-
-	/* Set if EU stalls are associated with this buffer */
-	unsigned char has_stalls;
-	struct shader_profile shader_profile;
-        struct kv_t *kv;
-};
-
-void update_buffer_copy(struct buffer_profile *gem);
-
-/* Global array, including a lock, size, and "used" counter,
-   of buffer profiles. */
-extern pthread_rwlock_t buffer_profile_lock;
-extern struct buffer_profile *buffer_profile_arr;
-extern size_t buffer_profile_size, buffer_profile_used;
 
 /* Global IBA, or Instruction Base Address, which is found by
  * parsing batchbuffer commands. */
@@ -106,7 +57,7 @@ int init_bpf_i915();
 
 /* Stores information about the BPF programs, ringbuffer, etc. */
 struct bpf_info_t {
-	struct gem_collector_bpf *obj;
+	struct main_bpf *obj;
 	struct ring_buffer *rb;
         int epoll_fd, rb_fd;
 	struct bpf_map **map;
@@ -152,6 +103,12 @@ struct bpf_info_t {
 
 	/* munmap */
 	struct bpf_program *munmap_prog;
+
+	/* requests */
+	struct bpf_program *request_submit_prog;
+	struct bpf_program *request_retire_prog;
+	struct bpf_program *request_in_prog;
+	struct bpf_program *request_out_prog;
 
 	/* vm_close */
 	/*   struct bpf_program *vm_close_prog; */

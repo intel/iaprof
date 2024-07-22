@@ -15,13 +15,15 @@
 
 #include "iaprof.h"
 
+#include "stores/buffer_profile.h"
+
 #include "printers/stack/stack_printer.h"
 #include "printers/printer.h"
 
 #include "gpu_parsers/bb_parser.h"
 
-#include "bpf/gem_collector.h"
-#include "bpf/gem_collector.skel.h"
+#include "bpf/main.h"
+#include "bpf/main.skel.h"
 #include "bpf_i915_collector.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 
@@ -307,10 +309,32 @@ int handle_unmap(void *data_arg)
 
 cleanup:
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
 		return -1;
 	}
 	return retval;
+}
+
+int handle_request(void *data_arg)
+{
+        struct request_info *info;
+        
+	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+        info = (struct request_info *)data_arg;
+        if (verbose) {
+                print_request(info);
+        }
+        
+	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
+		return -1;
+	}
+
+        return 0;
 }
 
 int handle_userptr(void *data_arg)
@@ -431,14 +455,6 @@ int handle_vm_unbind(void *data_arg)
 		}
 		return 0;
 	}
-
-#if 0
-  /* Zero out the vm_bind_info of the buffer that we've found.
-     Note that after this is done, EU stalls can no longer be
-     associated with it. */
-  gem = &(buffer_profile_arr[index]);
-  memset(&(gem->vm_bind_info), 0, sizeof(struct vm_bind_info));
-#endif
 
 	/* Mark the buffer as "stale." 
      XXX: Find a better solution here. Separate array for "tenured" buffers?
@@ -637,30 +653,6 @@ int handle_execbuf_end(void *data_arg)
 	return 0;
 }
 
-#if 0
-int handle_uuid_create(void *data_arg)
-{
-	struct uuid_create_info *info;
-	int retval;
-
-	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-		return -1;
-	}
-
-	info = (struct uuid_create_info *)data_arg;
-	if (verbose) {
-		print_uuid_create(info);
-	}
-
-	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-		return -1;
-	}
-	return 0;
-}
-#endif
-
 /* Runs each time a sample from the ringbuffer is collected.
    Samples can be one of four types:
    1. struct mapping_info. This is a struct collected when an `execbuffer` call is made,
@@ -696,17 +688,14 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 		return handle_batchbuffer(data_arg);
 	} else if (data_sz == sizeof(struct execbuf_end_info)) {
 		return handle_execbuf_end(data_arg);
+	} else if (data_sz == sizeof(struct request_info)) {
+		return handle_request(data_arg);
 	} else {
 		fprintf(stderr,
 			"Unknown data size when handling a sample: %lu\n",
 			data_sz);
 		return -1;
 	}
-
-#if 0
-	} else if (data_sz == sizeof(struct uuid_create_info)) {
-		return handle_uuid_create(data_arg);
-#endif
 
 	return 0;
 }
@@ -811,11 +800,12 @@ int deinit_bpf_i915()
 
 	bpf_program__unload(bpf_info.munmap_prog);
 
-#if 0
-	bpf_program__unload(bpf_info.uuid_create_prog);
-#endif
+	bpf_program__unload(bpf_info.request_submit_prog);
+	bpf_program__unload(bpf_info.request_retire_prog);
+	bpf_program__unload(bpf_info.request_in_prog);
+	bpf_program__unload(bpf_info.request_out_prog);
 
-	gem_collector_bpf__destroy(bpf_info.obj);
+	main_bpf__destroy(bpf_info.obj);
 
 	return 0;
 }
@@ -834,7 +824,7 @@ int init_bpf_i915()
   }
 #endif
 
-	bpf_info.obj = gem_collector_bpf__open_opts(&opts);
+	bpf_info.obj = main_bpf__open_opts(&opts);
 	if (!bpf_info.obj) {
 		fprintf(stderr, "ERROR: Failed to get BPF object.\n");
 		fprintf(stderr,
@@ -844,7 +834,7 @@ int init_bpf_i915()
 			"       2. You don't have a kernel that supports BTF type information.\n");
 		return -1;
 	}
-	err = gem_collector_bpf__load(bpf_info.obj);
+	err = main_bpf__load(bpf_info.obj);
 	if (err) {
 		fprintf(stderr, "Failed to load BPF object!\n");
 		return -1;
@@ -899,15 +889,17 @@ int init_bpf_i915()
 		(struct bpf_program *)
 			bpf_info.obj->progs.do_execbuffer_kretprobe;
 
+        bpf_info.request_submit_prog =
+                (struct bpf_program *)bpf_info.obj->progs.request_submit_tp;
+        bpf_info.request_retire_prog =
+                (struct bpf_program *)bpf_info.obj->progs.request_retire_tp;
+        bpf_info.request_in_prog =
+                (struct bpf_program *)bpf_info.obj->progs.request_in_tp;
+        bpf_info.request_out_prog =
+                (struct bpf_program *)bpf_info.obj->progs.request_out_tp;
+
 	bpf_info.munmap_prog =
 		(struct bpf_program *)bpf_info.obj->progs.munmap_tp;
-
-#if 0
-	bpf_info.uuid_create_prog =
-		(struct bpf_program *)bpf_info.obj->progs.uuid_create_kprobe;
-#endif
-
-	/*   bpf_info.vm_close_prog = (struct bpf_program *) bpf_info.obj->progs.vm_close_kprobe; */
 
 	bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb),
 				       handle_sample, NULL, NULL);
@@ -1048,15 +1040,31 @@ int init_bpf_i915()
 		return -1;
 	}
 
-#if 0
-        /* uuid_create */
-	err = attach_kprobe("i915_debugger_uuid_create",
-			    bpf_info.uuid_create_prog, 1);
+	/* requests */
+	err = attach_tracepoint("i915", "i915_request_submit",
+				bpf_info.request_submit_prog);
 	if (err != 0) {
-		fprintf(stderr, "Failed to attach a kprobe!\n");
+		fprintf(stderr, "Failed to attach a tracepoint!\n");
 		return -1;
 	}
-#endif
+	err = attach_tracepoint("i915", "i915_request_retire",
+				bpf_info.request_retire_prog);
+	if (err != 0) {
+		fprintf(stderr, "Failed to attach a tracepoint!\n");
+		return -1;
+	}
+	err = attach_tracepoint("i915", "i915_request_in",
+				bpf_info.request_in_prog);
+	if (err != 0) {
+		fprintf(stderr, "Failed to attach a tracepoint!\n");
+		return -1;
+	}
+	err = attach_tracepoint("i915", "i915_request_out",
+				bpf_info.request_out_prog);
+	if (err != 0) {
+		fprintf(stderr, "Failed to attach a tracepoint!\n");
+		return -1;
+	}
 
 	/* XXX: Finish vm_close support in BPF and re-enable. This should
      free up any addresses bound to the VM. */
@@ -1110,7 +1118,8 @@ void print_ringbuf_stats()
         X(struct execbuf_start_info, __VA_ARGS__) \
         X(struct batchbuffer_info, __VA_ARGS__) \
         X(struct execbuf_end_info, __VA_ARGS__) \
-        X(struct userptr_info, __VA_ARGS__)
+        X(struct userptr_info, __VA_ARGS__) \
+        X(struct request_info, __VA_ARGS__)
         
 #define BPF_TYPE_SIZES_LIST_INDIRECT(...) BPF_TYPE_SIZES_LIST(__VA_ARGS__)
 

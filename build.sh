@@ -82,6 +82,17 @@ ${CC} ${COMMON_FLAGS} -c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
   
 ####################
+#     STORES       #
+####################
+STORES_DIR="${SRC_DIR}/stores"
+echo "Building ${STORES_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${STORES_DIR}/buffer_profile.c \
+  -o ${STORES_DIR}/buffer_profile.o
+  
+####################
 #   COLLECTORS     #
 ####################
 COLLECTORS_DIR="${SRC_DIR}/collectors"
@@ -169,6 +180,8 @@ ${CC} ${LDFLAGS} \
   \
   ${BPF_HELPERS_DIR}/trace_helpers.o \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
+  \
+  ${STORES_DIR}/buffer_profile.o \
   \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o \
   ${COLLECTORS_DIR}/eustall/eustall_collector.o \
