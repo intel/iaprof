@@ -111,7 +111,7 @@ retry:
 				to_copy = dso_name;
 			} else {
                                 if (!have_reloaded) {
-                                syms_cache__reload_syms(syms_cache, pid);
+                                        syms_cache__reload_syms(syms_cache, pid);
                                 	syms = syms_cache__get_syms(syms_cache, pid);
                                 	if (!syms) {
                                 if (debug) {

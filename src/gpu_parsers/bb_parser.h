@@ -40,9 +40,6 @@ struct bb_parser {
         /* Bookkeeping. Number of dwords that we've parsed. */
         uint64_t num_dwords;
         
-        /* Should we update the buffer for this? */
-        char *update_copy;
-
 	/* Instruction Base Address */
 	uint64_t iba;
 
@@ -221,20 +218,6 @@ uint32_t op_len(uint32_t *bb)
 #define STATE_SYSTEM_MEM_FENCE_ADDRESS OP_3D_MEDIA(0x0, 0x1, 0x9)
 #define STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS 3
 
-struct bb_parser *bb_parser_init()
-{
-	struct bb_parser *parser;
-        int n;
-
-	parser = calloc(1, sizeof(struct bb_parser));
-        parser->update_copy = calloc(buffer_profile_used, sizeof(char));
-        for (n = 0; n < buffer_profile_used; n++) {
-                parser->update_copy[n] = 1;
-        }
-
-	return parser;
-}
-
 void find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
 	struct buffer_profile *gem;
@@ -369,11 +352,6 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 			return BB_PARSER_STATUS_NOTFOUND;
 		}
 
-/*                 if (parser->update_copy[parser->gem_index]) { */
-/*         		update_buffer_copy(parser->gem); */
-/*                         parser->update_copy[parser->gem_index] = 0; */
-/*                 } */
-
 		if (!(parser->gem->buff)) {
 			/* We know we're supposed to jump *somewhere*, 
 			 * but can't. */
@@ -425,7 +403,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 		dword_ptr = (uint32_t *)(parser->gem->buff + off);
 
                 /* First check if we're overflowing the buffer */
-                if (off > parser->gem->buff_sz) {
+                if (off >= parser->gem->buff_sz) {
                         if (bb_debug) {
                                 printf("Stop because of buffer size. off=0x%lx sz=0x%lx\n",
                                        off, parser->gem->buff_sz);

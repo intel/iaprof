@@ -4,7 +4,8 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
-CFLAGS="${CFLAGS} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+CFLAGS="${CFLAGS} -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
@@ -91,6 +92,11 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${STORES_DIR}/buffer_profile.c \
   -o ${STORES_DIR}/buffer_profile.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${STORES_DIR}/proto_flame.c \
+  -o ${STORES_DIR}/proto_flame.o
   
 ####################
 #   COLLECTORS     #
@@ -182,6 +188,7 @@ ${CC} ${LDFLAGS} \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   \
   ${STORES_DIR}/buffer_profile.o \
+  ${STORES_DIR}/proto_flame.o \
   \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o \
   ${COLLECTORS_DIR}/eustall/eustall_collector.o \

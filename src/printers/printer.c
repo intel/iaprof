@@ -32,8 +32,8 @@ int print_mapping(struct mapping_info *info)
 	printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu offset=%llu ",
 	       info->file, info->handle, info->cpu_addr, info->size,
 	       info->offset);
-	store_stack(info->pid, info->stackid, &stack_str);
-	printf("%s", stack_str);
+/* 	store_stack(info->pid, info->stackid, &stack_str); */
+/* 	printf("%s", stack_str); */
 	printf("\n");
 
 	return 0;
@@ -188,7 +188,7 @@ int print_request(struct request_info *rinfo)
                 printf("out");
         }
         printf(" seqno=%u", rinfo->seqno);
-        printf(" ctx=%u", rinfo->ctx);
+        printf(" ctx=%u", rinfo->gem_ctx);
         printf("\n");
 
 	return 0;

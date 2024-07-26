@@ -10,7 +10,7 @@
 struct request_submit_args {
         u64 x;
         u32 dev;
-        u64 ctx;
+        u64 gem_ctx;
         u32 guc_id;
         u16 class;
         u16 instance;
@@ -21,7 +21,7 @@ struct request_submit_args {
 struct request_retire_args {
         u64 x;
         u32 dev;
-        u64 ctx;
+        u64 gem_ctx;
         u32 guc_id;
         u16 class;
         u16 instance;
@@ -32,7 +32,7 @@ struct request_retire_args {
 struct request_in_args {
         u64 x;
         u32 dev;
-        u64 ctx;
+        u64 gem_ctx;
         u16 class;
         u16 instance;
         u32 seqno;
@@ -43,7 +43,7 @@ struct request_in_args {
 struct request_out_args {
         u64 x;
         u32 dev;
-        u64 ctx;
+        u64 gem_ctx;
         u16 class;
         u16 instance;
         u32 seqno;
@@ -68,7 +68,7 @@ int request_submit_tp(struct request_submit_args *ctx)
 
         info->type = REQUEST_SUBMIT;
         info->seqno = ctx->seqno;
-        info->ctx = ctx->ctx;
+        info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
 
 	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
@@ -94,7 +94,7 @@ int request_retire_tp(struct request_retire_args *ctx)
 
         info->type = REQUEST_RETIRE;
         info->seqno = ctx->seqno;
-        info->ctx = ctx->ctx;
+        info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
 
 	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
@@ -120,7 +120,7 @@ int request_in_tp(struct request_in_args *ctx)
 
         info->type = REQUEST_IN;
         info->seqno = ctx->seqno;
-        info->ctx = ctx->ctx;
+        info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
 
 	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
@@ -146,7 +146,7 @@ int request_out_tp(struct request_out_args *ctx)
 
         info->type = REQUEST_OUT;
         info->seqno = ctx->seqno;
-        info->ctx = ctx->ctx;
+        info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
 
 	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);

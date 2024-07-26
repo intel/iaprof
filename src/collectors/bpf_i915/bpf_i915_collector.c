@@ -29,6 +29,8 @@
 
 #include "utils/utils.h"
 
+uint32_t global_vm_id = 0;
+
 /***************************************
 * BPF Handlers
 ***************************************/
@@ -140,6 +142,21 @@ int handle_request(void *data_arg)
         info = (struct request_info *)data_arg;
         if (verbose) {
                 print_request(info);
+        }
+        
+        if (info->type == REQUEST_SUBMIT) {
+                /* Store this request per-VM */
+                if (global_vm_id == 0) {
+                	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+                		fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
+                		return -1;
+                	}
+                        fprintf(stderr, "WARNING: global_vm_id is zero. Something fishy is going on.\n");
+                        return -1;
+                }
+                request_submit(global_vm_id, info->seqno, info->gem_ctx);
+        } else if (info->type == REQUEST_RETIRE) {
+                request_retire(info->seqno, info->gem_ctx);
         }
         
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
@@ -269,12 +286,6 @@ int handle_vm_unbind(void *data_arg)
 		return 0;
 	}
 
-	/* Mark the buffer as "stale." 
-     XXX: Find a better solution here. Separate array for "tenured" buffers?
-          When do we delete them? After a number of execbuffers without it? */
-	gem = &(buffer_profile_arr[index]);
-	gem->vm_bind_info.stale = 1;
-
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
 		return -1;
@@ -311,7 +322,7 @@ int handle_batchbuffer(void *data_arg)
                 		print_batchbuffer(info);
                 	}
                         /* Replace the current copy of this buffer */
-                        if (gem->buff) {
+                        if (gem->buff && gem->buff_sz) {
                                 free(gem->buff);
                         }
                         gem->buff = malloc(info->buff_sz);
@@ -337,7 +348,7 @@ int handle_execbuf_start(void *data_arg)
 	uint32_t vm_id, pid;
 	int n;
 	struct execbuf_start_info *info;
-	struct bb_parser *parser;
+	struct bb_parser parser;
         struct timespec parser_start, parser_end;
 
 	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
@@ -350,6 +361,10 @@ int handle_execbuf_start(void *data_arg)
 		print_execbuf_start(info);
 	}
 
+        /* Store this vm_id so that requests that get created by this
+           execbuffer call can associate themselves with it */
+        global_vm_id = info->vm_id;
+
 	/* This execbuffer call needs to be associated with all GEMs that
            are referenced by this call. Buffers can be referenced in two ways:
            1. Directly in the execbuffer call.
@@ -361,10 +376,7 @@ int handle_execbuf_start(void *data_arg)
 	file = info->file;
 	for (n = 0; n < buffer_profile_used; n++) {
 		gem = &buffer_profile_arr[n];
-		/* We'll consider a buffer "in the same VM" if the vm_id, pid, and file are the same. */
-		if ((gem->vm_bind_info.vm_id == vm_id) &&
-		    (gem->vm_bind_info.pid == pid) &&
-		    (gem->vm_bind_info.file == file)) {
+		if (gem->vm_bind_info.vm_id == vm_id) {
 			if (verbose) {
 				print_execbuf_gem(info, &(gem->vm_bind_info));
 			}
@@ -411,18 +423,18 @@ int handle_execbuf_start(void *data_arg)
         		/* Parse the batchbuffer */
         		found = 1;
                         clock_gettime(CLOCK_MONOTONIC, &parser_start);
-        		parser = bb_parser_init();
-        		bb_parser_parse(parser, gem, info->batch_start_offset,
+        		memset(&parser, 0, sizeof(struct bb_parser));
+        		bb_parser_parse(&parser, gem, info->batch_start_offset,
         				info->batch_len);
                         clock_gettime(CLOCK_MONOTONIC, &parser_end);
                         if (verbose) {
                                 printf("Parsed %zu dwords in %.5f seconds.\n",
-                                       parser->num_dwords,
+                                       parser.num_dwords,
                                        ((double)parser_end.tv_sec + 1.0e-9*parser_end.tv_nsec) - 
                                        ((double)parser_start.tv_sec + 1.0e-9*parser_start.tv_nsec));
                         }
-        		if (parser->iba) {
-        			iba = parser->iba;
+        		if (parser.iba) {
+        			iba = parser.iba;
         		}
         
         		break;
@@ -724,8 +736,6 @@ int init_bpf_i915()
 
         bpf_info.rb_fd = bpf_map__fd(bpf_info.obj->maps.rb);
         bpf_info.epoll_fd = ring_buffer__epoll_fd(bpf_info.rb);
-        printf("epoll_fd = %d\n", bpf_info.epoll_fd);
-        printf("rb_fb = %d\n", bpf_info.rb_fd);
 
 	/* XXX: Finish pwrite support in BPF and re-enable. It's another way to
      write to a buffer object via the CPU. */

@@ -21,6 +21,7 @@
 #include "iaprof.h"
 
 #include "stores/buffer_profile.h"
+#include "stores/proto_flame.h"
 
 /* Helpers */
 #include "drm_helpers/drm_helpers.h"
@@ -53,8 +54,6 @@ char debug = 0;
 char bb_debug = 0;
 char quiet = 0;
 char *g_sidecar = NULL;
-int g_samples_matched = 0;
-int g_samples_unmatched = 0;
 
 static struct option long_options[] = {
 	{ "debug", no_argument, 0, 'd' }, { "help", no_argument, 0, 'h' },
@@ -154,6 +153,54 @@ void print_status(const char *msg)
 }
 
 /*******************
+*       UI         *
+*******************/
+
+void print_number(uint64_t num)
+{
+        if (num >= 1000000) {
+                fprintf(stderr, "%8zum", num / 1000000);
+        } else if (num > 1000) {
+                fprintf(stderr, "%8zuk", num / 1000);
+        } else {
+                fprintf(stderr, "%9zu", num);
+        }
+}
+
+int first = 1;
+
+void print_table()
+{
+        if (isatty(STDERR_FILENO) && !first) {
+                fprintf(stderr, "\x1B" "[%dA", 7);
+        } else {
+                first = 0;
+        }
+        fprintf(stderr, "|-----------------------------------|\n");
+        fprintf(stderr, "|              Stalls               |\n");
+        fprintf(stderr, "|-----------------------------------|\n");
+        fprintf(stderr, "|  Matched  | Unmatched |  Guessed  |\n");
+        fprintf(stderr, "|-----------------------------------|\n");
+        fprintf(stderr, "| ");
+        print_number(eustall_info.matched);
+        fprintf(stderr, " | ");
+        print_number(eustall_info.unmatched);
+        fprintf(stderr, " | ");
+        print_number(eustall_info.guessed);
+        fprintf(stderr, " |\n");
+        fprintf(stderr, "|-----------------------------------|\n");
+        fflush(stderr);
+}
+
+void print_status_table(int seconds)
+{
+        if (quiet || verbose || debug)
+                return;
+                
+        print_table();
+}
+
+/*******************
 *     COLLECT      *
 *******************/
 
@@ -184,7 +231,6 @@ void add_to_epoll_fd(int fd)
 {
         struct epoll_event e = {};
         
-        printf("Adding fd %d to the epoll_fd\n", fd);
         e.events = EPOLLIN;
         e.data.fd = fd;
         if (epoll_ctl(bpf_info.epoll_fd, EPOLL_CTL_ADD, fd, &e) < 0) {
@@ -237,16 +283,58 @@ void init_collect_thread()
 	}
 }
 
+int handle_eustall_read(struct epoll_event *event)
+{
+        int len;
+        enum eustall_status status;
+        
+	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+
+        /* Update the buffer_profile */
+        mark_vms_active();
+        print_vms();
+        
+        /* eustall collector */
+	len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
+	if (len > 0) {
+                status = handle_eustall_samples(eustall_info.perf_buf, len);
+        }
+        
+        /* Clear requests that were retired before we collected these eustalls */
+        clear_retired_requests();
+        
+        if (debug) {
+                print_vms();
+                print_debug_profile();
+        }
+        store_interval_flames();
+        
+        /* Reset for the next interval */
+        clear_interval_profiles();
+        
+	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+		return -1;
+	}
+        
+        return 0;
+}
+
 int handle_fd_read(struct epoll_event *event)
 {
         int len, retval;
         enum eustall_status status;
         
-        if ((event->events & EPOLLERR) ||
-            (event->events & EPOLLHUP)) {
+        if (event->events & EPOLLERR) {
                 /* Error or hangup. Abort! */
                 fprintf(stderr, "Encountered an error in one");
-                fprintf(stderr, "of the file descriptors. Aborting.\n");
+                fprintf(stderr, " of the file descriptors. Aborting.\n");
+                return -1;
+        }
+        if (event->events & EPOLLHUP) {
                 return -1;
         }
         if (!(event->events & EPOLLIN)) {
@@ -255,21 +343,13 @@ int handle_fd_read(struct epoll_event *event)
                 return 0;
         }
         if (event->data.fd == eustall_info.perf_fd) {
-                /* eustall collector */
-		len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
-		if (len > 0) {
-			status = handle_eustall_samples(eustall_info.perf_buf, len);
-                        if (status != EUSTALL_STATUS_OK) {
-                                fprintf(stderr,
-                                        "WARNING: Got an error handling eustall samples!\n");
-                        }
-                }
+                return handle_eustall_read(event);
         } else if (event->data.fd == 0) {
                 /* bpf_i915 collector. Note that libbpf sets event->data.fd to
                    ring_cnt, which, because we only have one ringbuffer, is zero. */
                 retval = ring_buffer__consume(bpf_info.rb);
                 if (retval < 0) {
-                        printf("ring_buffer__consume failed. Aborting.\n");
+                        fprintf(stderr, "ring_buffer__consume failed. Aborting.\n");
                         exit(1);
                 }
         } else {
@@ -282,15 +362,12 @@ int handle_fd_read(struct epoll_event *event)
 
 void *collect_thread_main(void *a)
 {
-	int i, nfds;
+	int i, nfds, eustall_fd_index;
         struct epoll_event *events;
         
         init_collect_thread();
         
         events = calloc(MAX_EPOLL_EVENTS, sizeof(struct epoll_event));
-
-	if (collect_thread_should_stop == 0)
-		print_status("Profiling... Ctrl-C to end.\n");
 
 	if (verbose)
 		print_header();
@@ -308,14 +385,36 @@ void *collect_thread_main(void *a)
                 if (nfds == 0) {
                         continue;
                 }
+                
+                /* Search the array of returns fds for the one that collects eustalls */
+                eustall_fd_index = -1;
                 for (i = 0; i < nfds; i++) {
-                        handle_fd_read(&events[i]);
+                        if (events[i].data.fd == eustall_info.perf_fd) {
+                                eustall_fd_index = i;
+                                break;
+                        }
+                }
+                
+                /* Handle the fds, but ensure that the eustall fd is handled last */
+                for (i = 0; i < nfds; i++) {
+                        if (i == eustall_fd_index) {
+                                /* We'll handle it later! */
+                                continue;
+                        }
+                        handle_fd_read(&(events[i]));
+                }
+                if (eustall_fd_index != -1) {
+                        handle_fd_read(&(events[eustall_fd_index]));
                 }
 	}
 
+        print_flamegraph();
+
 cleanup:
+        free(events);
 	close(eustall_info.perf_fd);
 	deinit_bpf_i915();
+        free_interval_profiles();
 
 	return NULL;
 }
@@ -388,11 +487,15 @@ int main(int argc, char **argv)
 			"Failed to start the collection thread. Aborting.\n");
 		exit(1);
 	}
+
+        /* Wait for the collection thread to start */
+        while (!collect_thread_profiling) {
+	        nanosleep(&request, &leftover);
+	}
+        print_status("Profiling, Ctrl-C to exit...\n");
+
+        /* Start the sidecar */
 	if (g_sidecar) {
-		/* don't kick off the sidecar command until profiling has started */
-		while (!collect_thread_profiling) {
-			nanosleep(&request, &leftover);
-		}
 		if (start_sidecar_thread() != 0) {
 			fprintf(stderr,
 				"Failed to start the provided command. Aborting.\n");
@@ -411,8 +514,8 @@ int main(int argc, char **argv)
 
 	gettimeofday(&tv, NULL);
         startsecs = (int) tv.tv_sec;
-
-	/* The collector thread is starting profiling rougly now.. */
+        
+	/* The collector thread is starting profiling roughly now.. */
 	if (g_sidecar) {
 		/* Wait until sidecar command finishes */
 		pthread_join(sidecar_thread_id, NULL);
@@ -423,19 +526,7 @@ int main(int argc, char **argv)
 
         		gettimeofday(&tv, NULL);
         
-                        /* Print the status line */
-                        fprintf(stderr, "\r");
-                        if (!isatty(STDERR_FILENO)) {
-                                fprintf(stderr, "\n");
-                        }
-        		fprintf(stderr,
-        			"Status: profiling for %d secs, %d samples matched, %d samples unmatched. ",
-        			(int)tv.tv_sec - startsecs, g_samples_matched, g_samples_unmatched);
-        		fflush(stderr);
-        
-                        /* We've woken up at the end of an interval. Print this interval's results. */
-                        print_interval_flamegraph();
-                        clear_interval_profiles();
+                        print_status_table((int)tv.tv_sec - startsecs);
 		}
 	}
 	if (collect_thread_profiling) {
@@ -449,16 +540,5 @@ int main(int argc, char **argv)
 	stop_collect_thread();
 	pthread_join(collect_thread_id, NULL);
 
-	if (verbose) {
-		printf("%d samples matched, %d samples unmatched.\n",
-		       g_samples_matched, g_samples_unmatched);
-	}
 	fflush(stdout);
-
-#if 0
-        if (debug) {
-                print_debug_profile();
-        }
-        print_flamegraph();
-#endif
 }

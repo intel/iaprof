@@ -2,11 +2,13 @@
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <string.h>
+#include <libiberty/demangle.h>
 
 #include <libelf.h>
 
 #include "iaprof.h"
 #include "debug_i915_collector.h"
+#include "utils/utils.h"
 
 void init_debug_i915(int i915_fd, int pid)
 {
@@ -43,7 +45,7 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
         int i, pid_index;
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
-        char greater_than_last;
+        char less_than_last;
         
         /* Find which index this PID relates to */
         pid_index = -1;
@@ -57,23 +59,20 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
                 fprintf(stderr, "WARNING: PID %d does not have GPU symbols.\n", pid);
                 return NULL;
         }
-        printf("PID %d has index %d\n", pid, pid_index);
         
         /* Find the addr range in this PID's symbol table */
         table = &(debug_i915_info.symtabs[pid_index]);
         for (i = 0; i < table->num_syms; i++) {
                 entry = &(table->symtab[i]);
-                printf("addr = %lx and %lx\n", addr, entry->start_addr);
-                if (addr > entry->start_addr) {
-                        greater_than_last = true;
+                if (addr < entry->start_addr) {
+                        less_than_last = true;
                         continue;
                 }
-                if (greater_than_last && (addr < entry->start_addr)) {
+                if (less_than_last && (addr > entry->start_addr)) {
                         return entry->symbol;
                 }
         }
         
-        printf("Failed GPU symbols.\n");
         return NULL;
 }
 
@@ -98,9 +97,7 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index, int
         entry = &(table->symtab[table->num_syms - 1]);
         entry->start_addr = (uint64_t) symbol->st_value;
         name = elf_strptr(elf, string_table_index, symbol->st_name);
-        len = strlen(name);
-        entry->symbol = malloc(sizeof(char) * (len + 1));
-        strcpy(entry->symbol, name);
+        entry->symbol = cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
         
         if (debug) {
                 printf("    Symbol 0x%lx:%s\n", entry->start_addr, entry->symbol);
@@ -179,11 +176,15 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 }
                 
                 /* Get the string name */
-                printf("Section: %s\n", elf_strptr(elf, string_table_index, section_header->sh_name));
+                if (debug) {
+                        printf("Section: %s\n", elf_strptr(elf, string_table_index, section_header->sh_name));
+                }
                 
                 /* If this is a .symtab section, it'll be marked as SHT_SYMTAB */
                 if (section_header->sh_type == SHT_SYMTAB) {
-                        printf("  Symbol table:\n");
+                        if (debug) {
+                                printf("  Symbol table:\n");
+                        }
                         handle_elf_symtab(elf, section, string_table_index, pid_index);
                 }
                 
@@ -224,8 +225,7 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event, 
         
         if (retval != 0) {
                 fprintf(stderr, "  Failed to read a UUID!\n");
-                free((void *) read_uuid.payload_ptr);
-                return;
+                goto cleanup;
         }
         
         memcpy(uuid_str, read_uuid.uuid, 37);
@@ -234,7 +234,11 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event, 
         /* Check for the ELF magic bytes */
         if (*((uint32_t *) data) == 0x464c457f) {
                 handle_elf(data, read_uuid.payload_size, pid_index);
+/*                 dump_buffer((unsigned char *)data, read_uuid.payload_size, 0); */
         }
+cleanup:
+        free((void *) read_uuid.payload_ptr);
+        return;
 }
 
 

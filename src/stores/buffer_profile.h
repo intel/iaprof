@@ -51,10 +51,21 @@ struct buffer_profile {
 
 	/* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;
-        
-        /* Index of this GEM */
-        size_t index;
 };
+
+/* Global array, including a lock, size, and "used" counter,
+   of buffer profiles. */
+extern pthread_rwlock_t buffer_profile_lock;
+extern struct buffer_profile *buffer_profile_arr;
+extern size_t buffer_profile_size, buffer_profile_used;
+
+/***************************************
+* Interval Profile Array
+**********************
+* An array of per-buffer profiles. Get cleared on each interval.
+***************************************/
+
+void free_interval_profiles();
 
 use_hash_table(uint64_t, uint64_t);
 
@@ -67,9 +78,34 @@ struct interval_profile {
 	hash_table(uint64_t, uint64_t) counts;
 };
 
-/* Global array, including a lock, size, and "used" counter,
-   of buffer profiles. */
-extern pthread_rwlock_t buffer_profile_lock;
-extern struct buffer_profile *buffer_profile_arr;
 extern struct interval_profile *interval_profile_arr;
-extern size_t buffer_profile_size, buffer_profile_used;
+
+/***************************************
+* VM Profile Array
+**********************
+* The index into this array is the vm_id. Stores
+* requests that are currently active for this VM.
+***************************************/
+
+#define MAX_OPEN_REQUESTS 256
+
+struct vm_profile *get_vm_profile(uint32_t vm_id);
+void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx);
+void request_retire(uint32_t seqno, uint32_t gem_ctx);
+void clear_retired_requests();
+void mark_vms_active();
+
+struct request_profile {
+        uint32_t seqno;
+        uint32_t gem_ctx;
+        char retired;
+};
+
+struct vm_profile {
+        char active;
+        uint32_t num_requests;
+        struct request_profile requests[MAX_OPEN_REQUESTS];
+};
+
+extern struct vm_profile *vm_profile_arr;
+extern uint32_t num_vms;

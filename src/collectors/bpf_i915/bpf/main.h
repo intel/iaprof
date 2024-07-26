@@ -59,7 +59,6 @@ struct vm_bind_info {
 	__u64 time;
 	int stackid;
 
-	char stale;
 	char pad[7];
 };
 
@@ -136,7 +135,7 @@ enum i915_request_type {
 struct request_info {
         enum i915_request_type type;
         __u32 seqno;
-        __u32 ctx;
+        __u32 gem_ctx;
         __u64 time;
         char pad[16];
 };

@@ -12,11 +12,11 @@
 * Defaults
 ******************************************************************************/
 
-#define DEFAULT_SAMPLE_RATE 7	/* HW events per sample, max 7 in i915 */
+#define DEFAULT_SAMPLE_RATE 1	/* HW events per sample, max 7 in i915 */
 /* XXX ^^^ increase i915 max as this is too low and generates excessive samples */
 #define DEFAULT_DSS_BUF_SIZE (128 * 1024)
 #define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS 1000000000	/* userspace wakeup interval */
+#define DEFAULT_POLL_PERIOD_NS 1000000	/* userspace wakeup interval */
 #define DEFAULT_EVENT_COUNT 1	/* aggregation: number of events to trigger poll read */
 
 /******************************************************************************
@@ -28,6 +28,8 @@
 struct eustall_info_t {
         int perf_fd;
         uint8_t perf_buf[DEFAULT_USER_BUF_SIZE];
+        
+        uint64_t matched, unmatched, guessed, churned;
 };
 extern struct eustall_info_t eustall_info;
 
@@ -45,7 +47,7 @@ enum eustall_status {
 struct eustall_sample;
 struct offset_profile;
 
-int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
+int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem, int gem_index,
 		     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
 		     unsigned long long time);
 int handle_eustall_samples(uint8_t *perf_buf, int len);
