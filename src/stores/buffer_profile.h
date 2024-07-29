@@ -22,8 +22,10 @@ int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
 int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle);
 int get_buffer_binding(uint32_t handle, uint32_t vm_id);
+void free_buffer_profiles();
 uint64_t grow_buffer_profiles();
 void clear_interval_profiles();
+void print_buffer_profiles();
 
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
@@ -87,7 +89,7 @@ extern struct interval_profile *interval_profile_arr;
 * requests that are currently active for this VM.
 ***************************************/
 
-#define MAX_OPEN_REQUESTS 256
+#define MAX_OPEN_REQUESTS 1024
 
 struct vm_profile *get_vm_profile(uint32_t vm_id);
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx);

@@ -47,6 +47,11 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
         struct i915_symbol_entry *entry;
         char less_than_last;
         
+        if (debug) {
+                fprintf(stderr, "Finding symbol for pid=%d addr=0x%lx\n",
+                        pid, addr);
+        }
+        
         /* Find which index this PID relates to */
         pid_index = -1;
         for (i = 0; i < debug_i915_info.num_pids; i++) {
@@ -260,13 +265,8 @@ int read_debug_i915_event(int fd, int pid_index)
         if (retval != 0) {
                 fprintf(stderr, "read_event failed with: %d\n", retval);
                 return -1;
-        } else if (event->flags & ~(PRELIM_DRM_I915_DEBUG_EVENT_CREATE |
-                                    PRELIM_DRM_I915_DEBUG_EVENT_DESTROY |
-                                    PRELIM_DRM_I915_DEBUG_EVENT_STATE_CHANGE |
-                                    PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK)) {
-                return -2;
         }
-
+        
         /* ACK the event, otherwise the workload will stall. */
         if (event->flags & PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK) {
                 ack_event.type = event->type;
@@ -276,6 +276,14 @@ int read_debug_i915_event(int fd, int pid_index)
                         fprintf(stderr, "  Failed to ACK event!\n");
                         return -1;
                 }
+        }
+        
+        if (event->flags & ~(PRELIM_DRM_I915_DEBUG_EVENT_CREATE |
+                                    PRELIM_DRM_I915_DEBUG_EVENT_DESTROY |
+                                    PRELIM_DRM_I915_DEBUG_EVENT_STATE_CHANGE |
+                                    PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK)) {
+                
+                return -2;
         }
 
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {

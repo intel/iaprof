@@ -53,7 +53,11 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset, char **insn_text
         uint32_t opcode;
         char retval;
         
-        if (!(gem->buff_sz) || !(gem->buff)) {
+        if (!(gem->buff_sz)) {
+                if (debug) {
+                        fprintf(stderr, "WARNING: Don't have a copy of handle=%u, so can't decode.\n",
+                                gem->handle);
+                }
                 return -1;
         }
         
@@ -63,7 +67,7 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset, char **insn_text
 				"WARNING: Got an EU stall past the end of a buffer. ");
 			fprintf(stderr,
 				"handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
-				gem->mapping_info.handle,
+				gem->handle,
 				gem->buff, offset,
 				gem->buff_sz);
 		}
@@ -107,9 +111,8 @@ void store_kernel_flames(struct buffer_profile *gem, int gem_index, char **insn_
         uint64_t offset, *tmp, addr, index;
         struct offset_profile **found;
         char *failed_decode = "[failed_decode]";
-        char *failed_gpu_symbols = "[failed gpu symbols]";
         char retval;
-        char *tmp_insn_text, *tmp_gpu_symbol;
+        char *tmp_insn_text;
         
         if (debug) {
                 printf("storing flamegraph for handle=%u pid=%d\n", gem->handle, gem->exec_info.pid);
@@ -121,10 +124,10 @@ void store_kernel_flames(struct buffer_profile *gem, int gem_index, char **insn_
 
                 /* Disassemble to get the instruction */
                 retval = get_insn_text(gem, offset, insn_text, insn_text_len);
-                if (retval != 0) {
-                        tmp_insn_text = failed_decode;
-                } else {
+                if (retval == 0) {
                         tmp_insn_text = *insn_text;
+                } else {
+                        tmp_insn_text = failed_decode;
                 }
                 
                 addr = gem->vm_bind_info.gpu_addr + offset;
@@ -188,9 +191,8 @@ void store_interval_flames()
         char *insn_text = 0;
         size_t insn_text_len = 0;
         
-        /* Iterate over each buffer */
-  	for (i = 0; i < buffer_profile_used; i++) {
-  		gem = &(buffer_profile_arr[i]);
+	for (i = 0; i < buffer_profile_used; i++) {
+		gem = &(buffer_profile_arr[i]);
 
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */

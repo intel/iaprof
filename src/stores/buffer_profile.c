@@ -23,6 +23,24 @@ uint64_t iba = 0;
 struct vm_profile *vm_profile_arr = NULL;
 uint32_t num_vms = 0;
 
+void print_buffer_profiles()
+{
+        int i;
+        struct buffer_profile *gem;
+        
+        if (!debug)
+                return;
+        
+        fprintf(stderr, "==== BUFFER_PROFILE_ARR =====\n");
+        
+        for (i = 0; i < buffer_profile_used; i++) {
+                gem = &(buffer_profile_arr[i]);
+                
+                fprintf(stderr, "handle=%u vm_id=%u cpu_addr=0x%llx gpu_addr=0x%llx buff_sz=%zu\n", gem->handle, 
+                       gem->vm_id, gem->mapping_info.cpu_addr, gem->vm_bind_info.gpu_addr, gem->buff_sz);
+        }
+}
+
 void free_interval_profiles()
 {
         int i;
@@ -59,6 +77,20 @@ void clear_interval_profiles()
         
         memset(interval_profile_arr, 0,
                buffer_profile_size * sizeof(struct interval_profile));
+}
+
+void free_buffer_profiles()
+{
+        int n;
+        struct buffer_profile *gem;
+        
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &(buffer_profile_arr[n]);
+                if (gem->buff && gem->buff_sz) {
+                        free(gem->buff);
+                }
+        }
+        free(buffer_profile_arr);
 }
 
 /* Ensure that we have enough room to place a newly-seen sample, and place it.

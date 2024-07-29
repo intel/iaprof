@@ -461,7 +461,7 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
 SEC("tracepoint/syscalls/sys_enter_munmap")
 int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 {
-	int err;
+	long retval;
 	u64 size;
 	struct vm_area_struct *vma;
 
@@ -475,6 +475,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 
 	/* First, make sure this is an i915 buffer */
 	addr = ctx->args[0];
+        size = ctx->args[1];
 	if (!addr) {
 		return -1;
 	}
@@ -496,23 +497,22 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 	bin->file = val->file;
 	bin->handle = val->handle;
 	bin->cpu_addr = addr;
-	bin->size = ctx->args[1];
+	bin->size = size;
 
 	bin->cpu = bpf_get_smp_processor_id();
 	bin->pid = bpf_get_current_pid_tgid() >> 32;
 	bin->tid = bpf_get_current_pid_tgid();
 	bin->time = bpf_ktime_get_ns();
 
-	size = bin->size;
 	if (size > MAX_BINARY_SIZE) {
 		size = MAX_BINARY_SIZE;
 	}
-	err = bpf_probe_read_user(bin->buff, size, (void *)bin->cpu_addr);
-	if (err) {
+	retval = bpf_probe_read_user(bin->buff, size, (void *)addr);
+	if (retval < 0) {
 		bpf_ringbuf_discard(bin, BPF_RB_FORCE_WAKEUP);
 		bpf_printk(
-			"WARNING: munmap_tp failed to copy %lu bytes from cpu_addr=0x%lx.",
-			size, addr);
+			"WARNING: munmap_tp failed to copy %lu bytes from handle=%u cpu_addr=0x%lx.",
+			size, val->handle, addr);
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
 		return -1;

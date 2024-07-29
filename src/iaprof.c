@@ -349,8 +349,7 @@ int handle_fd_read(struct epoll_event *event)
                    ring_cnt, which, because we only have one ringbuffer, is zero. */
                 retval = ring_buffer__consume(bpf_info.rb);
                 if (retval < 0) {
-                        fprintf(stderr, "ring_buffer__consume failed. Aborting.\n");
-                        exit(1);
+                        fprintf(stderr, "WARNING: ring_buffer__consume failed.\n");
                 }
         } else {
                 /* debug_i915 collector */
@@ -415,6 +414,7 @@ cleanup:
 	close(eustall_info.perf_fd);
 	deinit_bpf_i915();
         free_interval_profiles();
+        free_buffer_profiles();
 
 	return NULL;
 }

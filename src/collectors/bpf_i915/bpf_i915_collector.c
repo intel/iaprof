@@ -78,10 +78,10 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
 {
 	uint64_t size;
 
+        if (!src_sz)
+                return -1;
+
 	size = src_sz;
-	if (size > MAX_BINARY_SIZE) {
-		size = MAX_BINARY_SIZE;
-	}
 	*dst = calloc(size, sizeof(unsigned char));
 	*dst_sz = size;
 	memcpy(*dst, src, size);
@@ -95,6 +95,7 @@ int handle_unmap(void *data_arg)
 	int index, retval;
 	struct buffer_profile *gem;
 
+        retval = 0;
 	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
 		return -1;
@@ -113,11 +114,9 @@ int handle_unmap(void *data_arg)
 	}
 	gem = &(buffer_profile_arr[index]);
         gem->mapped = 0;
-        if (gem->buff) {
-                free(gem->buff);
-        }
-	retval = handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-			       info->size);
+        
+        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size);
+        
 	if (retval == -1) {
 		goto cleanup;
 	}
@@ -208,7 +207,6 @@ int handle_vm_create(void *data_arg)
         /* Register the PID with the debug_i915 collector */
         init_debug_i915(devinfo.fd, info->pid);
 
-
 	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
 		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
 		return -1;
@@ -233,7 +231,8 @@ int handle_vm_bind(void *data_arg)
 		print_vm_bind(info);
 	}
 
-	index = get_buffer_binding(info->handle, info->vm_id);
+        /* Look to see if we've got a mapping */
+	index = get_buffer_profile(info->file, info->handle);
 	if (index == -1) {
 		index = grow_buffer_profiles();
 	}
@@ -321,13 +320,9 @@ int handle_batchbuffer(void *data_arg)
                 	if (verbose) {
                 		print_batchbuffer(info);
                 	}
+                
                         /* Replace the current copy of this buffer */
-                        if (gem->buff && gem->buff_sz) {
-                                free(gem->buff);
-                        }
-                        gem->buff = malloc(info->buff_sz);
-                        memcpy(gem->buff, info->buff, info->buff_sz);
-                        gem->buff_sz = info->buff_sz;
+                        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->buff_sz);
                 }
                 
         }
@@ -410,12 +405,7 @@ int handle_execbuf_start(void *data_arg)
                                 /* We didn't get a copy of the batchbuffer from BPF! */
                                 continue;
                         }
-                        if (gem->buff) {
-                                free(gem->buff);
-                        }
-                        gem->buff = malloc(info->buff_sz);
-                        memcpy(gem->buff, info->buff, info->buff_sz);
-                        gem->buff_sz = info->buff_sz;
+                        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->buff_sz);
                         if ((!gem->buff) || (!gem->buff_sz)) {
                                 continue;
                         }
@@ -494,6 +484,8 @@ int handle_execbuf_end(void *data_arg)
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 {
 	unsigned char *data;
+
+        print_buffer_profiles();
 
 	if (data_sz == sizeof(struct mapping_info)) {
 		return handle_mapping(data_arg);

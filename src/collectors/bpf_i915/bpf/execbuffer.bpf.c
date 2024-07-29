@@ -35,7 +35,7 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
 {
         int err;
         struct batchbuffer_info *info = NULL;
-        u64 status, size;
+        u64 status, size, addr;
         
         /*
            We only care about this buffer if it:
@@ -65,19 +65,24 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         info->gpu_addr = gmapping->addr;
         info->vm_id = ctx->vm_id;
 
+        addr = cmapping->addr;
 	size = cmapping->size;
 	if (size > MAX_BINARY_SIZE) {
 		size = MAX_BINARY_SIZE;
 	}
-	err = bpf_probe_read_user(info->buff, size, (void *) cmapping->addr);
         info->buff_sz = size;
-	if (err) {
+	err = bpf_probe_read_user(info->buff, size, (const void *)addr);
+	if (err < 0) {
 		bpf_printk(
-			"WARNING: vm_callback failed to copy %lu bytes.",
-			size);
+			"WARNING: vm_callback failed to copy %lu bytes from 0x%lx: %d",
+			size, addr, err);
                 info->buff_sz = 0;
-	}
-	bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+	} else {
+		bpf_printk(
+			"WARNING: vm_callback SUCCESSFULLY copied %lu bytes from 0x%lx: %d",
+			size, addr, err);
+        }
+	bpf_ringbuf_submit(info, 0);
         bpf_printk("batchbuffer %u 0x%lx %lu", ctx->vm_id, gmapping->addr, cmapping->size);
         return 0;
 }
@@ -102,14 +107,6 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
 	file = (u64)PT_REGS_PARM2(ctx);
 	execbuffer = (struct drm_i915_gem_execbuffer2 *)PT_REGS_PARM3(ctx);
 	objects = (struct drm_i915_gem_exec_object2 *)PT_REGS_PARM4(ctx);
-
-	/* Pass arguments to the kretprobe */
-	__builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
-	val.file = file;
-	val.execbuffer = (u64)execbuffer;
-	val.objects = (u64)objects;
-	cpu = bpf_get_smp_processor_id();
-	bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
 
 	/* Look up the VM ID based on the context ID (which is in execbuffer->rsvd1) */
 	if (!execbuffer) {
@@ -144,6 +141,14 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 offset = 0xffffffffffffffff;
         }
         
+	/* Pass arguments to the kretprobe */
+	__builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
+	val.file = file;
+	val.execbuffer = (u64)execbuffer;
+	val.objects = (u64)objects;
+	cpu = bpf_get_smp_processor_id();
+	bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
+
         /* Now iterate over all buffers in the same VM as the batchbuffer */
         vm_callback_ctx.vm_id = vm_id;
         vm_callback_ctx.bits_to_match = offset & 0xffffffffff000000;
@@ -152,6 +157,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 bpf_printk("ERROR in vm_callback");
                 return -1;
         }
+        
 
 	/* Reserve some space on the ringbuffer, into which we can copy things */
 	info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
