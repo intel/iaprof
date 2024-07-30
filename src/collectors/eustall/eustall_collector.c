@@ -26,7 +26,7 @@ uint64_t uint64_t_hash(uint64_t i)
 uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 {
         uint64_t total;
-        
+
         total = 0;
 	total += sample->active;
 	total += sample->other;
@@ -129,7 +129,7 @@ retry:
 			gem = &buffer_profile_arr[n];
 			start = gem->vm_bind_info.gpu_addr;
 			end = start + gem->vm_bind_info.size;
-                        
+
 			if ((addr < start) || (addr >= end)) {
 				continue;
 			}
@@ -265,7 +265,11 @@ int init_eustall(device_info *devinfo)
 	}
 
 	/* Enable the fd */
-	ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+    retval = ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+    if (retval < 0) {
+		fprintf(stderr, "Failed to enable the perf file descriptor.\n");
+		return -1;
+    }
 
         /* Add the fd to the epoll_fd */
         eustall_info.perf_fd = fd;
