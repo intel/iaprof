@@ -12,12 +12,13 @@
 * Defaults
 ******************************************************************************/
 
-#define DEFAULT_SAMPLE_RATE 1	/* HW events per sample, max 7 in i915 */
+#define DEFAULT_SAMPLE_RATE 1 /* HW events per sample, max 7 in i915 */
 /* XXX ^^^ increase i915 max as this is too low and generates excessive samples */
 #define DEFAULT_DSS_BUF_SIZE (128 * 1024)
 #define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
-#define DEFAULT_POLL_PERIOD_NS 1000000	/* userspace wakeup interval */
-#define DEFAULT_EVENT_COUNT 1	/* aggregation: number of events to trigger poll read */
+#define DEFAULT_POLL_PERIOD_NS 1000000 /* userspace wakeup interval */
+#define DEFAULT_EVENT_COUNT \
+        1 /* aggregation: number of events to trigger poll read */
 
 /******************************************************************************
 * eustall_info
@@ -28,7 +29,7 @@
 struct eustall_info_t {
         int perf_fd;
         uint8_t perf_buf[DEFAULT_USER_BUF_SIZE];
-        
+
         uint64_t matched, unmatched, guessed, churned;
 };
 extern struct eustall_info_t eustall_info;
@@ -39,7 +40,7 @@ extern struct eustall_info_t eustall_info;
 * Return types for the eustall collector.
 ******************************************************************************/
 enum eustall_status {
-	EUSTALL_STATUS_OK,
+        EUSTALL_STATUS_OK,
         EUSTALL_STATUS_ERROR,
         EUSTALL_STATUS_NOTFOUND,
 };
@@ -47,9 +48,9 @@ enum eustall_status {
 struct eustall_sample;
 struct offset_profile;
 
-int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem, int gem_index,
-		     uint64_t gpu_addr, uint64_t offset, uint16_t subslice,
-		     unsigned long long time);
+int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
+                     int gem_index, uint64_t gpu_addr, uint64_t offset,
+                     uint16_t subslice, unsigned long long time);
 int handle_eustall_samples(uint8_t *perf_buf, int len);
 int init_eustall(device_info *devinfo);
 
@@ -79,15 +80,15 @@ int init_eustall(device_info *devinfo);
 ***************************************/
 
 struct offset_profile {
-	unsigned int active;
-	unsigned int other;
-	unsigned int control;
-	unsigned int pipestall;
-	unsigned int send;
-	unsigned int dist_acc;
-	unsigned int sbid;
-	unsigned int sync;
-	unsigned int inst_fetch;
+        unsigned int active;
+        unsigned int other;
+        unsigned int control;
+        unsigned int pipestall;
+        unsigned int send;
+        unsigned int dist_acc;
+        unsigned int sbid;
+        unsigned int sync;
+        unsigned int inst_fetch;
 };
 
 /***************************************
@@ -109,14 +110,14 @@ struct offset_profile {
   * 93 to 100  inst_fetch count
 ***************************************/
 struct __attribute__((__packed__)) eustall_sample {
-	unsigned int ip : 29;
-	unsigned short active : 8;
-	unsigned short other : 8;
-	unsigned short control : 8;
-	unsigned short pipestall : 8;
-	unsigned short send : 8;
-	unsigned short dist_acc : 8;
-	unsigned short sbid : 8;
-	unsigned short sync : 8;
-	unsigned short inst_fetch : 8;
+        unsigned int ip : 29;
+        unsigned short active : 8;
+        unsigned short other : 8;
+        unsigned short control : 8;
+        unsigned short pipestall : 8;
+        unsigned short send : 8;
+        unsigned short dist_acc : 8;
+        unsigned short sbid : 8;
+        unsigned short sync : 8;
+        unsigned short inst_fetch : 8;
 };

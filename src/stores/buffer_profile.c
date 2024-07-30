@@ -27,17 +27,19 @@ void print_buffer_profiles()
 {
         int i;
         struct buffer_profile *gem;
-        
+
         if (!debug)
                 return;
-        
+
         fprintf(stderr, "==== BUFFER_PROFILE_ARR =====\n");
-        
+
         for (i = 0; i < buffer_profile_used; i++) {
                 gem = &(buffer_profile_arr[i]);
-                
-                fprintf(stderr, "handle=%u vm_id=%u cpu_addr=0x%llx gpu_addr=0x%llx buff_sz=%zu\n", gem->handle, 
-                       gem->vm_id, gem->mapping_info.cpu_addr, gem->vm_bind_info.gpu_addr, gem->buff_sz);
+
+                fprintf(stderr,
+                        "handle=%u vm_id=%u cpu_addr=0x%llx gpu_addr=0x%llx buff_sz=%zu\n",
+                        gem->handle, gem->vm_id, gem->mapping_info.cpu_addr,
+                        gem->vm_bind_info.gpu_addr, gem->buff_sz);
         }
 }
 
@@ -46,11 +48,13 @@ void free_interval_profiles()
         int i;
         uint64_t offset, *tmp;
         struct offset_profile **found;
-        
+
         for (i = 0; i < buffer_profile_used; i++) {
                 if (interval_profile_arr[i].counts) {
-                        hash_table_traverse(interval_profile_arr[i].counts, offset, tmp) {
-                                found = (struct offset_profile **) tmp;
+                        hash_table_traverse(interval_profile_arr[i].counts,
+                                            offset, tmp)
+                        {
+                                found = (struct offset_profile **)tmp;
                                 free(*found);
                         }
                         hash_table_free(interval_profile_arr[i].counts);
@@ -64,17 +68,19 @@ void clear_interval_profiles()
         int i;
         uint64_t offset, *tmp;
         struct offset_profile **found;
-        
+
         for (i = 0; i < buffer_profile_used; i++) {
                 if (interval_profile_arr[i].counts) {
-                        hash_table_traverse(interval_profile_arr[i].counts, offset, tmp) {
-                                found = (struct offset_profile **) tmp;
+                        hash_table_traverse(interval_profile_arr[i].counts,
+                                            offset, tmp)
+                        {
+                                found = (struct offset_profile **)tmp;
                                 free(*found);
                         }
                         hash_table_free(interval_profile_arr[i].counts);
                 }
         }
-        
+
         memset(interval_profile_arr, 0,
                buffer_profile_size * sizeof(struct interval_profile));
 }
@@ -83,7 +89,7 @@ void free_buffer_profiles()
 {
         int n;
         struct buffer_profile *gem;
-        
+
         for (n = 0; n < buffer_profile_used; n++) {
                 gem = &(buffer_profile_arr[n]);
                 if (gem->buff && gem->buff_sz) {
@@ -97,35 +103,35 @@ void free_buffer_profiles()
    Does NOT grab the lock, so the caller should. */
 uint64_t grow_buffer_profiles()
 {
-	size_t old_size;
+        size_t old_size;
 
-	/* Ensure there's enough room in the array */
-	if (buffer_profile_size == buffer_profile_used) {
-		/* Not enough room in the array */
-		old_size = buffer_profile_size;
+        /* Ensure there's enough room in the array */
+        if (buffer_profile_size == buffer_profile_used) {
+                /* Not enough room in the array */
+                old_size = buffer_profile_size;
 
-		buffer_profile_size += 64;
+                buffer_profile_size += 64;
 
-		buffer_profile_arr = realloc(
-			buffer_profile_arr,
-			buffer_profile_size * sizeof(struct buffer_profile));
-		interval_profile_arr = realloc(
-			interval_profile_arr,
-			buffer_profile_size * sizeof(struct interval_profile));
+                buffer_profile_arr = realloc(
+                        buffer_profile_arr,
+                        buffer_profile_size * sizeof(struct buffer_profile));
+                interval_profile_arr = realloc(
+                        interval_profile_arr,
+                        buffer_profile_size * sizeof(struct interval_profile));
 
-		memset(buffer_profile_arr + buffer_profile_used, 0,
-		       (buffer_profile_size - old_size) *
-			       sizeof(struct buffer_profile));
-		memset(interval_profile_arr + buffer_profile_used, 0,
-		       (buffer_profile_size - old_size) *
-			       sizeof(struct interval_profile));
+                memset(buffer_profile_arr + buffer_profile_used, 0,
+                       (buffer_profile_size - old_size) *
+                               sizeof(struct buffer_profile));
+                memset(interval_profile_arr + buffer_profile_used, 0,
+                       (buffer_profile_size - old_size) *
+                               sizeof(struct interval_profile));
 
-		if (debug)
-			fprintf(stderr, "INFO: Increasing buffer size.\n");
-	}
+                if (debug)
+                        fprintf(stderr, "INFO: Increasing buffer size.\n");
+        }
 
-	buffer_profile_used++;
-	return buffer_profile_used - 1;
+        buffer_profile_used++;
+        return buffer_profile_used - 1;
 }
 
 /* Looks up a buffer in the buffer_profile_arr by handle/vm_id pair. */
@@ -133,15 +139,14 @@ int get_buffer_binding(uint32_t handle, uint32_t vm_id)
 {
         int n;
         struct buffer_profile *gem;
-        
+
         for (n = 0; n < buffer_profile_used; n++) {
                 gem = &buffer_profile_arr[n];
-                if ((gem->handle == handle) &&
-                    (gem->vm_id == vm_id)) {
+                if ((gem->handle == handle) && (gem->vm_id == vm_id)) {
                         return n;
                 }
         }
-        
+
         return -1;
 }
 
@@ -149,18 +154,17 @@ int get_buffer_binding(uint32_t handle, uint32_t vm_id)
    Returns -1 if not found. */
 int get_buffer_profile(uint64_t file, uint32_t handle)
 {
-	int n;
-	struct buffer_profile *gem;
+        int n;
+        struct buffer_profile *gem;
 
-	for (n = 0; n < buffer_profile_used; n++) {
-		gem = &buffer_profile_arr[n];
-		if ((gem->handle == handle) &&
-		    (gem->file == file)) {
-			return n;
-		}
-	}
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &buffer_profile_arr[n];
+                if ((gem->handle == handle) && (gem->file == file)) {
+                        return n;
+                }
+        }
 
-	return -1;
+        return -1;
 }
 
 /* Looks up a buffer in the buffer_profile_arr by file/handle pair
@@ -168,18 +172,18 @@ int get_buffer_profile(uint64_t file, uint32_t handle)
    Returns -1 if not found. */
 int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
 {
-	int n;
-	struct buffer_profile *gem;
+        int n;
+        struct buffer_profile *gem;
 
-	for (n = 0; n < buffer_profile_used; n++) {
-		gem = &buffer_profile_arr[n];
-		if ((gem->mapping_info.handle == handle) &&
-		    (gem->mapping_info.file == file)) {
-			return n;
-		}
-	}
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &buffer_profile_arr[n];
+                if ((gem->mapping_info.handle == handle) &&
+                    (gem->mapping_info.file == file)) {
+                        return n;
+                }
+        }
 
-	return -1;
+        return -1;
 }
 
 /* Looks up a buffer in the buffer_profile_arr by the file/handle pair
@@ -187,40 +191,40 @@ int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
    Returns -1 if not found. */
 int get_buffer_profile_by_binding(uint64_t file, uint32_t handle)
 {
-	int n;
-	struct buffer_profile *gem;
+        int n;
+        struct buffer_profile *gem;
 
-	for (n = 0; n < buffer_profile_used; n++) {
-		gem = &buffer_profile_arr[n];
-		if ((gem->vm_bind_info.handle == handle) &&
-		    (gem->vm_bind_info.file == file)) {
-			return n;
-		}
-	}
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &buffer_profile_arr[n];
+                if ((gem->vm_bind_info.handle == handle) &&
+                    (gem->vm_bind_info.file == file)) {
+                        return n;
+                }
+        }
 
-	return -1;
+        return -1;
 }
 
 /* Looks up a buffer in the buffer_profile_arr by its GPU address. */
 int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr)
 {
-	int n;
-	struct buffer_profile *gem;
+        int n;
+        struct buffer_profile *gem;
 
-	for (n = 0; n < buffer_profile_used; n++) {
-		gem = &buffer_profile_arr[n];
-		if (gem->vm_bind_info.gpu_addr == gpu_addr) {
-			return n;
-		}
-	}
+        for (n = 0; n < buffer_profile_used; n++) {
+                gem = &buffer_profile_arr[n];
+                if (gem->vm_bind_info.gpu_addr == gpu_addr) {
+                        return n;
+                }
+        }
 
-	return -1;
+        return -1;
 }
 
 struct vm_profile *get_vm_profile(uint32_t vm_id)
 {
         uint32_t old_size;
-        
+
         /* The index into the array is vm_id - 1 (since vm_id cannot be zero). */
         if (vm_id == 0) {
                 fprintf(stderr, "WARNING: vm_id was zero!\n");
@@ -229,9 +233,10 @@ struct vm_profile *get_vm_profile(uint32_t vm_id)
         if (num_vms < vm_id) {
                 old_size = num_vms;
                 num_vms = vm_id;
-                vm_profile_arr = realloc(vm_profile_arr, sizeof(struct vm_profile) * num_vms);
-		memset(vm_profile_arr + old_size, 0,
-		       sizeof(struct vm_profile) * (num_vms - old_size));
+                vm_profile_arr = realloc(vm_profile_arr,
+                                         sizeof(struct vm_profile) * num_vms);
+                memset(vm_profile_arr + old_size, 0,
+                       sizeof(struct vm_profile) * (num_vms - old_size));
         }
         return &(vm_profile_arr[vm_id - 1]);
 }
@@ -242,13 +247,14 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
         struct vm_profile *vm;
         struct request_profile *rq;
         char found;
-        
+
         vm = get_vm_profile(vm_id);
         if (!vm) {
-                fprintf(stderr, "WARNING: Can't store a request for vm_id = 0!\n");
+                fprintf(stderr,
+                        "WARNING: Can't store a request for vm_id = 0!\n");
                 return;
         }
-        
+
         /* Find the first all-zero request_profile in this vm, if extant. */
         found = 0;
         for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
@@ -259,17 +265,18 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
                         break;
                 }
         }
-        
+
         if (!found) {
                 /* Allocate a new slot */
                 if (vm->num_requests >= MAX_OPEN_REQUESTS) {
-                        fprintf(stderr, "WARNING: MAX_OPEN_REQUESTS hit. Not recording a request.\n");
+                        fprintf(stderr,
+                                "WARNING: MAX_OPEN_REQUESTS hit. Not recording a request.\n");
                         return;
                 }
                 vm->num_requests++;
                 rq = &(vm->requests[vm->num_requests - 1]);
         }
-        
+
         /* Fill the slot */
         rq->seqno = seqno;
         rq->gem_ctx = gem_ctx;
@@ -282,7 +289,7 @@ void request_retire(uint32_t seqno, uint32_t gem_ctx)
         uint32_t rq_index, vm_index;
         struct vm_profile *vm;
         struct request_profile *rq;
-        
+
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 vm = &(vm_profile_arr[vm_index]);
                 for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
@@ -300,7 +307,7 @@ void clear_retired_requests()
         uint32_t vm_index, rq_index;
         struct vm_profile *vm;
         struct request_profile *rq;
-        
+
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 vm = &(vm_profile_arr[vm_index]);
                 for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
@@ -318,7 +325,7 @@ void mark_vms_active()
         char active_requests;
         struct vm_profile *vm;
         struct request_profile *rq;
-        
+
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 /* Are there any active or retired requests this interval? */
                 active_requests = 0;
@@ -330,12 +337,11 @@ void mark_vms_active()
                                 break;
                         }
                 }
-                
+
                 if (active_requests) {
                         vm->active = 1;
                 } else {
                         vm->active = 0;
                 }
         }
-        
 }
