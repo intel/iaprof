@@ -30,9 +30,9 @@ void print_buffer_profiles();
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
 struct buffer_profile {
-	struct vm_bind_info vm_bind_info;
-	struct mapping_info mapping_info;
-	struct execbuf_start_info exec_info;
+        struct vm_bind_info vm_bind_info;
+        struct mapping_info mapping_info;
+        struct execbuf_start_info exec_info;
 
         /* i915 differentiates a buffer by the file pointer (or ctx_id)
            and its integer handle, so we will too. */
@@ -40,18 +40,18 @@ struct buffer_profile {
         uint64_t file;
         char mapped;
 
-	/* A copy of the buffer bytes itself */
-	uint64_t buff_sz;
-	unsigned char *buff;
+        /* A copy of the buffer bytes itself */
+        uint64_t buff_sz;
+        unsigned char *buff;
         char parsed;
 
-	/* The IBA (Instruction Base Address) associated with this buffer */
-	uint64_t iba;
+        /* The IBA (Instruction Base Address) associated with this buffer */
+        uint64_t iba;
 
-	/* The stack where this buffer was execbuffer'd */
-	char *execbuf_stack_str;
+        /* The stack where this buffer was execbuffer'd */
+        char *execbuf_stack_str;
 
-	/* Set if EU stalls are associated with this buffer */
+        /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;
 };
 
@@ -74,10 +74,10 @@ use_hash_table(uint64_t, uint64_t);
 /* Stores per-interval profiles. */
 struct interval_profile {
         unsigned char has_stalls;
-        
-	/* The EU stalls. Key is the offset into the binary,
+
+        /* The EU stalls. Key is the offset into the binary,
            value is a pointer to the struct of EU stall counts */
-	hash_table(uint64_t, uint64_t) counts;
+        hash_table(uint64_t, uint64_t) counts;
 };
 
 extern struct interval_profile *interval_profile_arr;

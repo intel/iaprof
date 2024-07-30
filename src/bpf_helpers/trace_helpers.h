@@ -7,8 +7,8 @@
 #define NSEC_PER_SEC 1000000000ULL
 
 struct ksym {
-	const char *name;
-	unsigned long addr;
+        const char *name;
+        unsigned long addr;
 };
 
 struct ksyms;
@@ -16,15 +16,15 @@ struct ksyms;
 struct ksyms *ksyms__load(void);
 void ksyms__free(struct ksyms *ksyms);
 const struct ksym *ksyms__map_addr(const struct ksyms *ksyms,
-				   unsigned long addr);
+                                   unsigned long addr);
 const struct ksym *ksyms__get_symbol(const struct ksyms *ksyms,
-				     const char *name);
+                                     const char *name);
 
 struct sym {
-	const char *name;
-	unsigned long start;
-	unsigned long size;
-	unsigned long offset;
+        const char *name;
+        unsigned long start;
+        unsigned long size;
+        unsigned long offset;
 };
 
 struct syms;
@@ -34,8 +34,8 @@ struct syms *syms__load_file(const char *fname);
 void syms__free(struct syms *syms);
 const struct sym *syms__map_addr(const struct syms *syms, unsigned long addr);
 const struct sym *syms__map_addr_dso(const struct syms *syms,
-				     unsigned long addr, char **dso_name,
-				     unsigned long *dso_offset);
+                                     unsigned long addr, char **dso_name,
+                                     unsigned long *dso_offset);
 
 struct syms_cache;
 
@@ -45,8 +45,8 @@ void syms_cache__reload_syms(struct syms_cache *syms_cache, int tgid);
 void syms_cache__free(struct syms_cache *syms_cache);
 
 struct partition {
-	char *name;
-	unsigned int dev;
+        char *name;
+        unsigned int dev;
 };
 
 struct partitions;
@@ -60,7 +60,7 @@ partitions__get_by_name(const struct partitions *partitions, const char *name);
 
 void print_log2_hist(unsigned int *vals, int vals_size, const char *val_type);
 void print_linear_hist(unsigned int *vals, int vals_size, unsigned int base,
-		       unsigned int step, const char *val_type);
+                       unsigned int step, const char *val_type);
 
 unsigned long long get_ktime_ns(void);
 

@@ -55,101 +55,104 @@ char bb_debug = 0;
 char quiet = 0;
 char *g_sidecar = NULL;
 
-static struct option long_options[] = {
-	{ "debug", no_argument, 0, 'd' }, { "help", no_argument, 0, 'h' },
-	{ "quiet", no_argument, 0, 'q' }, { "verbose", no_argument, 0, 'v' },
-        { "batchbuffer-debug", no_argument, 0, 'b'},
-	{ "version", no_argument, 0, 0 }, { 0 }
-};
+static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
+                                        { "help", no_argument, 0, 'h' },
+                                        { "quiet", no_argument, 0, 'q' },
+                                        { "verbose", no_argument, 0, 'v' },
+                                        { "batchbuffer-debug", no_argument, 0,
+                                          'b' },
+                                        { "version", no_argument, 0, 0 },
+                                        { 0 } };
 
 void usage()
 {
-	printf("USAGE: iaprof [-dhqv] [command]\n\n");
-	printf(" e.g.:\n");
-	printf("        iaprof > profile.txt            # profile until Ctrl-C.\n");
-	printf("        iaprof sleep 30 > profile.txt   # profile for 30 seconds.\n");
-	printf("\noptional arguments:\n");
-	printf("        -d, --debug              debug\n");
-	printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
-	printf("        -h, --help               help\n");
-	printf("        -q, --quiet              quiet\n");
-	printf("        -v, --verbose            verbose\n");
-	printf("        command                  profile system-wide while command runs\n\n");
-	printf("Version: %s\n", GIT_COMMIT_HASH);
+        printf("USAGE: iaprof [-dhqv] [command]\n\n");
+        printf(" e.g.:\n");
+        printf("        iaprof > profile.txt            # profile until Ctrl-C.\n");
+        printf("        iaprof sleep 30 > profile.txt   # profile for 30 seconds.\n");
+        printf("\noptional arguments:\n");
+        printf("        -d, --debug              debug\n");
+        printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
+        printf("        -h, --help               help\n");
+        printf("        -q, --quiet              quiet\n");
+        printf("        -v, --verbose            verbose\n");
+        printf("        command                  profile system-wide while command runs\n\n");
+        printf("Version: %s\n", GIT_COMMIT_HASH);
 }
 
 void check_permissions()
 {
-	if (geteuid() != 0) {
-		printf("Tool currently needs superuser (root) permission. "
-		       "Please consider running with sudo. Exiting.\n");
-		exit(1);
-	}
+        if (geteuid() != 0) {
+                printf("Tool currently needs superuser (root) permission. "
+                       "Please consider running with sudo. Exiting.\n");
+                exit(1);
+        }
 }
 
 int read_opts(int argc, char **argv)
 {
-	int option_index, size = 0;
-	char c;
+        int option_index, size = 0;
+        char c;
 
-	while (1) {
-		option_index = 0;
-		c = getopt_long(argc, argv, "dbhqv", long_options, &option_index);
-		if (c == -1) {
-			break;
-		}
-		switch (c) {
-		case 'd':
-			debug = 1;
-			break;
-		case 'b':
-			bb_debug = 1;
-			break;
-		case 'h':
-			usage();
-			exit(0);
-			/* no fallthrough */
-		case 'q':
-			quiet = 1;
-			break;
-		case 'v':
-			verbose = 1;
-			break;
-		case 0:
-			if (strcmp(long_options[option_index].name,
-				   "version") == 0) {
-				printf("Version: %s\n", GIT_COMMIT_HASH);
-				exit(0);
-			} else {
-				printf("option %s\n",
-				       long_options[option_index].name);
-			}
-			break;
-		}
-	}
+        while (1) {
+                option_index = 0;
+                c = getopt_long(argc, argv, "dbhqv", long_options,
+                                &option_index);
+                if (c == -1) {
+                        break;
+                }
+                switch (c) {
+                case 'd':
+                        debug = 1;
+                        break;
+                case 'b':
+                        bb_debug = 1;
+                        break;
+                case 'h':
+                        usage();
+                        exit(0);
+                        /* no fallthrough */
+                case 'q':
+                        quiet = 1;
+                        break;
+                case 'v':
+                        verbose = 1;
+                        break;
+                case 0:
+                        if (strcmp(long_options[option_index].name,
+                                   "version") == 0) {
+                                printf("Version: %s\n", GIT_COMMIT_HASH);
+                                exit(0);
+                        } else {
+                                printf("option %s\n",
+                                       long_options[option_index].name);
+                        }
+                        break;
+                }
+        }
 
-	if (optind < argc) {
-		for (int i = optind; i < argc; i++) {
-			size += strlen(argv[i]) + 1;
-		}
-		if (!(g_sidecar = malloc(size))) {
-			fprintf(stderr, "ERROR: out of memory.\n");
-			exit(2);
-		}
-		for (int i = optind, size = 0; i < argc; i++) {
-			size += sprintf(g_sidecar + size, "%s ", argv[i]);
-		}
-		g_sidecar[--size] = '\0';
-	}
+        if (optind < argc) {
+                for (int i = optind; i < argc; i++) {
+                        size += strlen(argv[i]) + 1;
+                }
+                if (!(g_sidecar = malloc(size))) {
+                        fprintf(stderr, "ERROR: out of memory.\n");
+                        exit(2);
+                }
+                for (int i = optind, size = 0; i < argc; i++) {
+                        size += sprintf(g_sidecar + size, "%s ", argv[i]);
+                }
+                g_sidecar[--size] = '\0';
+        }
 
-	return 0;
+        return 0;
 }
 
 void print_status(const char *msg)
 {
-	if (!quiet) {
-		fprintf(stderr, "%s", msg);
-	}
+        if (!quiet) {
+                fprintf(stderr, "%s", msg);
+        }
 }
 
 /*******************
@@ -172,7 +175,10 @@ int first = 1;
 void print_table()
 {
         if (isatty(STDERR_FILENO) && !first) {
-                fprintf(stderr, "\x1B" "[%dA", 7);
+                fprintf(stderr,
+                        "\x1B"
+                        "[%dA",
+                        7);
         } else {
                 first = 0;
         }
@@ -196,7 +202,7 @@ void print_status_table(int seconds)
 {
         if (quiet || verbose || debug)
                 return;
-                
+
         print_table();
 }
 
@@ -224,102 +230,103 @@ static char main_thread_should_stop = 0;
 
 void stop_collect_thread()
 {
-	collect_thread_should_stop = 1;
+        collect_thread_should_stop = 1;
 }
 
 void add_to_epoll_fd(int fd)
 {
         struct epoll_event e = {};
-        
+
         e.events = EPOLLIN;
         e.data.fd = fd;
         if (epoll_ctl(bpf_info.epoll_fd, EPOLL_CTL_ADD, fd, &e) < 0) {
-                fprintf(stderr, "Failed to add to the ringbuffer's epoll instance. Aborting.\n");
+                fprintf(stderr,
+                        "Failed to add to the ringbuffer's epoll instance. Aborting.\n");
                 exit(1);
         }
 }
 
 void init_collect_thread()
 {
-	sigset_t mask;
+        sigset_t mask;
         int retval;
-        
-	/* The collect thread should block SIGINT, so that all
+
+        /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGINT);
-	if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-		fprintf(stderr, "Error blocking signal. Aborting.\n");
-		return;
-	}
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
+                fprintf(stderr, "Error blocking signal. Aborting.\n");
+                return;
+        }
 
         /* We'll need the i915 driver for multiple collectors */
-	retval = open_first_driver(&devinfo);
-	if (retval != 0) {
-		fprintf(stderr, "Failed to open any drivers. Aborting.\n");
-		exit(1);
-	}
+        retval = open_first_driver(&devinfo);
+        if (retval != 0) {
+                fprintf(stderr, "Failed to open any drivers. Aborting.\n");
+                exit(1);
+        }
 
-	/* Get information about the device */
-	if (get_drm_device_info(&devinfo) != 0) {
-		fprintf(stderr, "Failed to get device info. Aborting.\n");
-		exit(1);
-	}
+        /* Get information about the device */
+        if (get_drm_device_info(&devinfo) != 0) {
+                fprintf(stderr, "Failed to get device info. Aborting.\n");
+                exit(1);
+        }
 
-	if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
-		fprintf(stderr, "Failed to get engine info. Aborting.\n");
-		exit(1);
-	}
-
+        if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
+                fprintf(stderr, "Failed to get engine info. Aborting.\n");
+                exit(1);
+        }
 
         /* BPF collector */
         init_bpf_i915();
-        
+
         /* EU stall collector. Add to the epoll_fd that the bpf_i915
            collector created. */
         if (init_eustall(&devinfo)) {
-		fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
-		exit(1);
-	}
+                fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
+                exit(1);
+        }
 }
 
 int handle_eustall_read(struct epoll_event *event)
 {
         int len;
         enum eustall_status status;
-        
-	if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-		return -1;
-	}
+
+        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+                return -1;
+        }
 
         /* Update the buffer_profile */
         mark_vms_active();
         print_vms();
-        
+
         /* eustall collector */
-	len = read(event->data.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE);
-	if (len > 0) {
+        len = read(event->data.fd, eustall_info.perf_buf,
+                   DEFAULT_USER_BUF_SIZE);
+        if (len > 0) {
                 status = handle_eustall_samples(eustall_info.perf_buf, len);
         }
-        
+
         /* Clear requests that were retired before we collected these eustalls */
         clear_retired_requests();
-        
+
         if (debug) {
                 print_vms();
                 print_debug_profile();
         }
         store_interval_flames();
-        
+
         /* Reset for the next interval */
         clear_interval_profiles();
-        
-	if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-		fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-		return -1;
-	}
-        
+
+        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+                return -1;
+        }
+
         return 0;
 }
 
@@ -327,7 +334,7 @@ int handle_fd_read(struct epoll_event *event)
 {
         int len, retval;
         enum eustall_status status;
-        
+
         if (event->events & EPOLLERR) {
                 /* Error or hangup. Abort! */
                 fprintf(stderr, "Encountered an error in one");
@@ -339,7 +346,8 @@ int handle_fd_read(struct epoll_event *event)
         }
         if (!(event->events & EPOLLIN)) {
                 /* The fd is not ready to be read, so skip it */
-                fprintf(stderr, "WARNING: EPOLLIN was not set. Why were we awoken?\n");
+                fprintf(stderr,
+                        "WARNING: EPOLLIN was not set. Why were we awoken?\n");
                 return 0;
         }
         if (event->data.fd == eustall_info.perf_fd) {
@@ -349,42 +357,43 @@ int handle_fd_read(struct epoll_event *event)
                    ring_cnt, which, because we only have one ringbuffer, is zero. */
                 retval = ring_buffer__consume(bpf_info.rb);
                 if (retval < 0) {
-                        fprintf(stderr, "WARNING: ring_buffer__consume failed.\n");
+                        fprintf(stderr,
+                                "WARNING: ring_buffer__consume failed.\n");
                 }
         } else {
                 /* debug_i915 collector */
                 read_debug_i915_events(event->data.fd);
         }
-        
+
         return 0;
 }
 
 void *collect_thread_main(void *a)
 {
-	int i, nfds, eustall_fd_index;
+        int i, nfds, eustall_fd_index;
         struct epoll_event *events;
-        
+
         init_collect_thread();
-        
+
         events = calloc(MAX_EPOLL_EVENTS, sizeof(struct epoll_event));
 
-	if (verbose)
-		print_header();
+        if (verbose)
+                print_header();
 
-
-	collect_thread_profiling = 1;
-	while (collect_thread_should_stop == 0) {
-
+        collect_thread_profiling = 1;
+        while (collect_thread_should_stop == 0) {
                 /* Poll on the epoll instance */
-                nfds = epoll_wait(bpf_info.epoll_fd, events, MAX_EPOLL_EVENTS, 100);
+                nfds = epoll_wait(bpf_info.epoll_fd, events, MAX_EPOLL_EVENTS,
+                                  100);
                 if (nfds == -1) {
-                        fprintf(stderr, "There was an error calling epoll_wait. Aborting.\n");
+                        fprintf(stderr,
+                                "There was an error calling epoll_wait. Aborting.\n");
                         exit(1);
                 }
                 if (nfds == 0) {
                         continue;
                 }
-                
+
                 /* Search the array of returns fds for the one that collects eustalls */
                 eustall_fd_index = -1;
                 for (i = 0; i < nfds; i++) {
@@ -393,7 +402,7 @@ void *collect_thread_main(void *a)
                                 break;
                         }
                 }
-                
+
                 /* Handle the fds, but ensure that the eustall fd is handled last */
                 for (i = 0; i < nfds; i++) {
                         if (i == eustall_fd_index) {
@@ -405,35 +414,34 @@ void *collect_thread_main(void *a)
                 if (eustall_fd_index != -1) {
                         handle_fd_read(&(events[eustall_fd_index]));
                 }
-	}
+        }
 
         print_flamegraph();
 
 cleanup:
         free(events);
-	close(eustall_info.perf_fd);
-	deinit_bpf_i915();
+        close(eustall_info.perf_fd);
+        deinit_bpf_i915();
         free_interval_profiles();
         free_buffer_profiles();
 
-	return NULL;
+        return NULL;
 }
 
 int start_collect_thread()
 {
-	int retval;
+        int retval;
 
-	retval = pthread_create(&collect_thread_id, NULL, &collect_thread_main,
-				NULL);
-	if (retval != 0) {
-		fprintf(stderr,
-			"Failed to call pthread_create. Something is very wrong. Aborting.\n");
-		return -1;
-	}
+        retval = pthread_create(&collect_thread_id, NULL, &collect_thread_main,
+                                NULL);
+        if (retval != 0) {
+                fprintf(stderr,
+                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                return -1;
+        }
 
-	return 0;
+        return 0;
 }
-
 
 /*******************
 *      SIDECAR     *
@@ -441,23 +449,23 @@ int start_collect_thread()
 
 void *sidecar_thread_main(void *a)
 {
-	system(g_sidecar);
-	return NULL;
+        system(g_sidecar);
+        return NULL;
 }
 
 int start_sidecar_thread()
 {
-	int retval;
+        int retval;
 
-	retval = pthread_create(&sidecar_thread_id, NULL, &sidecar_thread_main,
-				NULL);
-	if (retval != 0) {
-		fprintf(stderr,
-			"Failed to call pthread_create. Something is very wrong. Aborting.\n");
-		return -1;
-	}
+        retval = pthread_create(&sidecar_thread_id, NULL, &sidecar_thread_main,
+                                NULL);
+        if (retval != 0) {
+                fprintf(stderr,
+                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                return -1;
+        }
 
-	return 0;
+        return 0;
 }
 
 /*******************
@@ -466,79 +474,78 @@ int start_sidecar_thread()
 
 void stop_main_thread(int sig)
 {
-	main_thread_should_stop = 1;
+        main_thread_should_stop = 1;
 }
 
 int main(int argc, char **argv)
 {
-	struct sigaction sa;
-	struct timespec leftover, request = { 1, 0 };
-	struct timeval tv;
+        struct sigaction sa;
+        struct timespec leftover, request = { 1, 0 };
+        struct timeval tv;
         int startsecs;
-	char *failed_decode = "[failed_decode]";
+        char *failed_decode = "[failed_decode]";
 
-	read_opts(argc, argv);
-	check_permissions();
+        read_opts(argc, argv);
+        check_permissions();
 
-	/* Begin profiling */
-	print_status("Initializing, please wait...\n");
-	if (start_collect_thread() != 0) {
-		fprintf(stderr,
-			"Failed to start the collection thread. Aborting.\n");
-		exit(1);
-	}
+        /* Begin profiling */
+        print_status("Initializing, please wait...\n");
+        if (start_collect_thread() != 0) {
+                fprintf(stderr,
+                        "Failed to start the collection thread. Aborting.\n");
+                exit(1);
+        }
 
         /* Wait for the collection thread to start */
         while (!collect_thread_profiling) {
-	        nanosleep(&request, &leftover);
-	}
+                nanosleep(&request, &leftover);
+        }
         print_status("Profiling, Ctrl-C to exit...\n");
 
         /* Start the sidecar */
-	if (g_sidecar) {
-		if (start_sidecar_thread() != 0) {
-			fprintf(stderr,
-				"Failed to start the provided command. Aborting.\n");
-			exit(1);
-		}
-	}
+        if (g_sidecar) {
+                if (start_sidecar_thread() != 0) {
+                        fprintf(stderr,
+                                "Failed to start the provided command. Aborting.\n");
+                        exit(1);
+                }
+        }
 
-	sa.sa_flags = 0;
-	sa.sa_handler = stop_main_thread;
-	sigemptyset(&sa.sa_mask);
-	if (sigaction(SIGINT, &sa, NULL) == -1) {
-		fprintf(stderr,
-			"Error creating SIGINT handler. Aborting.\n");
-		exit(1);
-	}
+        sa.sa_flags = 0;
+        sa.sa_handler = stop_main_thread;
+        sigemptyset(&sa.sa_mask);
+        if (sigaction(SIGINT, &sa, NULL) == -1) {
+                fprintf(stderr, "Error creating SIGINT handler. Aborting.\n");
+                exit(1);
+        }
 
-	gettimeofday(&tv, NULL);
-        startsecs = (int) tv.tv_sec;
-        
-	/* The collector thread is starting profiling roughly now.. */
-	if (g_sidecar) {
-		/* Wait until sidecar command finishes */
-		pthread_join(sidecar_thread_id, NULL);
-	} else {
-		/* Wait until we get a signal (Ctrl-C) */
-		while (!main_thread_should_stop) {
-			nanosleep(&request, &leftover);
+        gettimeofday(&tv, NULL);
+        startsecs = (int)tv.tv_sec;
 
-        		gettimeofday(&tv, NULL);
-        
+        /* The collector thread is starting profiling roughly now.. */
+        if (g_sidecar) {
+                /* Wait until sidecar command finishes */
+                pthread_join(sidecar_thread_id, NULL);
+        } else {
+                /* Wait until we get a signal (Ctrl-C) */
+                while (!main_thread_should_stop) {
+                        nanosleep(&request, &leftover);
+
+                        gettimeofday(&tv, NULL);
+
                         print_status_table((int)tv.tv_sec - startsecs);
-		}
-	}
-	if (collect_thread_profiling) {
-		print_status("\nProfile stopped. Assembling output...\n");
-	} else {
-		print_status(
-			"Exit requested (had not yet started profiling).\n");
-	}
+                }
+        }
+        if (collect_thread_profiling) {
+                print_status("\nProfile stopped. Assembling output...\n");
+        } else {
+                print_status(
+                        "Exit requested (had not yet started profiling).\n");
+        }
 
-	/* Wait for the collection thread to finish */
-	stop_collect_thread();
-	pthread_join(collect_thread_id, NULL);
+        /* Wait for the collection thread to finish */
+        stop_collect_thread();
+        pthread_join(collect_thread_id, NULL);
 
-	fflush(stdout);
+        fflush(stdout);
 }
