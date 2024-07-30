@@ -25,7 +25,7 @@ struct proto_flame {
         char *proc_name;
         uint32_t pid;
         char *cpu_stack;
-        
+
         char *stall_type;
         uint64_t count;
         uint64_t addr;

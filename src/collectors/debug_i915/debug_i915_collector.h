@@ -36,16 +36,17 @@ struct i915_symbol_table {
 };
 
 struct debug_i915_info_t {
-        
         /* Keep track of PIDs that we've opened with the debug interface,
            as well as their fd */
         int pids[MAX_PIDS];
         int fds[MAX_PIDS];
         int num_pids;
-        
+
         /* Reuse this buffer to read events that we get */
-        struct prelim_drm_i915_debug_event event_buff[sizeof(struct prelim_drm_i915_debug_event) + MAX_EVENT_SIZE];
-        
+        struct prelim_drm_i915_debug_event
+                event_buff[sizeof(struct prelim_drm_i915_debug_event) +
+                           MAX_EVENT_SIZE];
+
         /* Store symbols to be printed later, in parallel with the `pids` and
            `fds` arrays above. */
         struct i915_symbol_table symtabs[MAX_PIDS];
@@ -73,17 +74,17 @@ char *debug_i915_get_sym(int pid, uint64_t addr);
 /* Given a PRELIM_DRM_I915_DEBUG_EVENT_* macro, returns the string equivalent.
    Caller should free the string. */
 static char *debug_events[] = {
-  "PRELIM_DRM_I915_DEBUG_EVENT_NONE",
-  "PRELIM_DRM_I915_DEBUG_EVENT_READ",
-  "PRELIM_DRM_I915_DEBUG_EVENT_CLIENT",
-  "PRELIM_DRM_I915_DEBUG_EVENT_CONTEXT",
-  "PRELIM_DRM_I915_DEBUG_EVENT_UUID",
-  "PRELIM_DRM_I915_DEBUG_EVENT_VM",
-  "PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND",
-  "PRELIM_DRM_I915_DEBUG_EVENT_CONTEXT_PARAM",
-  "PRELIM_DRM_I915_DEBUG_EVENT_EU_ATTENTION",
-  "PRELIM_DRM_I915_DEBUG_EVENT_ENGINES",
-  "PRELIM_DRM_I915_DEBUG_EVENT_PAGE_FAULT",
+        "PRELIM_DRM_I915_DEBUG_EVENT_NONE",
+        "PRELIM_DRM_I915_DEBUG_EVENT_READ",
+        "PRELIM_DRM_I915_DEBUG_EVENT_CLIENT",
+        "PRELIM_DRM_I915_DEBUG_EVENT_CONTEXT",
+        "PRELIM_DRM_I915_DEBUG_EVENT_UUID",
+        "PRELIM_DRM_I915_DEBUG_EVENT_VM",
+        "PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND",
+        "PRELIM_DRM_I915_DEBUG_EVENT_CONTEXT_PARAM",
+        "PRELIM_DRM_I915_DEBUG_EVENT_EU_ATTENTION",
+        "PRELIM_DRM_I915_DEBUG_EVENT_ENGINES",
+        "PRELIM_DRM_I915_DEBUG_EVENT_PAGE_FAULT",
 };
 
 char *debug_i915_event_to_str(int debug_event);

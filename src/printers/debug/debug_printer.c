@@ -13,8 +13,9 @@
 
 void print_debug_buffer_profile(struct buffer_profile *gem, int gem_index)
 {
-        printf("buffer handle=%u gpu_addr=0x%llx vm_id=%u index=%d has_stalls=%u\n", gem->handle,
-               gem->vm_bind_info.gpu_addr, gem->vm_id, gem_index, interval_profile_arr[gem_index].has_stalls);
+        printf("buffer handle=%u gpu_addr=0x%llx vm_id=%u index=%d has_stalls=%u\n",
+               gem->handle, gem->vm_bind_info.gpu_addr, gem->vm_id, gem_index,
+               interval_profile_arr[gem_index].has_stalls);
 }
 
 /* Prints all GPU kernels that we found */
@@ -22,17 +23,17 @@ void print_debug_profile()
 {
         int i;
         struct buffer_profile *gem;
-        
+
         if (!debug) {
                 return;
         }
-        
+
         /* Iterate over each buffer */
-	for (i = 0; i < buffer_profile_used; i++) {
-		gem = &buffer_profile_arr[i];
+        for (i = 0; i < buffer_profile_used; i++) {
+                gem = &buffer_profile_arr[i];
 
                 print_debug_buffer_profile(gem, i);
-	}
+        }
 }
 
 void print_vms()
@@ -40,19 +41,21 @@ void print_vms()
         uint32_t vm_index, rq_index;
         struct vm_profile *vm;
         struct request_profile *rq;
-        
+
         if (!debug) {
                 return;
         }
-        
+
         printf("vm_profile_arr:\n");
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 vm = &(vm_profile_arr[vm_index]);
-                printf("  %u active=%d num_requests=%u\n", vm_index + 1, vm->active, vm->num_requests);
+                printf("  %u active=%d num_requests=%u\n", vm_index + 1,
+                       vm->active, vm->num_requests);
                 for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
                         rq = &(vm->requests[rq_index]);
                         if (rq->seqno && rq->gem_ctx) {
-                                printf("    seqno=%u gem_ctx=%u retired=%d\n", rq->seqno, rq->gem_ctx, rq->retired);
+                                printf("    seqno=%u gem_ctx=%u retired=%d\n",
+                                       rq->seqno, rq->gem_ctx, rq->retired);
                         }
                 }
         }

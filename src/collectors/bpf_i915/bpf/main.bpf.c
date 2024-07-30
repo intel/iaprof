@@ -83,8 +83,8 @@
 ***************************************/
 
 struct {
-	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, RINGBUF_SIZE);
+        __uint(type, BPF_MAP_TYPE_RINGBUF);
+        __uint(max_entries, RINGBUF_SIZE);
 } rb SEC(".maps");
 
 /***************************************
@@ -94,10 +94,10 @@ struct {
 ***************************************/
 
 struct {
-	__uint(type, BPF_MAP_TYPE_STACK_TRACE);
-	__uint(key_size, sizeof(u32));
-	__uint(value_size, MAX_STACK_DEPTH * sizeof(u64));
-	__uint(max_entries, 5000);
+        __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+        __uint(key_size, sizeof(u32));
+        __uint(value_size, MAX_STACK_DEPTH * sizeof(u64));
+        __uint(max_entries, 5000);
 } stackmap SEC(".maps");
 
 /***************************************
