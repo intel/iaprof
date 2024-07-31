@@ -17,11 +17,8 @@
 * of type `struct buffer_profile`.
 ***************************************/
 
-int get_buffer_profile(uint64_t file, uint32_t handle);
-int get_buffer_profile_by_binding(uint64_t file, uint32_t handle);
-int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr);
+int get_buffer_profile_by_binding(uint32_t vm_id, uint64_t gpu_addr);
 int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle);
-int get_buffer_binding(uint32_t handle, uint32_t vm_id);
 void free_buffer_profiles();
 uint64_t grow_buffer_profiles();
 void clear_interval_profiles();

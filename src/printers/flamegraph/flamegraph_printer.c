@@ -22,7 +22,7 @@ void print_flamegraph()
                 printf("%s;", flame->proc_name);
                 printf("%u;", flame->pid);
                 if (flame->cpu_stack) {
-                        printf("%s;", flame->cpu_stack);
+                        printf("%s", flame->cpu_stack);
                 } else {
                         printf("[unknown];");
                 }

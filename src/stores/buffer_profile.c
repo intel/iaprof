@@ -134,39 +134,6 @@ uint64_t grow_buffer_profiles()
         return buffer_profile_used - 1;
 }
 
-/* Looks up a buffer in the buffer_profile_arr by handle/vm_id pair. */
-int get_buffer_binding(uint32_t handle, uint32_t vm_id)
-{
-        int n;
-        struct buffer_profile *gem;
-
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if ((gem->handle == handle) && (gem->vm_id == vm_id)) {
-                        return n;
-                }
-        }
-
-        return -1;
-}
-
-/* Looks up a buffer in the buffer_profile_arr by file/handle pair
-   Returns -1 if not found. */
-int get_buffer_profile(uint64_t file, uint32_t handle)
-{
-        int n;
-        struct buffer_profile *gem;
-
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if ((gem->handle == handle) && (gem->file == file)) {
-                        return n;
-                }
-        }
-
-        return -1;
-}
-
 /* Looks up a buffer in the buffer_profile_arr by file/handle pair
    (using its mapping_info, or mmap call).
    Returns -1 if not found. */
@@ -186,34 +153,18 @@ int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
         return -1;
 }
 
-/* Looks up a buffer in the buffer_profile_arr by the file/handle pair
-   found in its vm_bind_info (or vm_bind call).
+/* Looks up a buffer in the buffer_profile_arr by the vm_id and gpu_addr
+   provided by a vm_bind call.
    Returns -1 if not found. */
-int get_buffer_profile_by_binding(uint64_t file, uint32_t handle)
+int get_buffer_profile_by_binding(uint32_t vm_id, uint64_t gpu_addr)
 {
         int n;
         struct buffer_profile *gem;
 
         for (n = 0; n < buffer_profile_used; n++) {
                 gem = &buffer_profile_arr[n];
-                if ((gem->vm_bind_info.handle == handle) &&
-                    (gem->vm_bind_info.file == file)) {
-                        return n;
-                }
-        }
-
-        return -1;
-}
-
-/* Looks up a buffer in the buffer_profile_arr by its GPU address. */
-int get_buffer_profile_by_gpu_addr(uint64_t gpu_addr)
-{
-        int n;
-        struct buffer_profile *gem;
-
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if (gem->vm_bind_info.gpu_addr == gpu_addr) {
+                if ((gem->vm_bind_info.vm_id == vm_id) &&
+                    (gem->vm_bind_info.gpu_addr == gpu_addr)) {
                         return n;
                 }
         }

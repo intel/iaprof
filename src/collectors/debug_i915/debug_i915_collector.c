@@ -112,8 +112,13 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         entry = &(table->symtab[table->num_syms - 1]);
         entry->start_addr = (uint64_t)symbol->st_value;
         name = elf_strptr(elf, string_table_index, symbol->st_name);
+        
         entry->symbol =
                 cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
+                
+        if (entry->symbol == NULL) {
+          entry->symbol = strdup(name);
+        }
 
         if (debug) {
                 printf("    Symbol 0x%lx:%s\n", entry->start_addr,
@@ -127,6 +132,7 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
         Elf_Data *section_data;
         size_t num_symbols, i;
         Elf64_Sym *symbols;
+        char *name;
 
         section_data = elf_getdata(section, NULL);
         while (section_data != NULL) {
@@ -257,7 +263,6 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         /* Check for the ELF magic bytes */
         if (*((uint32_t *)data) == 0x464c457f) {
                 handle_elf(data, read_uuid.payload_size, pid_index);
-                /*                 dump_buffer((unsigned char *)data, read_uuid.payload_size, 0); */
         }
 cleanup:
         free((void *)read_uuid.payload_ptr);

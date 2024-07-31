@@ -133,6 +133,13 @@ retry:
                         if ((addr < start) || (addr >= end)) {
                                 continue;
                         }
+                        
+                        if (debug) {
+                                printf("addr=0x%lx start=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%llx iba=0x%lx\n",
+                                       addr, start, offset,
+                                       gem->handle, gem->vm_id,
+                                       gem->vm_bind_info.gpu_addr, iba);
+                        }
 
                         vm = get_vm_profile(gem->vm_id);
                         if (!vm) {
@@ -156,12 +163,6 @@ retry:
 
                         offset = addr - start;
 
-                        if (debug) {
-                                printf("ip=0x%lx addr=0x%lx start=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%llx iba=0x%lx\n",
-                                       (uint64_t)sample.ip, addr, start, offset,
-                                       gem->handle, gem->vm_id,
-                                       gem->vm_bind_info.gpu_addr, iba);
-                        }
                         found++;
                         last_found_start = start;
                         last_found_offset = offset;

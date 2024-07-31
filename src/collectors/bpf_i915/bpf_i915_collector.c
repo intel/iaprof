@@ -54,7 +54,7 @@ int handle_mapping(void *data_arg)
         }
 
         /* Use an existing buffer_profile if available */
-        index = get_buffer_profile(info->file, info->handle);
+        index = get_buffer_profile_by_mapping(info->file, info->handle);
         if (index == -1) {
                 index = grow_buffer_profiles();
         }
@@ -220,8 +220,8 @@ int handle_vm_create(void *data_arg)
 
 int handle_vm_bind(void *data_arg)
 {
-        struct buffer_profile *gem;
-        int index;
+        struct buffer_profile *bind_gem, *map_gem;
+        int mapping_index, binding_index;
         struct vm_bind_info *info;
 
         if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
@@ -234,17 +234,31 @@ int handle_vm_bind(void *data_arg)
                 print_vm_bind(info);
         }
 
-        /* Look to see if we've got a mapping */
-        index = get_buffer_profile(info->file, info->handle);
-        if (index == -1) {
-                index = grow_buffer_profiles();
+        /* Check to see if we've seen this file/handle pair get mapped. */
+        binding_index = -1;
+        mapping_index = get_buffer_profile_by_mapping(info->file, info->handle);
+        if (mapping_index != -1) {
+                map_gem = &(buffer_profile_arr[mapping_index]);
+                if ((map_gem->vm_bind_info.vm_id != 0) && (map_gem->vm_bind_info.gpu_addr)) {
+                        /* If there's no binding for this buffer_profile, just use it! */
+                        binding_index = mapping_index;
+                        goto bind;
+                }
+        }
+        
+        /* See if we've already gotten a `vm_bind` on this same vm_id/addr pair. */
+        binding_index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
+        if (binding_index == -1) {
+                /* If there's no mapping or binding yet, create a new buffer_profile */
+                binding_index = grow_buffer_profiles();
         }
 
+bind:
         /* Copy the vm_bind_info into the buffer's profile. */
-        gem = &(buffer_profile_arr[index]);
-        gem->handle = info->handle;
-        gem->vm_id = info->vm_id;
-        memcpy(&(gem->vm_bind_info), info, sizeof(struct vm_bind_info));
+        bind_gem = &(buffer_profile_arr[binding_index]);
+        bind_gem->handle = info->handle;
+        bind_gem->vm_id = info->vm_id;
+        memcpy(&(bind_gem->vm_bind_info), info, sizeof(struct vm_bind_info));
 
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -273,7 +287,7 @@ int handle_vm_unbind(void *data_arg)
         /* Try to find the buffer that this is unbinding. Note that
            info->handle is going to be 0 here, so we need to use
            the GPU address to look it up. */
-        index = get_buffer_profile_by_gpu_addr(info->gpu_addr);
+        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
         if (index == -1) {
                 if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                         fprintf(stderr,
