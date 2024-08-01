@@ -55,6 +55,7 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset,
         uint32_t opcode;
         char retval;
 
+        /* If we don't have a copy, can't disassemble it! */
         if (!(gem->buff_sz)) {
                 if (debug) {
                         fprintf(stderr,
@@ -64,7 +65,8 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset,
                 return -1;
         }
 
-        if (offset > gem->buff_sz) {
+        /* Paranoid check */
+        if (offset >= gem->buff_sz) {
                 if (debug) {
                         fprintf(stderr,
                                 "WARNING: Got an EU stall past the end of a buffer. ");
@@ -73,26 +75,31 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset,
                                 gem->handle, gem->buff, offset, gem->buff_sz);
                 }
                 return -1;
-        } else {
+        }
+        
+        /* Initialize the kernel view */
+        if (!gem->kv) {
+                gem->kv = iga_init(gem->buff, gem->buff_sz);
                 if (!gem->kv) {
-                        gem->kv = iga_init(gem->buff, gem->buff_sz);
-                        if (!gem->kv) {
-                                if (debug) {
-                                        fprintf(stderr,
-                                                "ERROR: Failed to initialize IGA.\n");
-                                }
-                                return -1;
+                        if (debug) {
+                                fprintf(stderr,
+                                        "WARNING: Failed to initialize IGA.\n");
                         }
-                }
-                retval = iga_disassemble_insn(gem->kv, offset, insn_text,
-                                              insn_text_len);
-                if (retval != 0) {
                         return -1;
                 }
-                return 0;
         }
-
-        return -1;
+        
+        /* Disassemble */
+        retval = iga_disassemble_insn(gem->kv, offset, insn_text,
+                                      insn_text_len);
+        if (retval != 0) {
+                if (debug) {
+                        fprintf(stderr, "WARNING: Disassembly failed on handle=%u\n", gem->handle);
+                }
+                return -1;
+        }
+        
+        return 0;
 }
 
 void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,

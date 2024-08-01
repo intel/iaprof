@@ -37,8 +37,8 @@ void print_buffer_profiles()
                 gem = &(buffer_profile_arr[i]);
 
                 fprintf(stderr,
-                        "handle=%u vm_id=%u cpu_addr=0x%llx gpu_addr=0x%llx buff_sz=%zu\n",
-                        gem->handle, gem->vm_id, gem->mapping_info.cpu_addr,
+                        "file=0x%lx handle=%u vm_id=%u cpu_addr=0x%lx gpu_addr=0x%llx buff_sz=%zu\n",
+                        gem->file, gem->handle, gem->vm_id, gem->cpu_addr,
                         gem->vm_bind_info.gpu_addr, gem->buff_sz);
         }
 }
@@ -89,6 +89,12 @@ void free_buffer_profiles()
 {
         int n;
         struct buffer_profile *gem;
+        
+        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
+                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+                return;
+        }
+
 
         for (n = 0; n < buffer_profile_used; n++) {
                 gem = &(buffer_profile_arr[n]);
@@ -97,6 +103,11 @@ void free_buffer_profiles()
                 }
         }
         free(buffer_profile_arr);
+        
+        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
+                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
+                return;
+        }
 }
 
 /* Ensure that we have enough room to place a newly-seen sample, and place it.
@@ -135,7 +146,7 @@ uint64_t grow_buffer_profiles()
 }
 
 /* Looks up a buffer in the buffer_profile_arr by file/handle pair
-   (using its mapping_info, or mmap call).
+   (using its mmap call).
    Returns -1 if not found. */
 int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
 {
@@ -144,8 +155,8 @@ int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
 
         for (n = 0; n < buffer_profile_used; n++) {
                 gem = &buffer_profile_arr[n];
-                if ((gem->mapping_info.handle == handle) &&
-                    (gem->mapping_info.file == file)) {
+                if ((gem->handle == handle) &&
+                    (gem->file == file)) {
                         return n;
                 }
         }

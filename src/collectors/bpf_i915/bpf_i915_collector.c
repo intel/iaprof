@@ -32,6 +32,48 @@
 uint32_t global_vm_id = 0;
 
 /***************************************
+* Helpers
+***************************************/
+
+int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
+                  uint64_t src_sz)
+{
+        if (!src_sz || !src)
+                return -1;
+        if (*dst == src) {
+                fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
+                return -1;
+        }
+        if (*dst) {
+                /* Free up the old copy */
+                free(*dst);
+                *dst = NULL;
+                *dst_sz = 0;
+        }
+        
+        if (debug) {
+                printf("handle_binary\n");
+        }
+
+        *dst = calloc(src_sz, sizeof(unsigned char));
+        *dst_sz = src_sz;
+        memcpy(*dst, src, src_sz);
+
+        return 0;
+}
+
+void copy_mapping(struct buffer_profile *dst, struct buffer_profile *src)
+{
+        dst->cpu_addr = src->cpu_addr;
+        dst->handle = src->handle;
+        dst->file = src->file;
+        dst->mapped = 1;
+        if (src->buff && src->buff_sz) {
+                handle_binary(&(dst->buff), src->buff, &(dst->buff_sz), src->buff_sz);
+        }
+}
+
+/***************************************
 * BPF Handlers
 ***************************************/
 
@@ -60,31 +102,15 @@ int handle_mapping(void *data_arg)
         }
 
         gem = &buffer_profile_arr[index];
+        gem->cpu_addr = info->cpu_addr;
         gem->handle = info->handle;
         gem->file = info->file;
         gem->mapped = 1;
-        memcpy(&(gem->mapping_info), info, sizeof(struct mapping_info));
 
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
                 return -1;
         }
-
-        return 0;
-}
-
-int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz)
-{
-        uint64_t size;
-
-        if (!src_sz)
-                return -1;
-
-        size = src_sz;
-        *dst = calloc(size, sizeof(unsigned char));
-        *dst_sz = size;
-        memcpy(*dst, src, size);
 
         return 0;
 }
@@ -109,7 +135,7 @@ int handle_unmap(void *data_arg)
         index = get_buffer_profile_by_mapping(info->file, info->handle);
         if ((index == -1) && debug) {
                 fprintf(stderr,
-                        "WARNING: unmap called on handle %u with an mmap.\n",
+                        "WARNING: unmap called on handle %u without an mmap.\n",
                         info->handle);
                 goto cleanup;
         }
@@ -239,7 +265,7 @@ int handle_vm_bind(void *data_arg)
         mapping_index = get_buffer_profile_by_mapping(info->file, info->handle);
         if (mapping_index != -1) {
                 map_gem = &(buffer_profile_arr[mapping_index]);
-                if ((map_gem->vm_bind_info.vm_id != 0) && (map_gem->vm_bind_info.gpu_addr)) {
+                if ((map_gem->vm_bind_info.vm_id == 0) && (map_gem->vm_bind_info.gpu_addr == 0)) {
                         /* If there's no binding for this buffer_profile, just use it! */
                         binding_index = mapping_index;
                         goto bind;
@@ -258,7 +284,12 @@ bind:
         bind_gem = &(buffer_profile_arr[binding_index]);
         bind_gem->handle = info->handle;
         bind_gem->vm_id = info->vm_id;
+        bind_gem->file = info->file;
         memcpy(&(bind_gem->vm_bind_info), info, sizeof(struct vm_bind_info));
+        if (binding_index != mapping_index) {
+                map_gem = &(buffer_profile_arr[mapping_index]);
+                copy_mapping(bind_gem, map_gem);
+        }
 
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");

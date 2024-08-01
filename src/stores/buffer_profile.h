@@ -28,14 +28,16 @@ void print_buffer_profiles();
    these interval after interval. */
 struct buffer_profile {
         struct vm_bind_info vm_bind_info;
-        struct mapping_info mapping_info;
         struct execbuf_start_info exec_info;
 
-        /* i915 differentiates a buffer by the file pointer (or ctx_id)
-           and its integer handle, so we will too. */
-        uint32_t handle, vm_id;
+        /* Mapping info */
+        uint64_t cpu_addr;
+        uint32_t handle;
         uint64_t file;
         char mapped;
+        
+        /* Binding info */
+        uint32_t vm_id;
 
         /* A copy of the buffer bytes itself */
         uint64_t buff_sz;
