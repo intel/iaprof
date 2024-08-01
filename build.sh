@@ -9,7 +9,7 @@ LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
-LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.so" )
+LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
 
 # Get the git commit hash
 cd ${BASE_DIR}
@@ -214,5 +214,5 @@ ${CC} ${LDFLAGS} \
   -lstdc++ \
   -liberty \
   ${PREFIX}/lib/libelf.a \
-  ${PREFIX}/lib/libiga64.so || exit $?
+  ${PREFIX}/lib/libiga64.a || exit $?
 echo ""
