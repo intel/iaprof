@@ -178,7 +178,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
   ${SRC_DIR}/iaprof.c \
-  -o ${SRC_DIR}/iaprof.o
+  -o ${SRC_DIR}/iaprof.o || exit $?
 
 ${CC} ${LDFLAGS} \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
@@ -214,5 +214,5 @@ ${CC} ${LDFLAGS} \
   -lstdc++ \
   -liberty \
   ${PREFIX}/lib/libelf.a \
-  ${PREFIX}/lib/libiga64.so
+  ${PREFIX}/lib/libiga64.so || exit $?
 echo ""
