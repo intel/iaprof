@@ -9,7 +9,7 @@
 * gather debug symbols from GPU programs that are currently running.
 * In order to do this, it must open a per-PID file descriptor, poll on those
 * file descriptors, and read events when they're ready.
-* 
+*
 * The ultimate goal is to find an event of type PRELIM_I915_DEBUG_IOCTL_READ_UUID,
 * which can potentially contain an ELF object which contains symbols. We then
 * use `libelf` to parse the ELF object for the symbols, storing them for later
@@ -27,6 +27,8 @@
 struct i915_symbol_entry {
         uint64_t start_addr;
         char *symbol;
+        char *filename;
+        int linenum;
 };
 
 struct i915_symbol_table {
@@ -63,7 +65,7 @@ extern struct debug_i915_info_t debug_i915_info;
 void init_debug_i915(int i915_fd, int pid);
 int read_debug_i915_event(int fd, int pid_index);
 void read_debug_i915_events(int fd);
-char *debug_i915_get_sym(int pid, uint64_t addr);
+int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
 
 /******************************************************************************
 * Strings

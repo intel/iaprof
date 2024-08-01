@@ -9,7 +9,7 @@ LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
-LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
+LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.so" )
 
 # Get the git commit hash
 cd ${BASE_DIR}
@@ -58,7 +58,7 @@ echo "Building ${DRM_HELPERS_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   ${DRM_HELPERS_DIR}/drm_helpers.c \
   -o ${DRM_HELPERS_DIR}/drm_helpers.o
-  
+
 ####################
 #   I915 HELPERS    #
 ####################
@@ -68,7 +68,7 @@ echo "Building ${I915_HELPERS_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   ${I915_HELPERS_DIR}/i915_helpers.c \
   -o ${I915_HELPERS_DIR}/i915_helpers.o
-  
+
 ####################
 #   BPF HELPERS    #
 ####################
@@ -81,7 +81,7 @@ ${CC} ${COMMON_FLAGS} -c \
 ${CC} ${COMMON_FLAGS} -c \
   ${BPF_HELPERS_DIR}/uprobe_helpers.c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
-  
+
 ####################
 #     STORES       #
 ####################
@@ -92,12 +92,12 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${STORES_DIR}/buffer_profile.c \
   -o ${STORES_DIR}/buffer_profile.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${STORES_DIR}/proto_flame.c \
   -o ${STORES_DIR}/proto_flame.o
-  
+
 ####################
 #   COLLECTORS     #
 ####################
@@ -113,17 +113,17 @@ ${CC} ${COMMON_FLAGS} -c \
   -std=c2x \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
   -o ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${COLLECTORS_DIR}/eustall/eustall_collector.c \
   -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
-  
+
 ####################
 #    PRINTERS      #
 ####################
@@ -133,22 +133,22 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/printer.c \
   -o ${PRINTERS_DIR}/printer.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
   -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/debug/debug_printer.c \
   -o ${PRINTERS_DIR}/debug/debug_printer.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
-  
+
 ####################
 #     UTILS        #
 ####################
@@ -158,7 +158,7 @@ echo "Building ${UTILS_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   ${UTILS_DIR}/utils.c \
   -o ${UTILS_DIR}/utils.o
-  
+
 ####################
 #   GPU PARSERS    #
 ####################
@@ -178,8 +178,8 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
   ${SRC_DIR}/iaprof.c \
-  -o ${SRC_DIR}/iaprof.o
-  
+  -o ${SRC_DIR}/iaprof.o || exit $?
+
 ${CC} ${LDFLAGS} \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
   ${I915_HELPERS_DIR}/i915_helpers.o \
@@ -210,9 +210,9 @@ ${CC} ${LDFLAGS} \
   -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
-  -lelf -lz \
+  -lelf -ldw -lz \
   -lstdc++ \
   -liberty \
   ${PREFIX}/lib/libelf.a \
-  ${PREFIX}/lib/libiga64.a
+  ${PREFIX}/lib/libiga64.so || exit $?
 echo ""
