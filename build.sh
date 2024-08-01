@@ -210,7 +210,7 @@ ${CC} ${LDFLAGS} \
   -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
-  -lelf -lz \
+  -lelf -ldw -lz \
   -lstdc++ \
   -liberty \
   ${PREFIX}/lib/libelf.a \
