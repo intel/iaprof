@@ -5,10 +5,21 @@
 #include <libiberty/demangle.h>
 
 #include <libelf.h>
+#include <elfutils/libdw.h>
 
 #include "iaprof.h"
 #include "debug_i915_collector.h"
 #include "utils/utils.h"
+#include "utils/hash_table.h"
+
+typedef char *sym_str_t;
+
+typedef struct {
+        char *filename;
+        int   linenum;
+} Debug_Info;
+
+use_hash_table(sym_str_t, Debug_Info);
 
 void init_debug_i915(int i915_fd, int pid)
 {
@@ -42,7 +53,7 @@ void init_debug_i915(int i915_fd, int pid)
         add_to_epoll_fd(debug_fd);
 }
 
-char *debug_i915_get_sym(int pid, uint64_t addr)
+int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
 {
         int i, pid_index;
         struct i915_symbol_table *table;
@@ -65,7 +76,7 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
         if (pid_index == -1) {
                 fprintf(stderr, "WARNING: PID %d does not have GPU symbols.\n",
                         pid);
-                return NULL;
+                return -1;
         }
 
         /* Find the addr range in this PID's symbol table */
@@ -77,7 +88,16 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
                         continue;
                 }
                 if (less_than_last && (addr > entry->start_addr)) {
-                        return entry->symbol;
+                        if (out_gpu_symbol != NULL) {
+                                *out_gpu_symbol = entry->symbol;
+                        }
+                        if (out_gpu_file != NULL) {
+                                *out_gpu_file = entry->filename;
+                        }
+                        if (out_gpu_line != NULL) {
+                                *out_gpu_line = entry->linenum;
+                        }
+                        return 0;
                 }
         }
 
@@ -87,19 +107,20 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
                         addr);
         }
 
-        return NULL;
+        return -1;
 }
 
 /* Adds a symbol to the per-PID symbol table.
    XXX: Check for duplicates and throw a warning */
 void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
-                        int pid_index)
+                        int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
         int num_syms;
         size_t len;
         char *name;
+        Debug_Info *info;
 
         table = &(debug_i915_info.symtabs[pid_index]);
 
@@ -110,24 +131,34 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                                 sizeof(struct i915_symbol_entry) * num_syms);
         /* Add this symbol to the table */
         entry = &(table->symtab[table->num_syms - 1]);
+        memset(entry, 0, sizeof(*entry));
         entry->start_addr = (uint64_t)symbol->st_value;
+
         name = elf_strptr(elf, string_table_index, symbol->st_name);
-        
-        entry->symbol =
-                cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
-                
-        if (entry->symbol == NULL) {
-          entry->symbol = strdup(name);
+        if (name == NULL) {
+                entry->symbol   = strdup("???");
+                entry->filename = strdup("<unknown>");
+        } else {
+                info = hash_table_get_val(debug_info_table, name);
+                if (info != NULL) {
+                        entry->filename = strdup(info->filename);
+                        entry->linenum  = info->linenum;
+                }
+                entry->symbol =
+                        cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
+                if (entry->symbol == NULL) {
+                        entry->symbol = strdup(name);
+                }
         }
 
         if (debug) {
-                printf("    Symbol 0x%lx:%s\n", entry->start_addr,
-                       entry->symbol);
+                printf("    Symbol 0x%lx:%s @ %s:%d\n", entry->start_addr,
+                       entry->symbol, entry->filename, entry->linenum);
         }
 }
 
 void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
-                       int pid_index)
+                       int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
         Elf_Data *section_data;
         size_t num_symbols, i;
@@ -147,9 +178,10 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
                         if (ELF64_ST_TYPE(symbols[i].st_info) == STT_FUNC) {
                                 /* Add an entry into our internal symbol tables, and record
                                    the name and address */
+
                                 debug_i915_add_sym(&(symbols[i]), elf,
                                                    string_table_index,
-                                                   pid_index);
+                                                   pid_index, debug_info_table);
                         }
                 }
 
@@ -158,14 +190,99 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
         }
 }
 
+static int dwarf_func_cb(Dwarf_Die *diep, void *arg) {
+        const char                        *name;
+        const char                        *filename;
+        Debug_Info                         info;
+        hash_table(sym_str_t, Debug_Info)  debug_info_table;
+
+
+        name = dwarf_diename(diep);
+        if (name == NULL) {
+                goto out;
+        }
+
+        filename      = dwarf_decl_file(diep);
+        info.filename = filename == NULL ? strdup("<unknown>") : strdup(filename);
+        info.linenum  = 0;
+        dwarf_decl_line(diep, &info.linenum);
+
+        debug_info_table = (hash_table(sym_str_t, Debug_Info))arg;
+
+        hash_table_insert(debug_info_table, strdup(name), info);
+
+out:;
+        return DWARF_CB_OK;
+}
+
+hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
+{
+        hash_table(sym_str_t, Debug_Info)  debug_info_table;
+        Dwarf                             *dwarf;
+        Dwarf_CU                          *cu;
+        Dwarf_CU                          *next_cu;
+        Dwarf_Half                         version;
+        uint8_t                            unit_type;
+        int                                retval;
+        Dwarf_Die                          cudie;
+        Dwarf_Die                          subdie;
+
+
+        debug_info_table = hash_table_make_e(sym_str_t, Debug_Info, str_hash, str_equ);
+
+        dwarf = dwarf_begin_elf(elf, DWARF_C_READ, NULL);
+
+        if (dwarf == NULL) {
+                fprintf(stderr, "error opening dwarf from elf: %s\n", dwarf_errmsg(dwarf_errno()));
+                goto out;
+        }
+
+
+        cu      = NULL;
+        next_cu = NULL;
+
+        do {
+                cu = next_cu;
+
+                version   = 123;
+                unit_type = 123;
+
+                retval = dwarf_get_units(dwarf, cu, &next_cu, &version, &unit_type, &cudie, &subdie);
+
+                if (retval != 0) {
+                        break;
+                }
+
+                dwarf_getfuncs(&cudie, dwarf_func_cb, debug_info_table, 0);
+
+        } while (next_cu != NULL);
+
+out:;
+        return debug_info_table;
+}
+
+void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
+        char *key;
+        Debug_Info *val;
+
+        hash_table_traverse(debug_info_table, key, val) {
+                free(key);
+                free(val->filename);
+        }
+
+        hash_table_free(debug_info_table);
+}
+
 void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 {
         Elf *elf;
+        hash_table(sym_str_t, Debug_Info) debug_info_table;
         Elf64_Ehdr *elf_header;
         Elf_Scn *section;
         Elf64_Shdr *section_header;
         int retval;
         size_t i, num_sections, string_table_index;
+
 
         /* Initialize the ELF from the buffer */
         elf = elf_memory((char *)data, data_size);
@@ -173,6 +290,9 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 fprintf(stderr, "WARNING: Error reading an ELF file.\n");
                 return;
         }
+
+        /* Build a debug info table. */
+        debug_info_table = build_debug_info_table(elf);
 
         /* Get the ELF header */
         elf_header = elf64_getehdr(elf);
@@ -189,6 +309,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 goto cleanup;
         }
 
+
         /* Iterate over ELF sections to find .symbtab sections */
         section = elf_nextscn(elf, NULL);
         while (section != NULL) {
@@ -202,9 +323,10 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 
                 /* Get the string name */
                 if (debug) {
-                        printf("Section: %s\n",
+                        printf("Section: %s type: %d\n",
                                elf_strptr(elf, string_table_index,
-                                          section_header->sh_name));
+                                          section_header->sh_name),
+                               section_header->sh_type);
                 }
 
                 /* If this is a .symtab section, it'll be marked as SHT_SYMTAB */
@@ -213,7 +335,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                                 printf("  Symbol table:\n");
                         }
                         handle_elf_symtab(elf, section, string_table_index,
-                                          pid_index);
+                                          pid_index, debug_info_table);
                 }
 
                 /* Next section */
@@ -221,6 +343,8 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         }
 
 cleanup:
+        free_debug_info_table(debug_info_table);
+
         retval = elf_end(elf);
         if (retval != 0) {
                 fprintf(stderr, "WARNING: Failed to cleanup ELF object.\n");

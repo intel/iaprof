@@ -4,6 +4,7 @@
 #include <sys/uio.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "utils/utils.h"
 
@@ -170,3 +171,15 @@ unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size,
 
         return data;
 }
+
+uint64_t str_hash(char *s) {
+    unsigned long hash = 5381;
+    int c;
+
+    while ((c = *s++))
+        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+    return hash;
+}
+
+int str_equ(char *a, char *b) { return strcmp(a, b) == 0; }

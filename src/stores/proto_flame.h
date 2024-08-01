@@ -32,6 +32,8 @@ struct proto_flame {
         uint64_t offset;
         char *insn_text;
         char *gpu_symbol;
+        char *gpu_file;
+        int   gpu_line;
 };
 
 extern pthread_rwlock_t proto_flame_lock;

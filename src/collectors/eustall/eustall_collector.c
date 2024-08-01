@@ -276,7 +276,11 @@ int init_eustall(device_info *devinfo)
         }
 
         /* Enable the fd */
-        ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+        retval = ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
+        if (retval < 0) {
+		        fprintf(stderr, "Failed to enable the perf file descriptor.\n");
+		        return -1;
+        }
 
         /* Add the fd to the epoll_fd */
         eustall_info.perf_fd = fd;
