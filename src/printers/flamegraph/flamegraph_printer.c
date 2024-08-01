@@ -8,6 +8,7 @@ void print_flamegraph()
 {
         char *insn_text;
         struct proto_flame *flame;
+        int err;
         uint64_t index;
 
         for (index = 0; index < proto_flame_used; index++) {
@@ -15,8 +16,12 @@ void print_flamegraph()
 
                 /* Ensure we've got a GPU symbol */
                 if (!(flame->gpu_symbol)) {
-                        flame->gpu_symbol =
-                                debug_i915_get_sym(flame->pid, flame->addr);
+                        err = debug_i915_get_sym(flame->pid, flame->addr, &flame->gpu_symbol, &flame->gpu_file, &flame->gpu_line);
+                        if (err) {
+                                flame->gpu_symbol = NULL;
+                                flame->gpu_file   = NULL;
+                                flame->gpu_line   = 0;
+                        }
                 }
 
                 printf("%s;", flame->proc_name);
@@ -28,8 +33,17 @@ void print_flamegraph()
                 }
 
                 printf("-;");
+                if (flame->gpu_file) {
+                        printf("%s_[G];", flame->gpu_file);
+                } else {
+                        printf("[unknown file]_[G];");
+                }
                 if (flame->gpu_symbol) {
-                        printf("%s_[G];", flame->gpu_symbol);
+                        if (flame->gpu_line) {
+                                printf("%s line %d_[G];", flame->gpu_symbol, flame->gpu_line);
+                        } else {
+                                printf("%s_[G];", flame->gpu_symbol);
+                        }
                 } else {
                         printf("[unknown]_[G];");
                 }

@@ -53,7 +53,7 @@ void init_debug_i915(int i915_fd, int pid)
         add_to_epoll_fd(debug_fd);
 }
 
-char *debug_i915_get_sym(int pid, uint64_t addr)
+int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
 {
         int i, pid_index;
         struct i915_symbol_table *table;
@@ -76,7 +76,7 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
         if (pid_index == -1) {
                 fprintf(stderr, "WARNING: PID %d does not have GPU symbols.\n",
                         pid);
-                return NULL;
+                return -1;
         }
 
         /* Find the addr range in this PID's symbol table */
@@ -88,7 +88,16 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
                         continue;
                 }
                 if (less_than_last && (addr > entry->start_addr)) {
-                        return entry->symbol;
+                        if (out_gpu_symbol != NULL) {
+                                *out_gpu_symbol = entry->symbol;
+                        }
+                        if (out_gpu_file != NULL) {
+                                *out_gpu_file = entry->filename;
+                        }
+                        if (out_gpu_line != NULL) {
+                                *out_gpu_line = entry->linenum;
+                        }
+                        return 0;
                 }
         }
 
@@ -98,7 +107,7 @@ char *debug_i915_get_sym(int pid, uint64_t addr)
                         addr);
         }
 
-        return NULL;
+        return -1;
 }
 
 /* Adds a symbol to the per-PID symbol table.
