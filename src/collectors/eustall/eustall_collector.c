@@ -148,6 +148,9 @@ retry:
                         if (vm->active == 0) {
                                 continue;
                         }
+                        if (!(gem->exec_info.pid)) {
+                                continue;
+                        }
 
                         if ((addr - start) > MAX_BINARY_SIZE) {
                                 if (debug) {

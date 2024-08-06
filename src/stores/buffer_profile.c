@@ -31,12 +31,12 @@ void print_buffer_profiles()
         if (!debug)
                 return;
 
-        fprintf(stderr, "==== BUFFER_PROFILE_ARR =====\n");
+        printf( "==== BUFFER_PROFILE_ARR =====\n");
 
         for (i = 0; i < buffer_profile_used; i++) {
                 gem = &(buffer_profile_arr[i]);
 
-                fprintf(stderr,
+                printf(
                         "file=0x%lx handle=%u vm_id=%u cpu_addr=0x%lx gpu_addr=0x%llx buff_sz=%zu\n",
                         gem->file, gem->handle, gem->vm_id, gem->cpu_addr,
                         gem->vm_bind_info.gpu_addr, gem->buff_sz);

@@ -133,10 +133,12 @@ int handle_unmap(void *data_arg)
         }
 
         index = get_buffer_profile_by_mapping(info->file, info->handle);
-        if ((index == -1) && debug) {
-                fprintf(stderr,
-                        "WARNING: unmap called on handle %u without an mmap.\n",
-                        info->handle);
+        if (index == -1) {
+                if (debug ) {
+                        fprintf(stderr,
+                                "WARNING: unmap called on handle %u without an mmap.\n",
+                                info->handle);
+                }
                 goto cleanup;
         }
         gem = &(buffer_profile_arr[index]);
@@ -286,7 +288,7 @@ bind:
         bind_gem->vm_id = info->vm_id;
         bind_gem->file = info->file;
         memcpy(&(bind_gem->vm_bind_info), info, sizeof(struct vm_bind_info));
-        if (binding_index != mapping_index) {
+        if ((binding_index != mapping_index) && (mapping_index != -1)) {
                 map_gem = &(buffer_profile_arr[mapping_index]);
                 copy_mapping(bind_gem, map_gem);
         }
@@ -320,19 +322,18 @@ int handle_vm_unbind(void *data_arg)
            the GPU address to look it up. */
         index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
         if (index == -1) {
-                if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                        fprintf(stderr,
-                                "Failed to acquire the buffer_profile_lock!\n");
-                        return -1;
-                }
                 if (debug) {
                         fprintf(stderr,
                                 "WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
                                 info->gpu_addr);
                 }
-                return 0;
+                goto cleanup;
         }
+        
+        /* Unbind that GPU address, potentially deleting the buffer from the buffer_profile_arr */
+        memset(&buffer_profile_arr[index], 0, sizeof(struct buffer_profile));
 
+cleanup:
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
                 return -1;
