@@ -143,12 +143,21 @@ retry:
 
                         vm = get_vm_profile(gem->vm_id);
                         if (!vm) {
+                                if (debug) {
+                                        printf("  no vm!\n");
+                                }
                                 continue;
                         }
                         if (vm->active == 0) {
+                                if (debug) {
+                                        printf("  inactive!\n");
+                                }
                                 continue;
                         }
                         if (!(gem->exec_info.pid)) {
+                                if (debug) {
+                                        printf("  no exec_info!\n");
+                                }
                                 continue;
                         }
 
