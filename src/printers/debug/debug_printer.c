@@ -54,8 +54,8 @@ void print_vms()
                 for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
                         rq = &(vm->requests[rq_index]);
                         if (rq->seqno && rq->gem_ctx) {
-                                printf("    seqno=%u gem_ctx=%u retired=%d\n",
-                                       rq->seqno, rq->gem_ctx, rq->retired);
+                                printf("    seqno=%u gem_ctx=%u retired=%d class=0x%x instance=0x%x\n",
+                                       rq->seqno, rq->gem_ctx, rq->retired, (unsigned int) rq->class, (unsigned int) rq->instance);
                         }
                 }
         }

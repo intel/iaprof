@@ -184,7 +184,7 @@ int handle_request(void *data_arg)
                                 "WARNING: global_vm_id is zero. Something fishy is going on.\n");
                         return -1;
                 }
-                request_submit(global_vm_id, info->seqno, info->gem_ctx);
+                request_submit(global_vm_id, info->seqno, info->gem_ctx, info->class, info->instance);
         } else if (info->type == REQUEST_RETIRE) {
                 request_retire(info->seqno, info->gem_ctx);
         }
@@ -537,7 +537,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 {
         unsigned char *data;
 
-        print_buffer_profiles();
+/*         print_buffer_profiles(); */
 
         if (data_sz == sizeof(struct mapping_info)) {
                 return handle_mapping(data_arg);

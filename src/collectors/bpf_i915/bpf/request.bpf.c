@@ -69,6 +69,8 @@ int request_submit_tp(struct request_submit_args *ctx)
         info->type = REQUEST_SUBMIT;
         info->seqno = ctx->seqno;
         info->gem_ctx = ctx->gem_ctx;
+        info->class = ctx->class;
+        info->instance = ctx->instance;
         info->time = bpf_ktime_get_ns();
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);

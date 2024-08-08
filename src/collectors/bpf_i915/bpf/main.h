@@ -136,6 +136,7 @@ struct request_info {
         enum i915_request_type type;
         __u32 seqno;
         __u32 gem_ctx;
+        __u16 class, instance;
         __u64 time;
         char pad[16];
 };

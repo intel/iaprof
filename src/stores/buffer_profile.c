@@ -203,7 +203,7 @@ struct vm_profile *get_vm_profile(uint32_t vm_id)
         return &(vm_profile_arr[vm_id - 1]);
 }
 
-void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
+void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
 {
         uint32_t rq_index;
         struct vm_profile *vm;
@@ -243,6 +243,8 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
         rq->seqno = seqno;
         rq->gem_ctx = gem_ctx;
         rq->retired = 0;
+        rq->class = class;
+        rq->instance = instance;
 }
 
 /* Mark a request as "retired." It'll be deleted after this interval is entirely over. */
@@ -281,26 +283,31 @@ void clear_retired_requests()
         }
 }
 
+#define I915_ENGINE_CLASS_COMPUTE 4
+
 void mark_vms_active()
 {
         uint32_t vm_index, rq_index;
-        char active_requests;
+        char active_requests, compute_engine;
         struct vm_profile *vm;
         struct request_profile *rq;
 
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 /* Are there any active or retired requests this interval? */
                 active_requests = 0;
+                compute_engine = 0;
                 vm = &(vm_profile_arr[vm_index]);
                 for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
                         rq = &(vm->requests[rq_index]);
                         if (rq->seqno && rq->gem_ctx) {
                                 active_requests = 1;
-                                break;
+                        }
+                        if (rq->class == I915_ENGINE_CLASS_COMPUTE) {
+                                compute_engine = 1;
                         }
                 }
 
-                if (active_requests) {
+                if (active_requests && compute_engine) {
                         vm->active = 1;
                 } else {
                         vm->active = 0;
