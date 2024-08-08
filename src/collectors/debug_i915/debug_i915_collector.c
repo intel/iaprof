@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <string.h>
+/* #include <libgen.h> */
+#include <ctype.h>
 #include <libiberty/demangle.h>
 
 #include <libelf.h>
@@ -192,7 +194,10 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
 
 static int dwarf_func_cb(Dwarf_Die *diep, void *arg) {
         const char                        *name;
-        const char                        *filename;
+        const char                        *dwarf_filename;
+        char                              *filename;
+        int                                probably_jit;
+        char                              *base;
         Debug_Info                         info;
         hash_table(sym_str_t, Debug_Info)  debug_info_table;
 
@@ -202,9 +207,30 @@ static int dwarf_func_cb(Dwarf_Die *diep, void *arg) {
                 goto out;
         }
 
-        filename      = dwarf_decl_file(diep);
-        info.filename = filename == NULL ? strdup("<unknown>") : strdup(filename);
-        info.linenum  = 0;
+        dwarf_filename = dwarf_decl_file(diep);
+
+        if (dwarf_filename == NULL) {
+            filename = strdup("<unknown>");
+        } else {
+            filename = strdup(dwarf_filename);
+
+            probably_jit = 1;
+
+            for (base = basename(filename); *base; base += 1) {
+                if (!isdigit(*base)){
+                    probably_jit = 0;
+                }
+            }
+
+            if (probably_jit) {
+                free(filename);
+                filename = strdup("JIT");
+            }
+        }
+
+        info.filename = filename;
+
+        info.linenum = 0;
         dwarf_decl_line(diep, &info.linenum);
 
         debug_info_table = (hash_table(sym_str_t, Debug_Info))arg;
