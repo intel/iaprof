@@ -38,9 +38,9 @@ void print_debug_profile()
 
 void print_vms()
 {
-        uint32_t vm_index, rq_index;
+        uint32_t vm_index;
         struct vm_profile *vm;
-        struct request_profile *rq;
+        struct request_profile_list *rq;
 
         if (!debug) {
                 return;
@@ -51,8 +51,8 @@ void print_vms()
                 vm = &(vm_profile_arr[vm_index]);
                 printf("  %u active=%d num_requests=%u\n", vm_index + 1,
                        vm->active, vm->num_requests);
-                for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
-                        rq = &(vm->requests[rq_index]);
+
+                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if (rq->seqno && rq->gem_ctx) {
                                 printf("    seqno=%u gem_ctx=%u retired=%d\n",
                                        rq->seqno, rq->gem_ctx, rq->retired);

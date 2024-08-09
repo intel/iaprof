@@ -89,7 +89,7 @@ void free_buffer_profiles()
 {
         int n;
         struct buffer_profile *gem;
-        
+
         if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
                 return;
@@ -103,7 +103,7 @@ void free_buffer_profiles()
                 }
         }
         free(buffer_profile_arr);
-        
+
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
                 return;
@@ -205,9 +205,8 @@ struct vm_profile *get_vm_profile(uint32_t vm_id)
 
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
 {
-        uint32_t rq_index;
         struct vm_profile *vm;
-        struct request_profile *rq;
+        struct request_profile_list *rq;
         char found;
 
         vm = get_vm_profile(vm_id);
@@ -217,45 +216,29 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
                 return;
         }
 
-        /* Find the first all-zero request_profile in this vm, if extant. */
-        found = 0;
-        for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
-                rq = &(vm->requests[rq_index]);
-                if ((rq->seqno == 0) && (rq->gem_ctx == 0)) {
-                        /* This is an empty slot, so use it */
-                        found = 1;
-                        break;
-                }
-        }
+        rq = malloc(sizeof(*rq));
 
-        if (!found) {
-                /* Allocate a new slot */
-                if (vm->num_requests >= MAX_OPEN_REQUESTS) {
-                        fprintf(stderr,
-                                "WARNING: MAX_OPEN_REQUESTS hit. Not recording a request.\n");
-                        return;
-                }
-                vm->num_requests++;
-                rq = &(vm->requests[vm->num_requests - 1]);
-        }
-
-        /* Fill the slot */
-        rq->seqno = seqno;
+        rq->next    = vm->request_list;
+        rq->seqno   = seqno;
         rq->gem_ctx = gem_ctx;
         rq->retired = 0;
+
+        vm->request_list = rq;
+
+        vm->num_requests += 1;
 }
 
 /* Mark a request as "retired." It'll be deleted after this interval is entirely over. */
 void request_retire(uint32_t seqno, uint32_t gem_ctx)
 {
-        uint32_t rq_index, vm_index;
+        uint32_t vm_index;
         struct vm_profile *vm;
-        struct request_profile *rq;
+        struct request_profile_list *rq;
 
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 vm = &(vm_profile_arr[vm_index]);
-                for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
-                        rq = &(vm->requests[rq_index]);
+
+                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if ((rq->seqno == seqno) && (rq->gem_ctx == gem_ctx)) {
                                 rq->retired = 1;
                                 return;
@@ -266,16 +249,32 @@ void request_retire(uint32_t seqno, uint32_t gem_ctx)
 
 void clear_retired_requests()
 {
-        uint32_t vm_index, rq_index;
+        uint32_t vm_index;
         struct vm_profile *vm;
-        struct request_profile *rq;
+        struct request_profile_list *rq;
+        struct request_profile_list *rq_prev;
 
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 vm = &(vm_profile_arr[vm_index]);
-                for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
-                        rq = &(vm->requests[rq_index]);
+
+                rq_prev = NULL;
+                rq      = vm->request_list;
+                while (rq != NULL) {
                         if (rq->retired) {
-                                memset(rq, 0, sizeof(struct request_profile));
+                                if (rq_prev == NULL) {
+                                        vm->request_list = rq->next;
+                                } else {
+                                        rq_prev->next = rq->next;
+                                }
+
+                                free(rq);
+
+                                rq = rq_prev == NULL ? vm->request_list : rq_prev->next;
+
+                                vm->num_requests -= 1;
+                        } else {
+                                rq_prev = rq;
+                                rq      = rq->next;
                         }
                 }
         }
@@ -283,22 +282,22 @@ void clear_retired_requests()
 
 void mark_vms_active()
 {
-        uint32_t vm_index, rq_index;
+        uint32_t vm_index;
         char active_requests;
         struct vm_profile *vm;
-        struct request_profile *rq;
+        struct request_profile_list *rq;
 
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 /* Are there any active or retired requests this interval? */
                 active_requests = 0;
                 vm = &(vm_profile_arr[vm_index]);
-                for (rq_index = 0; rq_index < vm->num_requests; rq_index++) {
-                        rq = &(vm->requests[rq_index]);
+                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if (rq->seqno && rq->gem_ctx) {
                                 active_requests = 1;
                                 break;
                         }
                 }
+
 
                 if (active_requests) {
                         vm->active = 1;
