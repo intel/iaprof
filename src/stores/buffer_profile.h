@@ -35,7 +35,7 @@ struct buffer_profile {
         uint32_t handle;
         uint64_t file;
         char mapped;
-        
+
         /* Binding info */
         uint32_t vm_id;
 
@@ -88,15 +88,14 @@ extern struct interval_profile *interval_profile_arr;
 * requests that are currently active for this VM.
 ***************************************/
 
-#define MAX_OPEN_REQUESTS 1024
-
 struct vm_profile *get_vm_profile(uint32_t vm_id);
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx);
 void request_retire(uint32_t seqno, uint32_t gem_ctx);
 void clear_retired_requests();
 void mark_vms_active();
 
-struct request_profile {
+struct request_profile_list {
+        struct request_profile_list *next;
         uint32_t seqno;
         uint32_t gem_ctx;
         char retired;
@@ -105,7 +104,7 @@ struct request_profile {
 struct vm_profile {
         char active;
         uint32_t num_requests;
-        struct request_profile requests[MAX_OPEN_REQUESTS];
+        struct request_profile_list *request_list;
 };
 
 extern struct vm_profile *vm_profile_arr;
