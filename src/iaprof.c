@@ -133,7 +133,7 @@ int read_opts(int argc, char **argv)
 
         if (optind < argc) {
                 for (int i = optind; i < argc; i++) {
-                        size += strlen(argv[i]) + 1;
+                        size += strlen(argv[i]) + 2; /* Make room for trailing space and NULL terminator. */
                 }
                 if (!(g_sidecar = malloc(size))) {
                         fprintf(stderr, "ERROR: out of memory.\n");
