@@ -30,7 +30,7 @@ int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
         val.file = PT_REGS_PARM3(ctx);
         cpu = bpf_get_smp_processor_id();
 
-        /* 	bpf_printk("vm_bind kprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start)); */
+        bpf_printk("vm_bind kprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start));
 
         bpf_map_update_elem(&vm_bind_ioctl_wait_for_ret, &cpu, &val, 0);
 
@@ -46,12 +46,18 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         struct vm_bind_ioctl_wait_for_ret_val val;
         void *lookup;
         struct vm_bind_info *info;
+        int retval = 0;
+        u64 buff_sz;
 
         /* For getting the cpu_addr */
         u64 cpu_addr, gpu_addr;
         struct file_handle_pair pair = {};
-        struct cpu_mapping cmapping = {};
-        struct gpu_mapping gmapping = {};
+        
+        /* Bail if the bind failed */
+        if (PT_REGS_RC(ctx) != 0) {
+                bpf_printk("vm_bind failed");
+                return -1;
+        }
 
         /* Grab the argument from the kprobe */
         cpu = bpf_get_smp_processor_id();
@@ -61,28 +67,36 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         __builtin_memcpy(&val, lookup,
                          sizeof(struct vm_bind_ioctl_wait_for_ret_val));
         arg = val.arg;
+        
+        bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start));
+        
+        /* Read arguments onto the stack */
+        handle = BPF_CORE_READ(arg, handle);
+        vm_id = BPF_CORE_READ(arg, vm_id);
+        size = BPF_CORE_READ(arg, length);
+        gpu_addr = BPF_CORE_READ(arg, start);
+        cpu_addr = 0;
 
         /* Get the CPU address from any mappings that have happened */
-        handle = BPF_CORE_READ(arg, handle);
         pair.handle = handle;
         pair.file = val.file;
         lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
-        if (!lookup)
-                return -1;
-        cpu_addr = *((u64 *)lookup);
-
-        /* Maintain a map of GPU->CPU addrs */
-        size = BPF_CORE_READ(arg, length);
-        gpu_addr = BPF_CORE_READ(arg, start);
-        if (size && gpu_addr) {
-                vm_id = BPF_CORE_READ(arg, vm_id);
-                cmapping.size = size;
-                cmapping.addr = cpu_addr;
-                gmapping.addr = gpu_addr;
-                gmapping.vm_id = vm_id;
-                bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
+        if (!lookup) {
+                bpf_printk("WARNING: vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx.", gpu_addr);
+        } else {
+                /* Maintain a map of GPU->CPU addrs */
+                cpu_addr = *((u64 *)lookup);
+                if (size && gpu_addr) {
+                        struct cpu_mapping cmapping = {};
+                        struct gpu_mapping gmapping = {};
+                        cmapping.size = size;
+                        cmapping.addr = cpu_addr;
+                        gmapping.addr = gpu_addr;
+                        gmapping.vm_id = vm_id;
+                        bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
+                }
         }
-
+        
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
         if (!info) {
@@ -106,6 +120,22 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         info->tid = bpf_get_current_pid_tgid();
         info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
         info->time = bpf_ktime_get_ns();
+        
+        if (cpu_addr) {
+                /* Grab a copy of this buffer */
+                buff_sz = size;
+                if (buff_sz > MAX_BINARY_SIZE) {
+                        buff_sz = MAX_BINARY_SIZE;
+                }
+                retval = bpf_probe_read_user(info->buff, buff_sz, (void *)cpu_addr);
+                info->buff_sz = buff_sz;
+                if (retval < 0) {
+                        bpf_printk(
+                                "WARNING: vm_bind_ioctl failed to copy %lu bytes from handle=%u cpu_addr=0x%lx.",
+                                buff_sz, handle, cpu_addr);
+                        info->buff_sz = 0;
+                }
+        }
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 

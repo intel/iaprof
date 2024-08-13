@@ -32,7 +32,7 @@ extern uint64_t iba;
 
 int handle_mapping(void *data_arg);
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz);
+                  uint64_t src_sz, uint64_t id);
 int handle_unmap(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
@@ -65,9 +65,6 @@ struct bpf_info_t {
         /* Links to the BPF programs */
         struct bpf_link **links;
         size_t num_links;
-
-        /* i915_gem_pwrite_ioctl */
-        /*   struct bpf_program *pwrite_ioctl_prog; */
 
         /* i915_gem_mmap_ioctl */
         struct bpf_program *mmap_ioctl_prog;
@@ -103,12 +100,13 @@ struct bpf_info_t {
 
         /* munmap */
         struct bpf_program *munmap_prog;
-
+        
         /* requests */
         struct bpf_program *request_submit_prog;
         struct bpf_program *request_retire_prog;
         struct bpf_program *request_in_prog;
         struct bpf_program *request_out_prog;
+/*         struct bpf_program *request_retire_kprobe_prog; */
 
         /* vm_close */
         /*   struct bpf_program *vm_close_prog; */
