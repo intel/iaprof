@@ -121,6 +121,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         info->tid = bpf_get_current_pid_tgid();
         info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
         info->time = bpf_ktime_get_ns();
+        info->buff_sz = 0;
         
         if (cpu_addr) {
                 /* Grab a copy of this buffer */
