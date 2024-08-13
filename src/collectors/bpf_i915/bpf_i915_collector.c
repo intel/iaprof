@@ -444,7 +444,7 @@ int handle_execbuf_start(void *data_arg)
         }
 
         index = get_buffer_profile_by_binding(vm_id, info->bb_offset);
-        if (!index) {
+        if (index == -1) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
                         info->bb_offset);
