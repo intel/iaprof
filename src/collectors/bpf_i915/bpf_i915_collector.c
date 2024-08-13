@@ -55,8 +55,6 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
                 printf("handle_binary\n");
         }
         
-        dump_buffer(src, src_sz, id);
-
         *dst = calloc(src_sz, sizeof(unsigned char));
         *dst_sz = src_sz;
         memcpy(*dst, src, src_sz);
@@ -212,9 +210,6 @@ int handle_userptr(void *data_arg)
         if (verbose) {
                 print_userptr(info);
         }
-        if (info->buff_sz) {
-                dump_buffer(info->buff, info->buff_sz, 0);
-        }
 
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -360,7 +355,6 @@ int handle_batchbuffer(void *data_arg)
         struct batchbuffer_info *info;
         struct buffer_profile *gem;
         int index;
-        struct bb_parser parser = {};
 
         if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
@@ -382,6 +376,10 @@ int handle_batchbuffer(void *data_arg)
                 }
                 goto cleanup;
         }
+        
+        gem = &buffer_profile_arr[index];
+        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
+                      info->buff_sz, gem->handle);
         
 cleanup:
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {

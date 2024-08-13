@@ -756,6 +756,10 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 parser->sip |= tmp << 32;
                         }
                         break;
+                case COMPUTE_WALKER:
+                        if (parser->in_cmd == 38) {
+                                return BB_PARSER_STATUS_OK;
+                        }
                 }
 
                 if (parser->cur_cmd) {

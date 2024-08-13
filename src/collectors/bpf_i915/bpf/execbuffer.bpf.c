@@ -39,6 +39,8 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         int err;
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
+        
+        bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
 
         /*
            We only care about this buffer if it:
@@ -106,6 +108,8 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         struct cpu_mapping cmapping = {};
         struct gpu_mapping gmapping = {};
         struct vm_callback_ctx vm_callback_ctx = {};
+        
+        bpf_printk("execbuffer");
 
         /* Read arguments */
         file = (u64)PT_REGS_PARM2(ctx);
@@ -157,6 +161,8 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 cpu_addr = cmapping.addr;
                 size = cmapping.size;
         } else {
+                bpf_printk("WARNING: execbuffer couldn't find a CPU mapping for vm_id=%u gpu_addr=0x%lx",
+                           vm_id, offset);
                 cpu_addr = 0;
                 size = 0;
         }
