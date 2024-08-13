@@ -82,6 +82,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         }
 
         /* Find the addr range in this PID's symbol table */
+        /* XXX: Completely rewrite. */
         table = &(debug_i915_info.symtabs[pid_index]);
         for (i = 0; i < table->num_syms; i++) {
                 entry = &(table->symtab[i]);

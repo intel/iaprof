@@ -14,7 +14,7 @@
 #endif
 
 /* Collected from an mmap */
-struct mapping_info {
+struct __attribute__((packed)) mapping_info {
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
@@ -24,11 +24,13 @@ struct mapping_info {
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
+        
+        char pad[4];
 };
 
 /* Collected from an munmap, possibly
    after execbuffer */
-struct unmap_info {
+struct __attribute__((packed)) unmap_info {
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
@@ -37,17 +39,19 @@ struct unmap_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
+        char pad[4];
 };
 
 /* Collected from a vm_create */
-struct vm_create_info {
+struct __attribute__((packed)) vm_create_info {
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
+        char pad[4];
 };
 
 /* Collected from a vm_bind */
-struct vm_bind_info {
+struct __attribute__((packed)) vm_bind_info {
         __u64 file;
         __u32 handle;
         __u32 vm_id;
@@ -55,16 +59,17 @@ struct vm_bind_info {
         __u64 size;
         __u64 offset;
         __u64 flags;
+        
+        unsigned char buff[MAX_BINARY_SIZE];
+        __u64 buff_sz;
 
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
-
-        char pad[7];
 };
 
 /* Collected from a vm_unbind */
-struct vm_unbind_info {
+struct __attribute__((packed)) vm_unbind_info {
         __u64 file;
         __u32 handle;
         __u32 vm_id;
@@ -77,7 +82,7 @@ struct vm_unbind_info {
 };
 
 /* Collected from the start of an execbuffer */
-struct execbuf_start_info {
+struct __attribute__((packed)) execbuf_start_info {
         __u32 ctx_id, vm_id;
         __u64 file;
 
@@ -93,36 +98,39 @@ struct execbuf_start_info {
         __u32 cpu, pid, tid;
         __u64 time;
         int stackid;
-
-        char pad[8];
 };
 
-/* Collected at execbuffer time, represents a batchbuffer */
-struct batchbuffer_info {
+/* Represents a copy of a batchbuffer */
+struct __attribute__((packed)) batchbuffer_info {
         __u32 pid, tid, cpu;
         __u64 time;
         __u64 gpu_addr, buff_sz;
         __u32 vm_id;
         unsigned char buff[MAX_BINARY_SIZE];
+        char pad[4];
 };
 
 /* Collected from the end of an execbuffer */
-struct execbuf_end_info {
+struct __attribute__((packed)) execbuf_end_info {
         __u32 cpu, pid, tid;
         __u64 time;
+        
+        unsigned char buff[MAX_BINARY_SIZE];
+        __u64 buff_sz;
+        __u32 vm_id;
+        __u64 gpu_addr;
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */
-struct userptr_info {
+struct __attribute__((packed)) userptr_info {
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
-        __u64 size;
+        __u64 buff_sz;
         unsigned char buff[MAX_BINARY_SIZE];
 
         __u32 pid, tid, cpu;
         __u64 time;
-        char pad[8];
 };
 
 /* Collected from the tracepoints i915_request_* */
@@ -133,12 +141,12 @@ enum i915_request_type {
         REQUEST_RETIRE
 };
 
-struct request_info {
+struct __attribute__((packed)) request_info {
         enum i915_request_type type;
         __u32 seqno;
         __u32 gem_ctx;
+        __u16 class, instance;
         __u64 time;
-        char pad[16];
 };
 
 #endif

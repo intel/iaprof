@@ -133,19 +133,32 @@ retry:
                         if ((addr < start) || (addr >= end)) {
                                 continue;
                         }
+                        offset = addr - start;
                         
                         if (debug) {
-                                printf("addr=0x%lx start=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%llx iba=0x%lx\n",
-                                       addr, start, offset,
+                                printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%llx iba=0x%lx\n",
+                                       addr, start, end, offset,
                                        gem->handle, gem->vm_id,
                                        gem->vm_bind_info.gpu_addr, iba);
                         }
 
                         vm = get_vm_profile(gem->vm_id);
                         if (!vm) {
+                                if (debug) {
+                                        printf("  no vm!\n");
+                                }
                                 continue;
                         }
                         if (vm->active == 0) {
+                                if (debug) {
+                                        printf("  inactive!\n");
+                                }
+                                continue;
+                        }
+                        if (!(gem->exec_info.pid)) {
+                                if (debug) {
+                                        printf("  no exec_info!\n");
+                                }
                                 continue;
                         }
 
@@ -160,8 +173,6 @@ retry:
                                                 " which is bigger than MAX_BINARY_SIZE.\n");
                                 }
                         }
-
-                        offset = addr - start;
 
                         found++;
                         last_found_start = start;

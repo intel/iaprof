@@ -31,12 +31,7 @@
 *    - handle ID
 *    - file offset (later passed to i915_gem_mmap_ioctl)
 *
-* C. i915_gem_pwrite_ioctl
-*    - handle ID
-*    - CPU address
-*    - size
-*
-* D. i915_gem_userptr_ioctl
+* C. i915_gem_userptr_ioctl
 *    - handle ID
 *    - CPU address
 *    - size

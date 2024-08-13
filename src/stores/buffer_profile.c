@@ -31,12 +31,12 @@ void print_buffer_profiles()
         if (!debug)
                 return;
 
-        fprintf(stderr, "==== BUFFER_PROFILE_ARR =====\n");
+        printf( "==== BUFFER_PROFILE_ARR =====\n");
 
         for (i = 0; i < buffer_profile_used; i++) {
                 gem = &(buffer_profile_arr[i]);
 
-                fprintf(stderr,
+                printf(
                         "file=0x%lx handle=%u vm_id=%u cpu_addr=0x%lx gpu_addr=0x%llx buff_sz=%zu\n",
                         gem->file, gem->handle, gem->vm_id, gem->cpu_addr,
                         gem->vm_bind_info.gpu_addr, gem->buff_sz);
@@ -203,7 +203,7 @@ struct vm_profile *get_vm_profile(uint32_t vm_id)
         return &(vm_profile_arr[vm_id - 1]);
 }
 
-void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
+void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
 {
         struct vm_profile *vm;
         struct request_profile_list *rq;
@@ -222,9 +222,10 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx)
         rq->seqno   = seqno;
         rq->gem_ctx = gem_ctx;
         rq->retired = 0;
+        rq->class = class;
+        rq->instance = instance;
 
         vm->request_list = rq;
-
         vm->num_requests += 1;
 }
 
@@ -280,26 +281,30 @@ void clear_retired_requests()
         }
 }
 
+#define I915_ENGINE_CLASS_COMPUTE 4
+
 void mark_vms_active()
 {
         uint32_t vm_index;
-        char active_requests;
+        char active_requests, compute_engine;
         struct vm_profile *vm;
         struct request_profile_list *rq;
 
         for (vm_index = 0; vm_index < num_vms; vm_index++) {
                 /* Are there any active or retired requests this interval? */
                 active_requests = 0;
+                compute_engine = 0;
                 vm = &(vm_profile_arr[vm_index]);
                 for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if (rq->seqno && rq->gem_ctx) {
                                 active_requests = 1;
-                                break;
+                        }
+                        if (rq->class == I915_ENGINE_CLASS_COMPUTE) {
+                                compute_engine = 1;
                         }
                 }
 
-
-                if (active_requests) {
+                if (active_requests && compute_engine) {
                         vm->active = 1;
                 } else {
                         vm->active = 0;

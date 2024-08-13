@@ -395,7 +395,7 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
 {
         int err;
         u32 cpu;
-        u64 size, status;
+        u64 size, status, cpu_addr;
         unsigned handle;
         struct drm_i915_gem_userptr *arg;
         void *lookup;
@@ -423,28 +423,26 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
                 return -1;
         }
 
+        cpu_addr = BPF_CORE_READ(arg, user_ptr);
         bin->file = val.file;
         bin->handle = BPF_CORE_READ(arg, handle);
-        bin->cpu_addr = BPF_CORE_READ(arg, user_ptr);
-        bin->size = BPF_CORE_READ(arg, user_size);
+        bin->cpu_addr = cpu_addr;
 
         bin->cpu = bpf_get_smp_processor_id();
         bin->pid = bpf_get_current_pid_tgid() >> 32;
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
-        size = bin->size;
+        size = BPF_CORE_READ(arg, user_size);
         if (size > MAX_BINARY_SIZE) {
                 size = MAX_BINARY_SIZE;
         }
-        err = bpf_probe_read_user(bin->buff, size, (void *)bin->cpu_addr);
+        bin->buff_sz = size;
+        err = bpf_probe_read_user(bin->buff, size, (void *)cpu_addr);
         if (err) {
-                bpf_ringbuf_discard(bin, BPF_RB_FORCE_WAKEUP);
                 bpf_printk("WARNING: userptr_ioctl failed to copy %lu bytes.",
                            size);
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
-                return -1;
+                bin->buff_sz = 0;
         }
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
@@ -523,30 +521,3 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
 
         return 0;
 }
-
-#if 0
-/***************************************
-* i915_gem_pwrite_ioctl
-*
-* The i915_gem_pwrite_ioctl system call includes a userspace pointer
-* from which the kernel should read, so we can immediately pass that along
-* to our userspace profiler to be read.
-***************************************/
-
-SEC("kprobe/i915_gem_pwrite_ioctl")
-int pwrite_kprobe(struct pt_regs *ctx)
-{
-  struct drm_i915_gem_pwrite *gem_pwrite = (struct drm_i915_gem_pwrite *) PT_REGS_PARM2(ctx);
-  struct mapping_info *kinfo;
-  u32 pid = bpf_get_current_pid_tgid() >> 32;
-  
-  add_to_ringbuf(pid,
-                 BPF_CORE_READ(gem_pwrite, handle),
-                 BPF_CORE_READ(gem_pwrite, data_ptr),
-                 BPF_CORE_READ(gem_pwrite, size),
-                 0,
-                 0);
-  
-  return 0;
-}
-#endif

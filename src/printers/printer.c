@@ -59,8 +59,8 @@ int print_userptr(struct userptr_info *info)
         printf(" %-*u", CPU_LEN, info->cpu);
         printf(" %-*u", PID_LEN, info->pid);
         printf(" %-*u", TID_LEN, info->tid);
-        printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n", info->file,
-               info->handle, info->cpu_addr, info->size);
+        printf(" file=0x%llx handle=%u cpu_addr=0x%llx buff_sz=%llu\n", info->file,
+               info->handle, info->cpu_addr, info->buff_sz);
 
         return 0;
 }

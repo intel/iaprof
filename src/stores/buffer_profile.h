@@ -89,7 +89,7 @@ extern struct interval_profile *interval_profile_arr;
 ***************************************/
 
 struct vm_profile *get_vm_profile(uint32_t vm_id);
-void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx);
+void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance);
 void request_retire(uint32_t seqno, uint32_t gem_ctx);
 void clear_retired_requests();
 void mark_vms_active();
@@ -99,6 +99,7 @@ struct request_profile_list {
         uint32_t seqno;
         uint32_t gem_ctx;
         char retired;
+        uint16_t class, instance;
 };
 
 struct vm_profile {

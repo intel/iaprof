@@ -13,9 +13,11 @@
 #include "main.h"
 
 struct execbuffer_wait_for_ret_val {
-        u64 file;
-        u64 execbuffer;
         u64 objects;
+        u64 cpu_addr;
+        u64 size;
+        u64 gpu_addr;
+        u32 vm_id;
 };
 
 struct {
@@ -37,6 +39,8 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         int err;
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
+        
+        bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
 
         /*
            We only care about this buffer if it:
@@ -104,6 +108,8 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         struct cpu_mapping cmapping = {};
         struct gpu_mapping gmapping = {};
         struct vm_callback_ctx vm_callback_ctx = {};
+        
+        bpf_printk("execbuffer");
 
         /* Read arguments */
         file = (u64)PT_REGS_PARM2(ctx);
@@ -143,12 +149,31 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 handle = 0xffffffff;
                 offset = 0xffffffffffffffff;
         }
+        
+        /* Find a possible CPU mapping for the primary batchbuffer.
+           If we can, go ahead and grab a copy of it! */
+        gmapping.vm_id = vm_id;
+        gmapping.addr = offset;
+        val_ptr = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
+        if (val_ptr) {
+                __builtin_memcpy(&cmapping, val_ptr,
+                                 sizeof(struct cpu_mapping));
+                cpu_addr = cmapping.addr;
+                size = cmapping.size;
+        } else {
+                bpf_printk("WARNING: execbuffer couldn't find a CPU mapping for vm_id=%u gpu_addr=0x%lx",
+                           vm_id, offset);
+                cpu_addr = 0;
+                size = 0;
+        }
 
         /* Pass arguments to the kretprobe */
         __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
-        val.file = file;
-        val.execbuffer = (u64)execbuffer;
         val.objects = (u64)objects;
+        val.cpu_addr = cpu_addr;
+        val.gpu_addr = offset;
+        val.vm_id = vm_id;
+        val.size = size;
         cpu = bpf_get_smp_processor_id();
         bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
 
@@ -172,20 +197,14 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 return -1;
         }
 
-        /* Find a possible CPU mapping for the primary batchbuffer.
-           If we can, go ahead and grab a copy of it! */
-        gmapping.vm_id = vm_id;
-        gmapping.addr = offset;
-        val_ptr = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
-        if (val_ptr) {
-                __builtin_memcpy(&cmapping, val_ptr,
-                                 sizeof(struct cpu_mapping));
-                size = cmapping.size;
+        /* Grab a copy of the primary batchbuffer */
+        info->buff_sz = 0;
+        if (cpu_addr && size) {
                 if (size > MAX_BINARY_SIZE) {
                         size = MAX_BINARY_SIZE;
                 }
                 err = bpf_probe_read_user(info->buff, size,
-                                          (void *)cmapping.addr);
+                                          (void *)cpu_addr);
                 info->buff_sz = size;
                 if (err) {
                         bpf_printk(
@@ -193,10 +212,8 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                                 size);
                         info->buff_sz = 0;
                 }
-                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cmapping.addr,
-                           cmapping.size);
-        } else {
-                info->buff_sz = 0;
+                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr,
+                           size);
         }
 
         /* execbuffer-specific stuff */
@@ -221,10 +238,12 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
 SEC("kretprobe/i915_gem_do_execbuffer")
 int do_execbuffer_kretprobe(struct pt_regs *ctx)
 {
+        int err;
         struct execbuf_end_info *einfo;
         struct execbuffer_wait_for_ret_val *val;
         struct drm_i915_gem_exec_object2 *objects;
-        u32 cpu;
+        u32 cpu, vm_id;
+        u64 size, cpu_addr, gpu_addr;
 
         cpu = bpf_get_smp_processor_id();
         void *arg = bpf_map_lookup_elem(&execbuffer_wait_for_ret, &cpu);
@@ -233,11 +252,37 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
         }
         val = (struct execbuffer_wait_for_ret_val *)arg;
         objects = (struct drm_i915_gem_exec_object2 *)val->objects;
-
+        cpu_addr = val->cpu_addr;
+        size = val->size;
+        gpu_addr = val->gpu_addr;
+        vm_id = val->vm_id;
+        
         /* Output the end of an execbuffer to the ringbuffer */
         einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
         if (!einfo)
                 return -1;
+        
+        /* Make a copy of the primary batchbuffer */
+        einfo->buff_sz = 0;
+        if (cpu_addr && size) {
+                if (size > MAX_BINARY_SIZE) {
+                        size = MAX_BINARY_SIZE;
+                }
+                err = bpf_probe_read_user(einfo->buff, size,
+                                          (void *)cpu_addr);
+                einfo->buff_sz = size;
+                if (err) {
+                        bpf_printk(
+                                "WARNING: execbuf_end failed to copy %lu bytes.",
+                                size);
+                        einfo->buff_sz = 0;
+                }
+                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr,
+                                size);
+        }
+
+        einfo->gpu_addr = gpu_addr;
+        einfo->vm_id = vm_id;
         einfo->cpu = cpu;
         einfo->pid = bpf_get_current_pid_tgid() >> 32;
         einfo->tid = bpf_get_current_pid_tgid();
