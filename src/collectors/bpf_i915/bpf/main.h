@@ -54,6 +54,7 @@ struct vm_bind_info {
         __u64 gpu_addr;
         __u64 size;
         __u64 offset;
+        __u64 flags;
 
         __u32 pid, tid, cpu;
         __u64 time;
