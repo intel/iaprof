@@ -293,13 +293,6 @@ bind:
                 copy_mapping(bind_gem, map_gem);
         }
         
-        /* If we got a copy of the buffer from BPF */
-        if (info->buff_sz == 0) {
-                goto cleanup;
-        }
-        handle_binary(&(bind_gem->buff), info->buff, &(bind_gem->buff_sz),
-                      info->buff_sz, info->handle);
-
 cleanup:
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");

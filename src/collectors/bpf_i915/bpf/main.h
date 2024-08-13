@@ -60,9 +60,6 @@ struct __attribute__((packed)) vm_bind_info {
         __u64 offset;
         __u64 flags;
         
-        unsigned char buff[MAX_BINARY_SIZE];
-        __u64 buff_sz;
-
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
