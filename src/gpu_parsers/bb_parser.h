@@ -729,8 +729,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         }
                         break;
                 case MI_SEMAPHORE_WAIT:
-                        /* TODO: do *something* to handle the semaphor.
-                         * Sleeping is a non-starter. */
+                        return BB_PARSER_STATUS_OK;
                         break;
                 case STATE_BASE_ADDRESS:
                         if (parser->in_cmd == 10) {
