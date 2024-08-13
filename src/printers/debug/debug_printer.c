@@ -27,6 +27,8 @@ void print_debug_profile()
         if (!debug) {
                 return;
         }
+        
+        printf("buffer_profile_arr used=%zu size=%zu\n", buffer_profile_used, buffer_profile_size * sizeof(struct buffer_profile));
 
         /* Iterate over each buffer */
         for (i = 0; i < buffer_profile_used; i++) {
