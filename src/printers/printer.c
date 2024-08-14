@@ -176,13 +176,13 @@ int print_request(struct request_info *rinfo)
         printf(" %-*u", PID_LEN, 0);
         printf(" %-*u", TID_LEN, 0);
         printf(" type=");
-        if (rinfo->type == REQUEST_SUBMIT) {
+        if (rinfo->request_type == REQUEST_SUBMIT) {
                 printf("submit");
-        } else if (rinfo->type == REQUEST_RETIRE) {
+        } else if (rinfo->request_type == REQUEST_RETIRE) {
                 printf("retire");
-        } else if (rinfo->type == REQUEST_IN) {
+        } else if (rinfo->request_type == REQUEST_IN) {
                 printf("in");
-        } else if (rinfo->type == REQUEST_OUT) {
+        } else if (rinfo->request_type == REQUEST_OUT) {
                 printf("out");
         }
         printf(" seqno=%u", rinfo->seqno);

@@ -39,7 +39,7 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         int err;
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
-        
+
         bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
 
         /*
@@ -62,6 +62,7 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         }
 
         /* Common stuff */
+        info->type = BPF_EVENT_TYPE_BATCHBUFFER;
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
@@ -108,7 +109,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         struct cpu_mapping cmapping = {};
         struct gpu_mapping gmapping = {};
         struct vm_callback_ctx vm_callback_ctx = {};
-        
+
         bpf_printk("execbuffer");
 
         /* Read arguments */
@@ -149,7 +150,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 handle = 0xffffffff;
                 offset = 0xffffffffffffffff;
         }
-        
+
         /* Find a possible CPU mapping for the primary batchbuffer.
            If we can, go ahead and grab a copy of it! */
         gmapping.vm_id = vm_id;
@@ -217,6 +218,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         }
 
         /* execbuffer-specific stuff */
+        info->type = BPF_EVENT_TYPE_EXECBUF_START;
         info->file = file;
         info->vm_id = vm_id;
         info->ctx_id = ctx_id;
@@ -256,12 +258,12 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
         size = val->size;
         gpu_addr = val->gpu_addr;
         vm_id = val->vm_id;
-        
+
         /* Output the end of an execbuffer to the ringbuffer */
         einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
         if (!einfo)
                 return -1;
-        
+
         /* Make a copy of the primary batchbuffer */
         einfo->buff_sz = 0;
         if (cpu_addr && size) {
@@ -281,6 +283,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
                                 size);
         }
 
+        einfo->type = BPF_EVENT_TYPE_EXECBUF_END;
         einfo->gpu_addr = gpu_addr;
         einfo->vm_id = vm_id;
         einfo->cpu = cpu;

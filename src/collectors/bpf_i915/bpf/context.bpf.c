@@ -111,6 +111,7 @@ int vm_create_ioctl_kprobe(struct pt_regs *ctx)
                 return -1;
         }
 
+        info->type = BPF_EVENT_TYPE_VM_CREATE;
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
