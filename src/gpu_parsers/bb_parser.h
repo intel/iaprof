@@ -29,13 +29,12 @@ enum bb_parser_status {
 struct bb_parser {
         uint64_t pc[3];
         uint64_t batch_len[3];
-        char pc_depth;
+        uint8_t pc_depth;
         unsigned char in_cmd;
         uint64_t cur_cmd;
-        unsigned char cur_num_dwords;
+        uint8_t cur_num_dwords;
 
         struct buffer_profile *gem;
-        int gem_index;
 
         /* Bookkeeping. Number of dwords that we've parsed. */
         uint64_t num_dwords;
@@ -50,7 +49,7 @@ struct bb_parser {
 
         /* Batch Buffer Start Pointer */
         uint64_t bbsp;
-        char bb2l;
+        uint8_t bb2l;
 
         uint32_t load_register_offset, load_register_dword;
 
@@ -242,22 +241,24 @@ uint32_t op_len(uint32_t *bb)
 
 void find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
-        uint64_t n, start, end;
+        uint64_t start, end;
 
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                start = gem->vm_bind_info.gpu_addr;
-                end = start + gem->vm_bind_info.size;
+        /* @TODO: This can be done in log time now, so do that. */
+
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                start = gem->gpu_addr;
+                end = start + gem->bind_size;
                 if ((bbsp >= start) && (bbsp < end)) {
                         if (bb_debug) {
                                 printf("Found a matching batch buffer ");
-                                printf("to jump to. handle=%u gpu_addr=0x%llx\n",
-                                       gem->vm_bind_info.handle,
-                                       gem->vm_bind_info.gpu_addr);
+                                printf("to jump to. vm_id=%u gpu_addr=0x%lx\n",
+                                       gem->vm_id,
+                                       gem->gpu_addr);
                         }
                         parser->gem = gem;
-                        parser->gem_index = n;
                         return;
                 }
         }
@@ -339,7 +340,7 @@ enum bb_parser_status mi_noop(struct bb_parser *parser, uint32_t *ptr)
 enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
-        uint64_t tmp, bbsp_offset;
+        uint64_t tmp;
 
         if (parser->in_cmd == 0) {
                 parser->enable_predication = *ptr & 0x8000;
@@ -391,7 +392,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 }
 
                 if (!(parser->gem->buff)) {
-                        /* We know we're supposed to jump *somewhere*, 
+                        /* We know we're supposed to jump *somewhere*,
 			 * but can't. */
                         if (bb_debug) {
                                 fprintf(stderr, "WARNING: A batch buffer was");
@@ -422,14 +423,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       uint32_t offset, uint64_t size)
 {
         uint32_t *dword_ptr, op;
-        uint64_t off, tmp, root_off;
+        uint64_t off, tmp;
         enum bb_parser_status retval;
 
         gem->parsed = 1;
 
         /* Loop over 32-bit dwords. */
         parser->pc_depth = 1;
-        parser->pc[parser->pc_depth] = gem->vm_bind_info.gpu_addr + offset;
+        parser->pc[parser->pc_depth] = gem->gpu_addr + offset;
         parser->batch_len[parser->pc_depth] = size;
         parser->gem = gem;
         parser->in_cmd = 0;
@@ -437,7 +438,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         parser->num_dwords = 0;
         while (parser->pc_depth > 0) {
                 off = parser->pc[parser->pc_depth] -
-                      parser->gem->vm_bind_info.gpu_addr;
+                      parser->gem->gpu_addr;
                 dword_ptr = (uint32_t *)(parser->gem->buff + off);
 
                 /* First check if we're overflowing the buffer */
@@ -456,7 +457,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                    Should we do the same...? */
                 if (parser->batch_len[parser->pc_depth]) {
                         root_off = parser->pc[parser->pc_depth] -
-                                   gem->vm_bind_info.gpu_addr - offset;
+                                   gem->gpu_addr - offset;
                         if (root_off >= parser->batch_len[parser->pc_depth]) {
                                 /* Make sure we stop once we get to the end of the
                                    first-level batchbuffer commands (which in the i915
@@ -738,7 +739,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                  * 20 of the iba bits. */
                                 parser->iba |= (*dword_ptr & 0xFFFFF000);
                         } else if (parser->in_cmd == 11) {
-                                /* The twelfth dword in STATE_BASE_ADDRESS 
+                                /* The twelfth dword in STATE_BASE_ADDRESS
                                  * stores the majority of the iba */
                                 tmp = *dword_ptr;
                                 parser->iba |= tmp << 32;
@@ -766,7 +767,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         /* If we're in a command already, advance to the next dword within it */
 
                         if (parser->in_cmd == parser->cur_num_dwords - 1) {
-                                /* We've consumed all of this command's dwords, 
+                                /* We've consumed all of this command's dwords,
 				 * so go back to looking for new commands. */
                                 parser->in_cmd = 0;
                                 parser->cur_cmd = 0;

@@ -6,7 +6,6 @@
 
 void print_flamegraph()
 {
-        char *insn_text;
         struct proto_flame *flame;
         int err;
         uint64_t index;

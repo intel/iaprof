@@ -20,7 +20,7 @@ int print_header()
 
 int print_mapping(struct mapping_info *info)
 {
-        char *stack_str = NULL;
+/*         char *stack_str = NULL; */
 
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "mmap");
         printf(" %-*llu", TIME_LEN, info->time);
@@ -140,18 +140,17 @@ int print_execbuf_start(struct execbuf_start_info *info)
 }
 
 /* Prints buffers that an execbuffer referenced through its vm_id */
-int print_execbuf_gem(struct execbuf_start_info *info,
-                      struct vm_bind_info *vinfo)
+int print_execbuf_gem(struct buffer_profile *gem)
 {
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_gem");
-        printf(" %-*llu", TIME_LEN, info->time);
-        printf(" %-*u", CPU_LEN, info->cpu);
-        printf(" %-*u", PID_LEN, info->pid);
-        printf(" %-*u", TID_LEN, info->tid);
-        printf(" ctx_id=%u vm_id=%u", info->ctx_id, info->vm_id);
-        printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
-               vinfo->file, vinfo->handle, vinfo->vm_id, vinfo->gpu_addr,
-               vinfo->size);
+        printf(" %-*llu", TIME_LEN, gem->exec_info.time);
+        printf(" %-*u", CPU_LEN, gem->exec_info.cpu);
+        printf(" %-*u", PID_LEN, gem->exec_info.pid);
+        printf(" %-*u", TID_LEN, gem->exec_info.tid);
+        printf(" ctx_id=%u vm_id=%u", gem->exec_info.ctx_id, gem->exec_info.vm_id);
+        printf(" file=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx size=%lu\n",
+               gem->file, gem->handle, gem->vm_id, gem->gpu_addr,
+               gem->bind_size);
 
         return 0;
 }

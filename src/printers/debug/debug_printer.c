@@ -11,17 +11,17 @@
 
 #include "utils/utils.h"
 
-void print_debug_buffer_profile(struct buffer_profile *gem, int gem_index)
+void print_debug_buffer_profile(struct buffer_profile *gem)
 {
-        printf("buffer handle=%u gpu_addr=0x%llx vm_id=%u index=%d has_stalls=%u\n",
-               gem->handle, gem->vm_bind_info.gpu_addr, gem->vm_id, gem_index,
-               interval_profile_arr[gem_index].has_stalls);
+        printf("buffer handle=%u gpu_addr=0x%lx vm_id=%u has_stalls=%u\n",
+               gem->handle, gem->gpu_addr, gem->vm_id,
+               gem->stall_counts != NULL);
 }
 
 /* Prints all GPU kernels that we found */
 void print_debug_profile()
 {
-        int i;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
         if (!debug) {
@@ -29,10 +29,10 @@ void print_debug_profile()
         }
 
         /* Iterate over each buffer */
-        for (i = 0; i < buffer_profile_used; i++) {
-                gem = &buffer_profile_arr[i];
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
 
-                print_debug_buffer_profile(gem, i);
+                print_debug_buffer_profile(gem);
         }
 }
 

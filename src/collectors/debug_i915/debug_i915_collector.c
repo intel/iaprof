@@ -121,7 +121,6 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
         int num_syms;
-        size_t len;
         char *name;
         Debug_Info *info;
 
@@ -166,7 +165,6 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
         Elf_Data *section_data;
         size_t num_symbols, i;
         Elf64_Sym *symbols;
-        char *name;
 
         section_data = elf_getdata(section, NULL);
         while (section_data != NULL) {
@@ -308,7 +306,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         Elf_Scn *section;
         Elf64_Shdr *section_header;
         int retval;
-        size_t i, num_sections, string_table_index;
+        size_t string_table_index;
 
 
         /* Initialize the ELF from the buffer */
@@ -384,7 +382,7 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         struct prelim_drm_i915_debug_event_uuid *uuid;
         struct prelim_drm_i915_debug_read_uuid read_uuid = {};
         char uuid_str[37];
-        int retval, i;
+        int retval;
         unsigned char *data;
 
         uuid = (struct prelim_drm_i915_debug_event_uuid *)event;
@@ -471,6 +469,8 @@ void read_debug_i915_events(int fd)
 {
         int result, max_loops, i, pid_index;
 
+        pid_index = -1;
+
         /* First, find the index of the PID that this event came from. */
         for (i = 0; i < debug_i915_info.num_pids; i++) {
                 if (debug_i915_info.fds[i] == fd) {
@@ -478,6 +478,8 @@ void read_debug_i915_events(int fd)
                         break;
                 }
         }
+
+        if (pid_index < 0) { return; }
 
         max_loops = 5;
         result = 0;

@@ -52,15 +52,14 @@ void store_cpu_side(uint64_t index, struct buffer_profile *gem)
 char get_insn_text(struct buffer_profile *gem, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
-        uint32_t opcode;
         char retval;
 
         /* If we don't have a copy, can't disassemble it! */
         if (!(gem->buff_sz)) {
                 if (debug) {
                         fprintf(stderr,
-                                "WARNING: Don't have a copy of handle=%u, so can't decode.\n",
-                                gem->handle);
+                                "WARNING: Don't have a copy of vm_id=%u, gpu_addr=0x%lx so can't decode.\n",
+                                gem->vm_id, gem->gpu_addr);
                 }
                 return -1;
         }
@@ -71,12 +70,12 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset,
                         fprintf(stderr,
                                 "WARNING: Got an EU stall past the end of a buffer. ");
                         fprintf(stderr,
-                                "handle=%u cpu_addr=%p offset=0x%lx buff_sz=%lu\n",
-                                gem->handle, gem->buff, offset, gem->buff_sz);
+                                "vm_id=%u gpu_addr=0x%lx offset=0x%lx buff_sz=%lu\n",
+                                gem->vm_id, gem->gpu_addr, offset, gem->buff_sz);
                 }
                 return -1;
         }
-        
+
         /* Initialize the kernel view */
         if (!gem->kv) {
                 gem->kv = iga_init(gem->buff, gem->buff_sz);
@@ -88,17 +87,17 @@ char get_insn_text(struct buffer_profile *gem, uint64_t offset,
                         return -1;
                 }
         }
-        
+
         /* Disassemble */
         retval = iga_disassemble_insn(gem->kv, offset, insn_text,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        fprintf(stderr, "WARNING: Disassembly failed on handle=%u\n", gem->handle);
+                        fprintf(stderr, "WARNING: Disassembly failed on vm_id=%u, gpu_addr=0x%lx\n", gem->vm_id, gem->gpu_addr);
                 }
                 return -1;
         }
-        
+
         return 0;
 }
 
@@ -114,10 +113,9 @@ void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,
 }
 
 /* Prints the flamegraph for a single kernel */
-void store_kernel_flames(struct buffer_profile *gem, int gem_index,
-                         char **insn_text, size_t *insn_text_len)
+void store_kernel_flames(struct buffer_profile *gem, char **insn_text,
+                         size_t *insn_text_len)
 {
-        int n;
         uint64_t offset, *tmp, addr, index;
         struct offset_profile **found;
         char *failed_decode = "[failed_decode]";
@@ -125,12 +123,12 @@ void store_kernel_flames(struct buffer_profile *gem, int gem_index,
         char *tmp_insn_text;
 
         if (debug) {
-                printf("storing flamegraph for handle=%u pid=%d\n", gem->handle,
+                printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
                        gem->exec_info.pid);
         }
 
         /* Iterate over the offsets that we have EU stalls for */
-        hash_table_traverse(interval_profile_arr[gem_index].counts, offset, tmp)
+        hash_table_traverse(gem->stall_counts, offset, tmp)
         {
                 found = (struct offset_profile **)tmp;
 
@@ -142,7 +140,7 @@ void store_kernel_flames(struct buffer_profile *gem, int gem_index,
                         tmp_insn_text = failed_decode;
                 }
 
-                addr = gem->vm_bind_info.gpu_addr + offset;
+                addr = gem->gpu_addr + offset;
 
                 if ((*found)->active) {
                         index = grow_proto_flames();
@@ -204,23 +202,22 @@ void store_kernel_flames(struct buffer_profile *gem, int gem_index,
 
 void store_interval_flames()
 {
-        int i;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
-        struct offset_profile **found;
-        uint64_t tmp_offset, *tmp;
 
         /* For storing the mnemonic and the string's length */
         char *insn_text = 0;
         size_t insn_text_len = 0;
 
-        for (i = 0; i < buffer_profile_used; i++) {
-                gem = &(buffer_profile_arr[i]);
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
 
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
-                if (!(interval_profile_arr[i].has_stalls))
+                if (gem->stall_counts == NULL) {
                         continue;
+                }
 
-                store_kernel_flames(gem, i, &insn_text, &insn_text_len);
+                store_kernel_flames(gem, &insn_text, &insn_text_len);
         }
 }

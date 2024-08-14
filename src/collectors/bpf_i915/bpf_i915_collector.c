@@ -62,21 +62,11 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
         return 0;
 }
 
-void copy_mapping(struct buffer_profile *dst, struct buffer_profile *src)
-{
-        dst->cpu_addr = src->cpu_addr;
-        dst->handle = src->handle;
-        dst->file = src->file;
-        dst->mapped = 1;
-        if (src->buff && src->buff_sz) {
-                handle_binary(&(dst->buff), src->buff, &(dst->buff_sz), src->buff_sz, src->handle);
-        }
-}
-
 /***************************************
 * BPF Handlers
 ***************************************/
 
+#if 0
 /* Handles `struct mapping_info`, which comes from
    `mmap` calls. Includes a CPU pointer. */
 int handle_mapping(void *data_arg)
@@ -114,9 +104,13 @@ int handle_mapping(void *data_arg)
 
         return 0;
 }
+#endif
 
 int handle_unmap(void *data_arg)
 {
+        return 0;
+
+#if 0
         struct unmap_info *info;
         int index, retval;
         struct buffer_profile *gem;
@@ -156,16 +150,12 @@ cleanup:
                 return -1;
         }
         return retval;
+#endif
 }
 
 int handle_request(void *data_arg)
 {
         struct request_info *info;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct request_info *)data_arg;
         if (verbose) {
@@ -175,11 +165,6 @@ int handle_request(void *data_arg)
         if (info->request_type == REQUEST_SUBMIT) {
                 /* Store this request per-VM */
                 if (global_vm_id == 0) {
-                        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                                fprintf(stderr,
-                                        "Failed to unlock the buffer_profile_lock!\n");
-                                return -1;
-                        }
                         fprintf(stderr,
                                 "WARNING: global_vm_id is zero. Something fishy is going on.\n");
                         return -1;
@@ -189,11 +174,6 @@ int handle_request(void *data_arg)
                 request_retire(info->seqno, info->gem_ctx);
         }
 
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
@@ -201,19 +181,9 @@ int handle_userptr(void *data_arg)
 {
         struct userptr_info *info;
 
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         info = (struct userptr_info *)data_arg;
         if (verbose) {
                 print_userptr(info);
-        }
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
         }
 
         return 0;
@@ -221,14 +191,7 @@ int handle_userptr(void *data_arg)
 
 int handle_vm_create(void *data_arg)
 {
-        struct buffer_profile *gem;
-        int index;
         struct vm_create_info *info;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct vm_create_info *)data_arg;
         if (verbose) {
@@ -238,98 +201,52 @@ int handle_vm_create(void *data_arg)
         /* Register the PID with the debug_i915 collector */
         init_debug_i915(devinfo.fd, info->pid);
 
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
 int handle_vm_bind(void *data_arg)
 {
-        struct buffer_profile *bind_gem, *map_gem;
-        int mapping_index, binding_index;
+        struct buffer_profile *gem;
         struct vm_bind_info *info;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
                 print_vm_bind(info);
         }
 
-        /* Check to see if we've seen this file/handle pair get mapped. */
-        binding_index = -1;
-        mapping_index = get_buffer_profile_by_mapping(info->file, info->handle);
-        if (mapping_index != -1) {
-                map_gem = &(buffer_profile_arr[mapping_index]);
-                if ((map_gem->vm_bind_info.vm_id == 0) && (map_gem->vm_bind_info.gpu_addr == 0)) {
-                        /* If there's no binding for this buffer_profile, just use it! */
-                        binding_index = mapping_index;
-                        goto bind;
-                }
-        }
+        gem = get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
 
-        /* See if we've already gotten a `vm_bind` on this same vm_id/addr pair. */
-        binding_index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (binding_index == -1) {
-                /* If there's no mapping or binding yet, create a new buffer_profile */
-                binding_index = grow_buffer_profiles();
-        }
-
-bind:
         /* Copy the vm_bind_info into the buffer's profile. */
-        bind_gem = &(buffer_profile_arr[binding_index]);
-        bind_gem->handle = info->handle;
-        bind_gem->vm_id = info->vm_id;
-        bind_gem->file = info->file;
-        memcpy(&(bind_gem->vm_bind_info), info, sizeof(struct vm_bind_info));
-        if ((binding_index != mapping_index) && (mapping_index != -1)) {
-                map_gem = &(buffer_profile_arr[mapping_index]);
-                copy_mapping(bind_gem, map_gem);
-        }
+        gem->pid = info->pid;
+        gem->vm_id = info->vm_id;
+        gem->gpu_addr = info->gpu_addr;
+        gem->bind_size = info->size;
+        gem->handle = info->handle;
+        gem->file = info->file;
 
         /* If we got a copy of the buffer from BPF */
         if (info->buff_sz == 0) {
                 goto cleanup;
         }
-        handle_binary(&(bind_gem->buff), info->buff, &(bind_gem->buff_sz),
+        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
                       info->buff_sz, info->handle);
 
 cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
 int handle_vm_unbind(void *data_arg)
 {
-        struct buffer_profile *gem;
         struct vm_unbind_info *info;
-        int index;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
+        struct buffer_profile *gem;
 
         info = (struct vm_unbind_info *)data_arg;
         if (verbose) {
                 print_vm_unbind(info);
         }
 
-        /* Try to find the buffer that this is unbinding. Note that
-           info->handle is going to be 0 here, so we need to use
-           the GPU address to look it up. */
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (index == -1) {
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 if (debug) {
                         fprintf(stderr,
                                 "WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
@@ -338,15 +255,9 @@ int handle_vm_unbind(void *data_arg)
                 goto cleanup;
         }
 
-        /* Unbind that GPU address, potentially deleting the buffer from the buffer_profile_arr */
-        memset(&buffer_profile_arr[index], 0, sizeof(struct buffer_profile));
+        delete_buffer_profile(info->vm_id, info->gpu_addr);
 
 cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
@@ -354,12 +265,6 @@ int handle_batchbuffer(void *data_arg)
 {
         struct batchbuffer_info *info;
         struct buffer_profile *gem;
-        int index;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct batchbuffer_info *)data_arg;
 
@@ -368,8 +273,8 @@ int handle_batchbuffer(void *data_arg)
         }
 
         /* Find the buffer that this batchbuffer is associated with */
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (index == -1) {
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 if (debug ) {
                         fprintf(stderr,
                                 "WARNING: couldn't find a buffer to store the batchbuffer in.\n");
@@ -377,34 +282,22 @@ int handle_batchbuffer(void *data_arg)
                 goto cleanup;
         }
 
-        gem = &buffer_profile_arr[index];
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
                       info->buff_sz, gem->handle);
 
 cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
 int handle_execbuf_start(void *data_arg)
 {
-        char found;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
         uint64_t file;
         uint32_t vm_id, pid;
-        int n, index;
         struct execbuf_start_info *info;
         struct bb_parser parser;
         struct timespec parser_start, parser_end;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct execbuf_start_info *)data_arg;
         if (verbose) {
@@ -424,16 +317,16 @@ int handle_execbuf_start(void *data_arg)
         vm_id = info->vm_id;
         pid = info->pid;
         file = info->file;
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if (gem->vm_bind_info.vm_id == vm_id) {
-                        if (verbose) {
-                                print_execbuf_gem(info, &(gem->vm_bind_info));
-                        }
-
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
                         memcpy(&(gem->exec_info), info,
                                sizeof(struct execbuf_start_info));
+
+                        if (verbose) {
+                                print_execbuf_gem(gem);
+                        }
 
                         /* Store the stack */
                         if (gem->execbuf_stack_str == NULL) {
@@ -443,14 +336,13 @@ int handle_execbuf_start(void *data_arg)
                 }
         }
 
-        index = get_buffer_profile_by_binding(vm_id, info->bb_offset);
-        if (!index) {
+        gem = get_buffer_profile(vm_id, info->bb_offset);
+        if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
                         info->bb_offset);
                 goto cleanup;
         }
-        gem = &buffer_profile_arr[index];
 
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
@@ -483,19 +375,14 @@ int handle_execbuf_start(void *data_arg)
 
 cleanup:
         if (iba) {
-                for (n = 0; n < buffer_profile_used; n++) {
-                        gem = &buffer_profile_arr[n];
-                        if ((gem->vm_bind_info.vm_id == vm_id) &&
-                            (gem->vm_bind_info.pid == pid) &&
-                            (gem->vm_bind_info.file == file)) {
+                tree_traverse(buffer_profiles, it) {
+                        gem = &tree_it_val(it);
+                        if ((gem->vm_id == vm_id) &&
+                            (gem->pid == pid) &&
+                            (gem->file == file)) {
                                 gem->iba = iba;
                         }
                 }
-        }
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
         }
 
         return 0;
@@ -503,14 +390,8 @@ cleanup:
 
 int handle_execbuf_end(void *data_arg)
 {
-        int index;
         struct execbuf_end_info *info;
         struct buffer_profile *gem;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
 
         /* First, just print out the execbuf_end */
         info = (struct execbuf_end_info *)data_arg;
@@ -518,14 +399,13 @@ int handle_execbuf_end(void *data_arg)
                 print_execbuf_end(info);
         }
 
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (!index) {
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
                         info->gpu_addr);
                 goto cleanup;
         }
-        gem = &buffer_profile_arr[index];
 
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
@@ -535,11 +415,6 @@ int handle_execbuf_end(void *data_arg)
                       info->buff_sz, gem->handle);
 
 cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
@@ -553,7 +428,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
-                case BPF_EVENT_TYPE_MAPPING:       return handle_mapping(data_arg);
+/*                 case BPF_EVENT_TYPE_MAPPING:       return handle_mapping(data_arg); */
                 case BPF_EVENT_TYPE_UNMAP:         return handle_unmap(data_arg);
                 case BPF_EVENT_TYPE_VM_CREATE:     return handle_vm_create(data_arg);
                 case BPF_EVENT_TYPE_VM_BIND:       return handle_vm_bind(data_arg);

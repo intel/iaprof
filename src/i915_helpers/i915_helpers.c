@@ -77,7 +77,6 @@ int i915_ctx_create_all_engines(int fd, uint32_t *ctx_id,
 
 int i915_ctx_create(int fd, uint32_t *ctx_id)
 {
-        int i;
         struct drm_i915_gem_context_create create;
 
         /* Create the context */
@@ -112,8 +111,6 @@ int i915_ctx_destroy(int fd, uint32_t ctx_id)
 int i915_gem_create(int fd, uint64_t *size, uint32_t *handle,
                     struct i915_user_extension *ext)
 {
-        int err;
-
         struct prelim_drm_i915_gem_create_ext create = {
                 .size = *size,
         };
@@ -183,7 +180,6 @@ int i915_gem_execbuf_wr(int fd, struct drm_i915_gem_execbuffer2 *execbuf)
 
 uint64_t i915_gem_aperture_size(int fd)
 {
-        int err;
         struct drm_i915_gem_context_param p = {
                 .param = I915_CONTEXT_PARAM_GTT_SIZE
         };
@@ -269,7 +265,6 @@ void *i915_gem_mmap_cpu_coherent(int fd, uint32_t handle, uint64_t offset,
 int i915_gem_set_domain(int fd, uint32_t handle, uint32_t read, uint32_t write)
 {
         struct drm_i915_gem_set_domain set_domain;
-        int err;
 
         memset(&set_domain, 0, sizeof(set_domain));
         set_domain.handle = handle;
@@ -286,14 +281,12 @@ int i915_gem_set_domain(int fd, uint32_t handle, uint32_t read, uint32_t write)
 int i915_gem_wait(int fd, uint32_t handle, int64_t *timeout_ns)
 {
         struct drm_i915_gem_wait wait;
-        int ret;
 
         memset(&wait, 0, sizeof(wait));
         wait.bo_handle = handle;
         wait.timeout_ns = timeout_ns ? *timeout_ns : -1;
         wait.flags = 0;
 
-        ret = 0;
         if (ioctl_do(fd, DRM_IOCTL_I915_GEM_WAIT, &wait)) {
                 fprintf(stderr, "Failed to wait on the GEM.\n");
                 ioctl_err(errno);
@@ -354,7 +347,6 @@ int i915_gem_close(int fd, uint32_t handle)
 
 int i915_query_engines(int fd, struct drm_i915_query_engine_info **qei)
 {
-        unsigned int num_engines;
         int ret;
 
         /* Allocate room for the engine info */
@@ -534,7 +526,6 @@ uint64_t i915_safe_offset_for_memory_regions(
 struct buff *i915_buff_create(uint32_t handle, int width, int height, int bpp,
                               int alignment)
 {
-        uint64_t size;
         struct buff *buf;
 
         buf = calloc(1, sizeof(struct buff));
@@ -755,7 +746,6 @@ static uint64_t i915_batchbuf_add_reloc(struct batchbuffer *bb,
         relocs[i].offset = offset;
         relocs[i].presumed_offset = -1;
 
-out:
         return object->offset;
 }
 
@@ -858,7 +848,6 @@ i915_batchbuf_update_offsets(struct batchbuffer *bb,
                              struct drm_i915_gem_exec_object2 *objects)
 {
         struct drm_i915_gem_exec_object2 *object;
-        struct buff *entry;
         uint32_t i;
 
         for (i = 0; i < bb->num_objects; i++) {

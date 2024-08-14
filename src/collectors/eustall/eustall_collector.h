@@ -49,7 +49,7 @@ struct eustall_sample;
 struct offset_profile;
 
 int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
-                     int gem_index, uint64_t gpu_addr, uint64_t offset,
+                     uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time);
 int handle_eustall_samples(uint8_t *perf_buf, int len);
 int init_eustall(device_info *devinfo);
@@ -75,7 +75,7 @@ int init_eustall(device_info *devinfo);
   *            dependency to resolve.
   * Sync       The instruction was waiting for a thread synchronization
   *            dependency to resolve.
-  * Inst Fetch The XVE (Xe Vector Engine) was waiting for an instruction to 
+  * Inst Fetch The XVE (Xe Vector Engine) was waiting for an instruction to
   *            be returned from the instruction cache.
 ***************************************/
 

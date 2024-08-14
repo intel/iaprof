@@ -42,22 +42,16 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 }
 
 int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
-                     int index, uint64_t gpu_addr, uint64_t offset,
+                     uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time)
 {
         struct offset_profile **found;
         struct offset_profile *profile;
 
         /* Make sure we're initialized */
-        if (interval_profile_arr[index].has_stalls == 0) {
-                interval_profile_arr[index].counts =
+        if (gem->stall_counts == NULL) {
+                gem->stall_counts =
                         hash_table_make(uint64_t, uint64_t, uint64_t_hash);
-                if (!(interval_profile_arr[index].counts)) {
-                        fprintf(stderr,
-                                "WARNING: Failed to create a hash table.\n");
-                        return -1;
-                }
-                interval_profile_arr[index].has_stalls = 1;
         }
 
         if (verbose) {
@@ -67,11 +61,11 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 
         /* Check if this offset has been seen yet */
         found = (struct offset_profile **)hash_table_get_val(
-                interval_profile_arr[index].counts, offset);
+                gem->stall_counts, offset);
         if (!found) {
                 /* We have to allocate a struct of counts */
                 profile = calloc(1, sizeof(struct offset_profile));
-                hash_table_insert(interval_profile_arr[index].counts, offset,
+                hash_table_insert(gem->stall_counts, offset,
                                   (uint64_t)profile);
                 found = &profile;
         }
@@ -91,10 +85,11 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
 int handle_eustall_samples(uint8_t *perf_buf, int len)
 {
         struct prelim_drm_i915_stall_cntr_info info;
-        int i, n, num_not_found, num_found, last_found_gem_index;
+        int i, num_not_found, num_found;
         char found;
-        uint64_t addr, start, end, offset, last_found_start, last_found_offset;
+        uint64_t addr, start, end, offset, last_found_offset;
         struct eustall_sample sample;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem, *last_found_gem;
         struct vm_profile *vm;
         struct timespec spec;
@@ -116,7 +111,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                    the same virtual address, and there's no way to determine which
                    one the EU stall is associated with */
                 found = 0;
-                last_found_start = 0;
                 last_found_offset = 0;
                 last_found_gem = NULL;
 
@@ -124,22 +118,22 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         goto none_found;
                 }
 
-retry:
-                for (n = 0; n < buffer_profile_used; n++) {
-                        gem = &buffer_profile_arr[n];
-                        start = gem->vm_bind_info.gpu_addr;
-                        end = start + gem->vm_bind_info.size;
+                /* @TODO: This can be done in log time now, so do that. */
+                tree_traverse(buffer_profiles, it) {
+                        gem = &tree_it_val(it);
+                        start = gem->gpu_addr;
+                        end = start + gem->bind_size;
 
                         if ((addr < start) || (addr >= end)) {
                                 continue;
                         }
                         offset = addr - start;
-                        
+
                         if (debug) {
-                                printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%llx iba=0x%lx\n",
+                                printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
                                        addr, start, end, offset,
                                        gem->handle, gem->vm_id,
-                                       gem->vm_bind_info.gpu_addr, iba);
+                                       gem->gpu_addr, iba);
                         }
 
                         vm = get_vm_profile(gem->vm_id);
@@ -175,10 +169,8 @@ retry:
                         }
 
                         found++;
-                        last_found_start = start;
                         last_found_offset = offset;
                         last_found_gem = gem;
-                        last_found_gem_index = n;
                         continue;
                 }
 
@@ -192,7 +184,7 @@ none_found:
                         eustall_info.unmatched += num_stalls_in_sample(&sample);
                 } else if (found == 1) {
                         associate_sample(&sample, last_found_gem,
-                                         last_found_gem_index, addr,
+                                         addr,
                                          last_found_offset, info.subslice,
                                          time);
                         eustall_info.matched += num_stalls_in_sample(&sample);
@@ -204,7 +196,7 @@ none_found:
                                                     info.subslice, time);
                         }
                         associate_sample(&sample, last_found_gem,
-                                         last_found_gem_index, addr,
+                                         addr,
                                          last_found_offset, info.subslice,
                                          time);
                         eustall_info.guessed += num_stalls_in_sample(&sample);
@@ -297,7 +289,6 @@ int init_eustall(device_info *devinfo)
         eustall_info.perf_fd = fd;
         add_to_epoll_fd(fd);
 
-cleanup:
         free(properties);
 
         return 0;

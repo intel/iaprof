@@ -220,9 +220,6 @@ struct debug_i915_info_t debug_i915_info = {};
 /* Thread and interval */
 pthread_t collect_thread_id;
 pthread_t sidecar_thread_id;
-static int interval_num = 0;
-static int interval_length = 1;
-static int interval_signal;
 timer_t interval_timer;
 static char collect_thread_should_stop = 0;
 static char collect_thread_profiling = 0;
@@ -292,12 +289,6 @@ void init_collect_thread()
 int handle_eustall_read(struct epoll_event *event)
 {
         int len;
-        enum eustall_status status;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         /* Update the buffer_profile */
         mark_vms_active();
@@ -307,7 +298,7 @@ int handle_eustall_read(struct epoll_event *event)
         len = read(event->data.fd, eustall_info.perf_buf,
                    DEFAULT_USER_BUF_SIZE);
         if (len > 0) {
-                status = handle_eustall_samples(eustall_info.perf_buf, len);
+                handle_eustall_samples(eustall_info.perf_buf, len);
         }
 
         /* Clear requests that were retired before we collected these eustalls */
@@ -322,18 +313,12 @@ int handle_eustall_read(struct epoll_event *event)
         /* Reset for the next interval */
         clear_interval_profiles();
 
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
 int handle_fd_read(struct epoll_event *event)
 {
-        int len, retval;
-        enum eustall_status status;
+        int retval;
 
         if (event->events & EPOLLERR) {
                 /* Error or hangup. Abort! */
@@ -418,11 +403,9 @@ void *collect_thread_main(void *a)
 
         print_flamegraph();
 
-cleanup:
         free(events);
         close(eustall_info.perf_fd);
         deinit_bpf_i915();
-        free_interval_profiles();
         free_buffer_profiles();
 
         return NULL;
@@ -483,7 +466,6 @@ int main(int argc, char **argv)
         struct timespec leftover, request = { 1, 0 };
         struct timeval tv;
         int startsecs;
-        char *failed_decode = "[failed_decode]";
 
         read_opts(argc, argv);
         check_permissions();

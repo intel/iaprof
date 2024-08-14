@@ -9,35 +9,26 @@
 #include "gpu_parsers/shader_decoder.h"
 
 #include "utils/hash_table.h"
+#include "utils/tree.h"
 
-/***************************************
-* Buffer Profile Array
-**********************
-* These functions simply maintain a global array
-* of type `struct buffer_profile`.
-***************************************/
+use_hash_table(uint64_t, uint64_t);
 
-int get_buffer_profile_by_binding(uint32_t vm_id, uint64_t gpu_addr);
-int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle);
-void free_buffer_profiles();
-uint64_t grow_buffer_profiles();
 void clear_interval_profiles();
 void print_buffer_profiles();
 
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
 struct buffer_profile {
-        struct vm_bind_info vm_bind_info;
         struct execbuf_start_info exec_info;
 
-        /* Mapping info */
-        uint64_t cpu_addr;
-        uint32_t handle;
         uint64_t file;
-        char mapped;
+        uint32_t handle;
 
         /* Binding info */
+        uint32_t pid;
         uint32_t vm_id;
+        uint64_t gpu_addr;
+        uint64_t bind_size;
 
         /* A copy of the buffer bytes itself */
         uint64_t buff_sz;
@@ -52,34 +43,32 @@ struct buffer_profile {
 
         /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;
-};
-
-/* Global array, including a lock, size, and "used" counter,
-   of buffer profiles. */
-extern pthread_rwlock_t buffer_profile_lock;
-extern struct buffer_profile *buffer_profile_arr;
-extern size_t buffer_profile_size, buffer_profile_used;
-
-/***************************************
-* Interval Profile Array
-**********************
-* An array of per-buffer profiles. Get cleared on each interval.
-***************************************/
-
-void free_interval_profiles();
-
-use_hash_table(uint64_t, uint64_t);
-
-/* Stores per-interval profiles. */
-struct interval_profile {
-        unsigned char has_stalls;
 
         /* The EU stalls. Key is the offset into the binary,
            value is a pointer to the struct of EU stall counts */
-        hash_table(uint64_t, uint64_t) counts;
+        hash_table(uint64_t, uint64_t) stall_counts;
 };
 
-extern struct interval_profile *interval_profile_arr;
+struct buffer_ID {
+        uint32_t vm_id;
+        uint64_t gpu_addr;
+};
+
+typedef struct buffer_ID buffer_ID_struct;
+typedef struct buffer_profile buffer_profile_struct;
+
+int buffer_ID_cmp(const struct buffer_ID a, const struct buffer_ID b);
+
+use_tree_c(buffer_ID_struct, buffer_profile_struct, buffer_ID_cmp);
+
+
+extern tree(buffer_ID_struct, buffer_profile_struct) buffer_profiles;
+
+struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
+struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
+void delete_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
+void free_buffer_profiles();
+
 
 /***************************************
 * VM Profile Array
