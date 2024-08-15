@@ -331,11 +331,6 @@ enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
         return BB_PARSER_STATUS_OK;
 }
 
-enum bb_parser_status mi_noop(struct bb_parser *parser, uint32_t *ptr)
-{
-        return BB_PARSER_STATUS_OK;
-}
-
 enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
@@ -422,8 +417,9 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       uint32_t offset, uint64_t size)
 {
         uint32_t *dword_ptr, op;
-        uint64_t off, tmp, root_off;
+        uint64_t off, tmp, root_off, noops;
         enum bb_parser_status retval;
+        char noop_debug;
 
         gem->parsed = 1;
 
@@ -435,6 +431,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         parser->in_cmd = 0;
         parser->cur_cmd = 0;
         parser->num_dwords = 0;
+        noops = 0; noop_debug = 0;
         while (parser->pc_depth > 0) {
                 off = parser->pc[parser->pc_depth] -
                       parser->gem->vm_bind_info.gpu_addr;
@@ -490,6 +487,15 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
                                 op = op & OP_3D;
                         }
+                        
+                        if ((op != MI_NOOP) && noops) {
+                                bb_debug = noop_debug;
+                                if (bb_debug) {
+                                        printf("op=MI_NOOP %lu\n", noops);
+                                }
+                                noop_debug = 0;
+                                noops = 0;
+                        }
 
                         /* Decode which op this is */
                         switch (op) {
@@ -510,15 +516,23 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                         MI_PRT_BATCH_BUFFER_START_DWORDS;
                                 break;
                         case MI_NOOP:
+                                noops++;
+                                
+                                /* Save bb_debug, clear it */
                                 if (bb_debug) {
-                                        printf("op=MI_NOOP\n");
+                                        noop_debug = bb_debug;
                                 }
+                                bb_debug = 0;
+                                
+                                if (noops == 64) {
+                                        if (bb_debug) {
+                                                printf("Too many NOOPs!\n");
+                                        }
+                                        return BB_PARSER_STATUS_OK;
+                                }
+                                
                                 parser->cur_cmd = MI_NOOP;
                                 parser->cur_num_dwords = MI_NOOP_DWORDS;
-                                retval = mi_noop(parser, dword_ptr);
-                                if (retval != BB_PARSER_STATUS_OK) {
-                                        return retval;
-                                }
                                 break;
                         case MI_FLUSH_DW:
                                 if (bb_debug) {
