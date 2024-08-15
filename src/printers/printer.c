@@ -136,6 +136,8 @@ int print_execbuf_start(struct execbuf_start_info *info)
         printf("%s", stack_str);
         printf("\n");
 
+        free(stack_str);
+
         return 0;
 }
 

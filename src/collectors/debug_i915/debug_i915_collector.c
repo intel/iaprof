@@ -199,6 +199,7 @@ static int dwarf_func_cb(Dwarf_Die *diep, void *arg) {
         char                              *base;
         Debug_Info                         info;
         hash_table(sym_str_t, Debug_Info)  debug_info_table;
+        Debug_Info                        *existing_info;
 
 
         name = dwarf_diename(diep);
@@ -234,7 +235,15 @@ static int dwarf_func_cb(Dwarf_Die *diep, void *arg) {
 
         debug_info_table = (hash_table(sym_str_t, Debug_Info))arg;
 
-        hash_table_insert(debug_info_table, strdup(name), info);
+        if ((existing_info = hash_table_get_val(debug_info_table, (char*)name)) != NULL) {
+                if (existing_info->filename != NULL) {
+                        free(existing_info->filename);
+                }
+                existing_info->filename = info.filename;
+                existing_info->linenum  = info.linenum;
+        } else {
+                hash_table_insert(debug_info_table, strdup(name), info);
+        }
 
 out:;
         return DWARF_CB_OK;
@@ -281,6 +290,8 @@ hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
                 dwarf_getfuncs(&cudie, dwarf_func_cb, debug_info_table, 0);
 
         } while (next_cu != NULL);
+
+        dwarf_end(dwarf);
 
 out:;
         return debug_info_table;
@@ -492,4 +503,29 @@ void read_debug_i915_events(int fd)
 char *debug_i915_event_to_str(int debug_event)
 {
         return debug_events[debug_event];
+}
+
+void free_debug_i915() {
+        int i;
+        struct i915_symbol_table *symtab;
+        int n;
+        struct i915_symbol_entry *entry;
+
+        for (i = 0; i < MAX_PIDS; i += 1) {
+                symtab = &debug_i915_info.symtabs[i];
+
+                for (n = 0; n < symtab->num_syms; n += 1) {
+                        entry = symtab->symtab + n;
+                        if (entry->symbol != NULL) {
+                                free(entry->symbol);
+                        }
+                        if (entry->filename != NULL) {
+                                free(entry->filename);
+                        }
+                }
+
+                free(symtab->symtab);
+
+                memset(symtab, 0, sizeof(*symtab));
+        }
 }

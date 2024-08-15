@@ -113,14 +113,14 @@ void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,
 }
 
 /* Prints the flamegraph for a single kernel */
-void store_kernel_flames(struct buffer_profile *gem, char **insn_text,
-                         size_t *insn_text_len)
+void store_kernel_flames(struct buffer_profile *gem)
 {
         uint64_t offset, *tmp, addr, index;
         struct offset_profile **found;
         char *failed_decode = "[failed_decode]";
         char retval;
-        char *tmp_insn_text;
+        char *insn_text;
+        size_t insn_text_len;
 
         if (debug) {
                 printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
@@ -133,11 +133,11 @@ void store_kernel_flames(struct buffer_profile *gem, char **insn_text,
                 found = (struct offset_profile **)tmp;
 
                 /* Disassemble to get the instruction */
-                retval = get_insn_text(gem, offset, insn_text, insn_text_len);
-                if (retval == 0) {
-                        tmp_insn_text = *insn_text;
-                } else {
-                        tmp_insn_text = failed_decode;
+                insn_text = NULL;
+                insn_text_len = 0;
+                retval = get_insn_text(gem, offset, &insn_text, &insn_text_len);
+                if (retval != 0) {
+                        insn_text = failed_decode;
                 }
 
                 addr = gem->gpu_addr + offset;
@@ -146,56 +146,60 @@ void store_kernel_flames(struct buffer_profile *gem, char **insn_text,
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "active", (*found)->active, addr,
-                                       offset, tmp_insn_text);
+                                       offset, insn_text);
                 }
                 if ((*found)->other) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "other", (*found)->other, addr,
-                                       offset, tmp_insn_text);
+                                       offset, insn_text);
                 }
                 if ((*found)->control) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "control", (*found)->control,
-                                       addr, offset, tmp_insn_text);
+                                       addr, offset, insn_text);
                 }
                 if ((*found)->pipestall) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "pipestall", (*found)->pipestall,
-                                       addr, offset, tmp_insn_text);
+                                       addr, offset, insn_text);
                 }
                 if ((*found)->send) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "send", (*found)->send, addr,
-                                       offset, tmp_insn_text);
+                                       offset, insn_text);
                 }
                 if ((*found)->dist_acc) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "dist_acc", (*found)->dist_acc,
-                                       addr, offset, tmp_insn_text);
+                                       addr, offset, insn_text);
                 }
                 if ((*found)->sbid) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "sbid", (*found)->sbid, addr,
-                                       offset, tmp_insn_text);
+                                       offset, insn_text);
                 }
                 if ((*found)->sync) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "sync", (*found)->sync, addr,
-                                       offset, tmp_insn_text);
+                                       offset, insn_text);
                 }
                 if ((*found)->inst_fetch) {
                         index = grow_proto_flames();
                         store_cpu_side(index, gem);
                         store_gpu_side(index, "inst_fetch",
                                        (*found)->inst_fetch, addr, offset,
-                                       tmp_insn_text);
+                                       insn_text);
+                }
+
+                if (insn_text != failed_decode) {
+                        free(insn_text);
                 }
         }
 }
@@ -204,10 +208,6 @@ void store_interval_flames()
 {
         tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
-
-        /* For storing the mnemonic and the string's length */
-        char *insn_text = 0;
-        size_t insn_text_len = 0;
 
         tree_traverse(buffer_profiles, it) {
                 gem = &tree_it_val(it);
@@ -218,6 +218,6 @@ void store_interval_flames()
                         continue;
                 }
 
-                store_kernel_flames(gem, &insn_text, &insn_text_len);
+                store_kernel_flames(gem);
         }
 }

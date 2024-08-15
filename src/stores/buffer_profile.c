@@ -78,8 +78,15 @@ void free_buffer_profile(struct buffer_profile *gem) {
                 gem->buff = NULL;
         }
 
-        /* @TODO: free execbuf_stack_str? */
-        /* @TODO: free kv? */
+        if (gem->execbuf_stack_str != NULL) {
+            free(gem->execbuf_stack_str);
+            gem->execbuf_stack_str = NULL;
+        }
+
+        if (gem->kv != NULL) {
+            iga_fini(gem->kv);
+            gem->kv = NULL;
+        }
 }
 
 void free_buffer_profiles() {

@@ -116,6 +116,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         info->size = size;
         info->offset = BPF_CORE_READ(arg, offset);
         info->flags = BPF_CORE_READ(arg, flags);
+        info->buff_sz = 0;
 
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
