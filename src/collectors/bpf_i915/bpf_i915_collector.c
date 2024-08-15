@@ -192,15 +192,16 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
-        /* Register the PID with the debug_i915 collector */
-        init_debug_i915(devinfo.fd, info->pid);
+        if (gpu_syms) {
+                /* Register the PID with the debug_i915 collector */
+                init_debug_i915(devinfo.fd, info->pid);
+        }
 
         return 0;
 }
 
 int handle_vm_bind(void *data_arg)
 {
-        struct buffer_profile *gem;
         struct vm_bind_info *info;
 
         info = (struct vm_bind_info *)data_arg;
@@ -208,24 +209,8 @@ int handle_vm_bind(void *data_arg)
                 print_vm_bind(info);
         }
 
-        gem = get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
+        get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
 
-        /* Copy the vm_bind_info into the buffer's profile. */
-        gem->pid = info->pid;
-        gem->vm_id = info->vm_id;
-        gem->gpu_addr = info->gpu_addr;
-        gem->bind_size = info->size;
-        gem->handle = info->handle;
-        gem->file = info->file;
-
-        /* If we got a copy of the buffer from BPF */
-        if (info->buff_sz == 0) {
-                goto cleanup;
-        }
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz);
-
-cleanup:
         return 0;
 }
 

@@ -53,6 +53,7 @@ char verbose = 0;
 char debug = 0;
 char bb_debug = 0;
 char quiet = 0;
+char gpu_syms = 1;
 char *g_sidecar = NULL;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
@@ -61,6 +62,7 @@ static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "verbose", no_argument, 0, 'v' },
                                         { "batchbuffer-debug", no_argument, 0,
                                           'b' },
+                                        { "no-gpu-syms", no_argument, 0, 'g' },
                                         { "version", no_argument, 0, 0 },
                                         { 0 } };
 
@@ -73,6 +75,7 @@ void usage()
         printf("\noptional arguments:\n");
         printf("        -d, --debug              debug\n");
         printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
+        printf("        -g, --no-gpu-syms        disable GPU symbols from the i915 debugger\n");
         printf("        -h, --help               help\n");
         printf("        -q, --quiet              quiet\n");
         printf("        -v, --verbose            verbose\n");
@@ -96,7 +99,7 @@ int read_opts(int argc, char **argv)
 
         while (1) {
                 option_index = 0;
-                c = getopt_long(argc, argv, "dbhqv", long_options,
+                c = getopt_long(argc, argv, "dbghqv", long_options,
                                 &option_index);
                 if (c == -1) {
                         break;
@@ -107,6 +110,9 @@ int read_opts(int argc, char **argv)
                         break;
                 case 'b':
                         bb_debug = 1;
+                        break;
+                case 'g':
+                        gpu_syms = 0;
                         break;
                 case 'h':
                         usage();
@@ -347,6 +353,9 @@ int handle_fd_read(struct epoll_event *event)
                                 "WARNING: ring_buffer__consume failed.\n");
                 }
         } else {
+                if (!gpu_syms && debug) {
+                        fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
+                }
                 /* debug_i915 collector */
                 read_debug_i915_events(event->data.fd);
         }

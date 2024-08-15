@@ -47,7 +47,6 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         void *lookup;
         struct vm_bind_info *info;
         int retval = 0;
-        u64 buff_sz;
 
         /* For getting the cpu_addr */
         u64 cpu_addr, gpu_addr;
@@ -123,22 +122,6 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         info->tid = bpf_get_current_pid_tgid();
         info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
         info->time = bpf_ktime_get_ns();
-
-        if (cpu_addr) {
-                /* Grab a copy of this buffer */
-                buff_sz = size;
-                if (buff_sz > MAX_BINARY_SIZE) {
-                        buff_sz = MAX_BINARY_SIZE;
-                }
-                retval = bpf_probe_read_user(info->buff, buff_sz, (void *)cpu_addr);
-                info->buff_sz = buff_sz;
-                if (retval < 0) {
-                        bpf_printk(
-                                "WARNING: vm_bind_ioctl failed to copy %lu bytes from handle=%u cpu_addr=0x%lx.",
-                                buff_sz, handle, cpu_addr);
-                        info->buff_sz = 0;
-                }
-        }
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 

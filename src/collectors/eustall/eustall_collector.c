@@ -87,10 +87,11 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
         struct prelim_drm_i915_stall_cntr_info info;
         int i, num_not_found, num_found;
         char found;
-        uint64_t addr, start, end, offset, last_found_offset;
+        uint64_t addr, start, end, offset, first_found_offset;
         struct eustall_sample sample;
         tree_it(buffer_ID_struct, buffer_profile_struct) it;
-        struct buffer_profile *gem, *last_found_gem;
+        struct buffer_profile *gem, *first_found_gem;
+
         struct vm_profile *vm;
         struct timespec spec;
         unsigned long long time;
@@ -111,8 +112,9 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                    the same virtual address, and there's no way to determine which
                    one the EU stall is associated with */
                 found = 0;
-                last_found_offset = 0;
-                last_found_gem = NULL;
+
+                first_found_offset = 0;
+                first_found_gem = NULL;
 
                 if (!iba) {
                         goto none_found;
@@ -169,8 +171,12 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         }
 
                         found++;
-                        last_found_offset = offset;
-                        last_found_gem = gem;
+                  
+                        if (found == 1) {
+                                first_found_offset = offset;
+                                first_found_gem = gem;
+                        }
+
                         continue;
                 }
 
@@ -185,19 +191,20 @@ none_found:
                 } else if (found == 1) {
                         associate_sample(&sample, last_found_gem,
                                          addr,
-                                         last_found_offset, info.subslice,
+                                         first_found_offset, info.subslice,
                                          time);
                         eustall_info.matched += num_stalls_in_sample(&sample);
                 } else if (found > 1) {
                         /* We have to guess. Choose the last one that we've found. */
                         if (verbose) {
                                 print_eustall_churn(&sample, addr,
-                                                    last_found_offset,
+                                                    first_found_offset,
                                                     info.subslice, time);
                         }
+
                         associate_sample(&sample, last_found_gem,
                                          addr,
-                                         last_found_offset, info.subslice,
+                                         first_found_offset, info.subslice,
                                          time);
                         eustall_info.guessed += num_stalls_in_sample(&sample);
                 }
