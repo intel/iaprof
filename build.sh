@@ -4,7 +4,7 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
-CFLAGS="${CFLAGS} -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
+CFLAGS="${CFLAGS} -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"

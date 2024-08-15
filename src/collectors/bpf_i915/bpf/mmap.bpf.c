@@ -133,6 +133,7 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
         arg = val.arg;
         handle = BPF_CORE_READ(arg, handle);
         addr = BPF_CORE_READ(arg, addr_ptr);
+        info->type = BPF_EVENT_TYPE_MAPPING;
         info->file = val.file;
         info->handle = handle;
         info->cpu_addr = addr;
@@ -335,6 +336,7 @@ int mmap_kretprobe(struct pt_regs *ctx)
         }
 
         /* mapping specific values */
+        info->type = BPF_EVENT_TYPE_MAPPING;
         info->file = offset_val.file;
         info->handle = offset_val.handle;
         info->cpu_addr = vm_start;
@@ -424,6 +426,7 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
         }
 
         cpu_addr = BPF_CORE_READ(arg, user_ptr);
+        bin->type = BPF_EVENT_TYPE_USERPTR;
         bin->file = val.file;
         bin->handle = BPF_CORE_READ(arg, handle);
         bin->cpu_addr = cpu_addr;
@@ -494,6 +497,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
                 return -1;
         }
 
+        bin->type = BPF_EVENT_TYPE_UNMAP;
         bin->file = val->file;
         bin->handle = val->handle;
         bin->cpu_addr = addr;

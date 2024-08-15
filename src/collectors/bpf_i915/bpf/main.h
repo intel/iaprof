@@ -13,8 +13,24 @@
 #define I915_EXEC_BATCH_FIRST (1 << 18)
 #endif
 
+enum {
+    BPF_EVENT_TYPE_UNKNOWN,
+    BPF_EVENT_TYPE_MAPPING,
+    BPF_EVENT_TYPE_UNMAP,
+    BPF_EVENT_TYPE_VM_CREATE,
+    BPF_EVENT_TYPE_VM_BIND,
+    BPF_EVENT_TYPE_VM_UNBIND,
+    BPF_EVENT_TYPE_EXECBUF_START,
+    BPF_EVENT_TYPE_EXECBUF_END,
+    BPF_EVENT_TYPE_BATCHBUFFER,
+    BPF_EVENT_TYPE_USERPTR,
+    BPF_EVENT_TYPE_REQUEST,
+};
+
 /* Collected from an mmap */
 struct __attribute__((packed)) mapping_info {
+        __u8 type;
+
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
@@ -24,13 +40,13 @@ struct __attribute__((packed)) mapping_info {
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
-        
-        char pad[4];
 };
 
 /* Collected from an munmap, possibly
    after execbuffer */
 struct __attribute__((packed)) unmap_info {
+        __u8 type;
+
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
@@ -39,19 +55,21 @@ struct __attribute__((packed)) unmap_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
-        char pad[4];
 };
 
 /* Collected from a vm_create */
 struct __attribute__((packed)) vm_create_info {
+        __u8 type;
+
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
-        char pad[4];
 };
 
 /* Collected from a vm_bind */
 struct __attribute__((packed)) vm_bind_info {
+        __u8 type;
+
         __u64 file;
         __u32 handle;
         __u32 vm_id;
@@ -59,7 +77,7 @@ struct __attribute__((packed)) vm_bind_info {
         __u64 size;
         __u64 offset;
         __u64 flags;
-        
+
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
@@ -67,6 +85,8 @@ struct __attribute__((packed)) vm_bind_info {
 
 /* Collected from a vm_unbind */
 struct __attribute__((packed)) vm_unbind_info {
+        __u8 type;
+
         __u64 file;
         __u32 handle;
         __u32 vm_id;
@@ -80,6 +100,8 @@ struct __attribute__((packed)) vm_unbind_info {
 
 /* Collected from the start of an execbuffer */
 struct __attribute__((packed)) execbuf_start_info {
+        __u8 type;
+
         __u32 ctx_id, vm_id;
         __u64 file;
 
@@ -99,19 +121,22 @@ struct __attribute__((packed)) execbuf_start_info {
 
 /* Represents a copy of a batchbuffer */
 struct __attribute__((packed)) batchbuffer_info {
+        __u8 type;
+
         __u32 pid, tid, cpu;
         __u64 time;
         __u64 gpu_addr, buff_sz;
         __u32 vm_id;
         unsigned char buff[MAX_BINARY_SIZE];
-        char pad[4];
 };
 
 /* Collected from the end of an execbuffer */
 struct __attribute__((packed)) execbuf_end_info {
+        __u8 type;
+
         __u32 cpu, pid, tid;
         __u64 time;
-        
+
         unsigned char buff[MAX_BINARY_SIZE];
         __u64 buff_sz;
         __u32 vm_id;
@@ -120,6 +145,8 @@ struct __attribute__((packed)) execbuf_end_info {
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */
 struct __attribute__((packed)) userptr_info {
+        __u8 type;
+
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
@@ -139,7 +166,9 @@ enum i915_request_type {
 };
 
 struct __attribute__((packed)) request_info {
-        enum i915_request_type type;
+        __u8 type;
+
+        enum i915_request_type request_type;
         __u32 seqno;
         __u32 gem_ctx;
         __u16 class, instance;

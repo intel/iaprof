@@ -67,6 +67,8 @@ int read_debug_i915_event(int fd, int pid_index);
 void read_debug_i915_events(int fd);
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
 
+void free_debug_i915();
+
 /******************************************************************************
 * Strings
 * *********

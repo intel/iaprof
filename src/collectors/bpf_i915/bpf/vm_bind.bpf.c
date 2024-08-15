@@ -51,7 +51,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         /* For getting the cpu_addr */
         u64 cpu_addr, gpu_addr;
         struct file_handle_pair pair = {};
-        
+
         /* Bail if the bind failed */
         if (PT_REGS_RC(ctx) != 0) {
                 bpf_printk("vm_bind failed");
@@ -66,9 +66,9 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         __builtin_memcpy(&val, lookup,
                          sizeof(struct vm_bind_ioctl_wait_for_ret_val));
         arg = val.arg;
-        
+
         bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start));
-        
+
         /* Read arguments onto the stack */
         handle = BPF_CORE_READ(arg, handle);
         vm_id = BPF_CORE_READ(arg, vm_id);
@@ -95,7 +95,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
                         bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
                 }
         }
-        
+
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
         if (!info) {
@@ -107,6 +107,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         }
 
         /* vm_bind specific values */
+        info->type = BPF_EVENT_TYPE_VM_BIND;
         info->file = val.file;
         info->handle = handle;
         info->vm_id = vm_id;
@@ -114,13 +115,14 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         info->size = size;
         info->offset = BPF_CORE_READ(arg, offset);
         info->flags = BPF_CORE_READ(arg, flags);
+        info->buff_sz = 0;
 
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
         info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
         info->time = bpf_ktime_get_ns();
-        
+
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         /* Execbuffer needs to know that this GPU addr relates to this vm_id/handle combination. */
@@ -167,6 +169,7 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         }
 
         /* vm_unbind specific values */
+        info->type = BPF_EVENT_TYPE_VM_UNBIND;
         info->file = file;
         info->handle = BPF_CORE_READ(arg, handle);
         info->vm_id = vm_id;

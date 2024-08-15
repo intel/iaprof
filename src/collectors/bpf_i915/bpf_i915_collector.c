@@ -36,7 +36,7 @@ uint32_t global_vm_id = 0;
 ***************************************/
 
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz, uint64_t id)
+                  uint64_t src_sz)
 {
         if (!src_sz || !src)
                 return -1;
@@ -44,39 +44,23 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
                 fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
                 return -1;
         }
-        if (*dst) {
-                /* Free up the old copy */
-                free(*dst);
-                *dst = NULL;
-                *dst_sz = 0;
-        }
-        
+
+        *dst = realloc(*dst, src_sz);
+        memcpy(*dst, src, src_sz);
+        *dst_sz = src_sz;
+
         if (debug) {
                 printf("handle_binary\n");
         }
-        
-        *dst = calloc(src_sz, sizeof(unsigned char));
-        *dst_sz = src_sz;
-        memcpy(*dst, src, src_sz);
 
         return 0;
-}
-
-void copy_mapping(struct buffer_profile *dst, struct buffer_profile *src)
-{
-        dst->cpu_addr = src->cpu_addr;
-        dst->handle = src->handle;
-        dst->file = src->file;
-        dst->mapped = 1;
-        if (src->buff && src->buff_sz) {
-                handle_binary(&(dst->buff), src->buff, &(dst->buff_sz), src->buff_sz, src->handle);
-        }
 }
 
 /***************************************
 * BPF Handlers
 ***************************************/
 
+#if 0
 /* Handles `struct mapping_info`, which comes from
    `mmap` calls. Includes a CPU pointer. */
 int handle_mapping(void *data_arg)
@@ -114,9 +98,13 @@ int handle_mapping(void *data_arg)
 
         return 0;
 }
+#endif
 
 int handle_unmap(void *data_arg)
 {
+        return 0;
+
+#if 0
         struct unmap_info *info;
         int index, retval;
         struct buffer_profile *gem;
@@ -156,42 +144,28 @@ cleanup:
                 return -1;
         }
         return retval;
+#endif
 }
 
 int handle_request(void *data_arg)
 {
         struct request_info *info;
 
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         info = (struct request_info *)data_arg;
         if (verbose) {
                 print_request(info);
         }
 
-        if (info->type == REQUEST_SUBMIT) {
+        if (info->request_type == REQUEST_SUBMIT) {
                 /* Store this request per-VM */
                 if (global_vm_id == 0) {
-                        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                                fprintf(stderr,
-                                        "Failed to unlock the buffer_profile_lock!\n");
-                                return -1;
-                        }
                         fprintf(stderr,
                                 "WARNING: global_vm_id is zero. Something fishy is going on.\n");
                         return -1;
                 }
                 request_submit(global_vm_id, info->seqno, info->gem_ctx, info->class, info->instance);
-        } else if (info->type == REQUEST_RETIRE) {
+        } else if (info->request_type == REQUEST_RETIRE) {
                 request_retire(info->seqno, info->gem_ctx);
-        }
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
         }
 
         return 0;
@@ -201,19 +175,9 @@ int handle_userptr(void *data_arg)
 {
         struct userptr_info *info;
 
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         info = (struct userptr_info *)data_arg;
         if (verbose) {
                 print_userptr(info);
-        }
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
         }
 
         return 0;
@@ -221,14 +185,7 @@ int handle_userptr(void *data_arg)
 
 int handle_vm_create(void *data_arg)
 {
-        struct buffer_profile *gem;
-        int index;
         struct vm_create_info *info;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct vm_create_info *)data_arg;
         if (verbose) {
@@ -240,91 +197,35 @@ int handle_vm_create(void *data_arg)
                 init_debug_i915(devinfo.fd, info->pid);
         }
 
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
 int handle_vm_bind(void *data_arg)
 {
-        struct buffer_profile *bind_gem, *map_gem;
-        int mapping_index, binding_index;
         struct vm_bind_info *info;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
                 print_vm_bind(info);
         }
 
-        /* Check to see if we've seen this file/handle pair get mapped. */
-        binding_index = -1;
-        mapping_index = get_buffer_profile_by_mapping(info->file, info->handle);
-        if (mapping_index != -1) {
-                map_gem = &(buffer_profile_arr[mapping_index]);
-                if ((map_gem->vm_bind_info.vm_id == 0) && (map_gem->vm_bind_info.gpu_addr == 0)) {
-                        /* If there's no binding for this buffer_profile, just use it! */
-                        binding_index = mapping_index;
-                        goto bind;
-                }
-        }
-        
-        /* See if we've already gotten a `vm_bind` on this same vm_id/addr pair. */
-        binding_index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (binding_index == -1) {
-                /* If there's no mapping or binding yet, create a new buffer_profile */
-                binding_index = grow_buffer_profiles();
-        }
-
-bind:
-        /* Copy the vm_bind_info into the buffer's profile. */
-        bind_gem = &(buffer_profile_arr[binding_index]);
-        bind_gem->handle = info->handle;
-        bind_gem->vm_id = info->vm_id;
-        bind_gem->file = info->file;
-        memcpy(&(bind_gem->vm_bind_info), info, sizeof(struct vm_bind_info));
-        if ((binding_index != mapping_index) && (mapping_index != -1)) {
-                map_gem = &(buffer_profile_arr[mapping_index]);
-                copy_mapping(bind_gem, map_gem);
-        }
-        
-cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
+        get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
 
         return 0;
 }
 
 int handle_vm_unbind(void *data_arg)
 {
-        struct buffer_profile *gem;
         struct vm_unbind_info *info;
-        int index;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
+        struct buffer_profile *gem;
 
         info = (struct vm_unbind_info *)data_arg;
         if (verbose) {
                 print_vm_unbind(info);
         }
 
-        /* Try to find the buffer that this is unbinding. Note that
-           info->handle is going to be 0 here, so we need to use
-           the GPU address to look it up. */
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (index == -1) {
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 if (debug) {
                         fprintf(stderr,
                                 "WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
@@ -332,16 +233,10 @@ int handle_vm_unbind(void *data_arg)
                 }
                 goto cleanup;
         }
-        
-        /* Unbind that GPU address, potentially deleting the buffer from the buffer_profile_arr */
-        memset(&buffer_profile_arr[index], 0, sizeof(struct buffer_profile));
+
+        gem->unbound = 1;
 
 cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
-
         return 0;
 }
 
@@ -349,57 +244,39 @@ int handle_batchbuffer(void *data_arg)
 {
         struct batchbuffer_info *info;
         struct buffer_profile *gem;
-        int index;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct batchbuffer_info *)data_arg;
-        
+
         if (verbose) {
                 print_batchbuffer(info);
         }
-        
+
         /* Find the buffer that this batchbuffer is associated with */
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (index == -1) {
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 if (debug ) {
                         fprintf(stderr,
                                 "WARNING: couldn't find a buffer to store the batchbuffer in.\n");
                 }
                 goto cleanup;
         }
-        
-        gem = &buffer_profile_arr[index];
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
-        
-cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
 
+        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
+                      info->buff_sz);
+
+cleanup:
         return 0;
 }
 
 int handle_execbuf_start(void *data_arg)
 {
-        char found;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
         uint64_t file;
         uint32_t vm_id, pid;
-        int n, index;
         struct execbuf_start_info *info;
         struct bb_parser parser;
         struct timespec parser_start, parser_end;
-
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct execbuf_start_info *)data_arg;
         if (verbose) {
@@ -414,21 +291,24 @@ int handle_execbuf_start(void *data_arg)
            are referenced by this call. Buffers can be referenced in two ways:
            1. Directly in the execbuffer call.
            2. Through the ctx_id (which has an associated vm_id).
-     
+
            Here, we'll iterate over all buffers in the given vm_id. */
         vm_id = info->vm_id;
         pid = info->pid;
         file = info->file;
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if (gem->vm_bind_info.vm_id == vm_id) {
-                        if (verbose) {
-                                print_execbuf_gem(info, &(gem->vm_bind_info));
-                        }
-
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
-                        memcpy(&(gem->exec_info), info,
-                               sizeof(struct execbuf_start_info));
+                        memcpy(gem->name, info->name, TASK_COMM_LEN);
+                        gem->time = info->time;
+                        gem->cpu = info->cpu;
+                        gem->tid = info->tid;
+                        gem->ctx_id = info->ctx_id;
+
+                        if (verbose) {
+                                print_execbuf_gem(gem);
+                        }
 
                         /* Store the stack */
                         if (gem->execbuf_stack_str == NULL) {
@@ -438,22 +318,27 @@ int handle_execbuf_start(void *data_arg)
                 }
         }
 
-        index = get_buffer_profile_by_binding(vm_id, info->bb_offset);
-        if (index == -1) {
+        gem = get_buffer_profile(vm_id, info->bb_offset);
+        if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
                         info->bb_offset);
                 goto cleanup;
         }
-        gem = &buffer_profile_arr[index];
-        
+
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
                 /* We didn't get a copy of the batchbuffer from BPF! */
                 goto cleanup;
         }
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
+        if (handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
+                      info->buff_sz) != 0) {
+
+                fprintf(stderr,
+                        "WARNING: handle_binary() returned non-zero\n");
+                goto cleanup;
+        }
+
         if ((!gem->buff) || (!gem->buff_sz)) {
                 goto cleanup;
         }
@@ -478,19 +363,14 @@ int handle_execbuf_start(void *data_arg)
 
 cleanup:
         if (iba) {
-                for (n = 0; n < buffer_profile_used; n++) {
-                        gem = &buffer_profile_arr[n];
-                        if ((gem->vm_bind_info.vm_id == vm_id) &&
-                            (gem->vm_bind_info.pid == pid) &&
-                            (gem->vm_bind_info.file == file)) {
+                tree_traverse(buffer_profiles, it) {
+                        gem = &tree_it_val(it);
+                        if ((gem->vm_id == vm_id) &&
+                            (gem->pid == pid) &&
+                            (gem->file == file)) {
                                 gem->iba = iba;
                         }
                 }
-        }
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
         }
 
         return 0;
@@ -498,93 +378,60 @@ cleanup:
 
 int handle_execbuf_end(void *data_arg)
 {
-        int index;
         struct execbuf_end_info *info;
         struct buffer_profile *gem;
-        
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
 
         /* First, just print out the execbuf_end */
         info = (struct execbuf_end_info *)data_arg;
         if (verbose) {
                 print_execbuf_end(info);
         }
-        
-        index = get_buffer_profile_by_binding(info->vm_id, info->gpu_addr);
-        if (!index) {
+
+        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
                         info->gpu_addr);
                 goto cleanup;
         }
-        gem = &buffer_profile_arr[index];
-        
+
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
                 goto cleanup;
         }
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
-                      
-cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
+                      info->buff_sz);
 
+cleanup:
         return 0;
 }
 
-/* Runs each time a sample from the ringbuffer is collected.
-   Samples can be one of four types:
-   1. struct mapping_info. This is a struct collected when an `execbuffer` call is made,
-      and represents a buffer that is either directly referenced by the `execbuffer`
-      call, or a buffer that's in the "VM" assigned to the context that's executing.
-   2. struct unmap_info. This is a struct collected when `munmap` is called on a
-      VMA that was mapped by i915. Assuming we've seen the associated `mmap` call
-      from i915, the buffer is then copied into the ringbuffer (along with some
-      metadata).
-   3. struct execbuf_start_info. Basic metadata collected at the beginning of an
-      execbuffer call.
-   4. struct execbuffer_end_info. Basic metadata collected at the end of an
-      execbuffer call. */
+/* Runs each time a sample from the ringbuffer is collected. */
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 {
-        unsigned char *data;
-
 /*         print_buffer_profiles(); */
 
-        if (data_sz == sizeof(struct mapping_info)) {
-                return handle_mapping(data_arg);
-        } else if (data_sz == sizeof(struct unmap_info)) {
-                return handle_unmap(data_arg);
-        } else if (data_sz == sizeof(struct userptr_info)) {
-                return handle_userptr(data_arg);
-        } else if (data_sz == sizeof(struct vm_create_info)) {
-                return handle_vm_create(data_arg);
-        } else if (data_sz == sizeof(struct vm_bind_info)) {
-                return handle_vm_bind(data_arg);
-        } else if (data_sz == sizeof(struct vm_unbind_info)) {
-                return handle_vm_unbind(data_arg);
-        } else if (data_sz == sizeof(struct execbuf_start_info)) {
-                return handle_execbuf_start(data_arg);
-        } else if (data_sz == sizeof(struct batchbuffer_info)) {
-                return handle_batchbuffer(data_arg);
-        } else if (data_sz == sizeof(struct execbuf_end_info)) {
-                return handle_execbuf_end(data_arg);
-        } else if (data_sz == sizeof(struct request_info)) {
-                return handle_request(data_arg);
-        } else {
-                fprintf(stderr,
-                        "Unknown data size when handling a sample: %lu\n",
-                        data_sz);
-                return -1;
+        uint8_t type;
+
+        type = *((uint8_t*)data_arg);
+
+        switch (type) {
+/*                 case BPF_EVENT_TYPE_MAPPING:       return handle_mapping(data_arg); */
+                case BPF_EVENT_TYPE_UNMAP:         return handle_unmap(data_arg);
+                case BPF_EVENT_TYPE_VM_CREATE:     return handle_vm_create(data_arg);
+                case BPF_EVENT_TYPE_VM_BIND:       return handle_vm_bind(data_arg);
+                case BPF_EVENT_TYPE_VM_UNBIND:     return handle_vm_unbind(data_arg);
+                case BPF_EVENT_TYPE_EXECBUF_START: return handle_execbuf_start(data_arg);
+                case BPF_EVENT_TYPE_EXECBUF_END:   return handle_execbuf_end(data_arg);
+                case BPF_EVENT_TYPE_BATCHBUFFER:   return handle_batchbuffer(data_arg);
+                case BPF_EVENT_TYPE_USERPTR:       return handle_userptr(data_arg);
+                case BPF_EVENT_TYPE_REQUEST:       return handle_request(data_arg);
         }
 
-        return 0;
+        fprintf(stderr,
+                "Unknown data type when handling a sample: %u\n",
+                type);
+        return -1;
 }
 
 /***************************************
@@ -702,8 +549,6 @@ int init_bpf_i915()
         int err;
         struct bpf_object_open_opts opts = { 0 };
 
-        check_bpf_type_sizes();
-
         opts.sz = sizeof(struct bpf_object_open_opts);
 #if 0
   if(pw_opts.btf_custom_path) {
@@ -785,7 +630,7 @@ int init_bpf_i915()
 
         bpf_info.munmap_prog =
                 (struct bpf_program *)bpf_info.obj->progs.munmap_tp;
-                
+
 /*         bpf_info.request_retire_kprobe_prog = */
 /*                 (struct bpf_program *)bpf_info.obj->progs.request_retire_kprobe; */
 
@@ -971,48 +816,4 @@ void print_ringbuf_stats()
         avail = ring__avail_data_size(ring_buffer__ring(bpf_info.rb, 0));
         size = ring__size(ring_buffer__ring(bpf_info.rb, 0));
         printf("GEM ringbuf usage: %lu / %lu\n", avail, size);
-}
-
-/*******************
-*  SANITY CHECKS   *
-* **************** *
-* These macro hacks check the sizes of the `*_info` structs, to make sure
-* that they're unique. It throws a static assertion if any match. If you
-* add any new struct types to the BPF ringbuf, add them to the
-* `BPF_TYPE_SIZES_LIST` macro.
-*******************/
-
-/* Macro hacks */
-#define STRINGIFY(x) STRINGIFY_(x)
-#define STRINGIFY_(x) #x
-#define EMPTY()
-#define DEFER(id) id EMPTY()
-#define OBSTRUCT(...) __VA_ARGS__ DEFER(EMPTY)()
-#define EXPAND(...) __VA_ARGS__
-#define EVAL(...) EVAL1(__VA_ARGS__)
-#define EVAL1(...) __VA_ARGS__
-
-#define BPF_TYPE_SIZES_LIST(X, ...)               \
-        X(struct mapping_info, __VA_ARGS__)       \
-        X(struct unmap_info, __VA_ARGS__)         \
-        X(struct vm_create_info, __VA_ARGS__)     \
-        X(struct vm_bind_info, __VA_ARGS__)       \
-        X(struct vm_unbind_info, __VA_ARGS__)     \
-        X(struct execbuf_start_info, __VA_ARGS__) \
-        X(struct batchbuffer_info, __VA_ARGS__)   \
-        X(struct execbuf_end_info, __VA_ARGS__)   \
-        X(struct userptr_info, __VA_ARGS__)       \
-        X(struct request_info, __VA_ARGS__)
-
-#define BPF_TYPE_SIZES_LIST_INDIRECT(...) BPF_TYPE_SIZES_LIST(__VA_ARGS__)
-
-#define X2(type1, type2)                                                   \
-        static_assert((strcmp(STRINGIFY(type1), STRINGIFY(type2)) == 0) || \
-                      (sizeof(type1) != sizeof(type2)));
-
-#define X1(type1, ...) DEFER(BPF_TYPE_SIZES_LIST_INDIRECT)(X2, type1)
-
-void check_bpf_type_sizes()
-{
-        EVAL(BPF_TYPE_SIZES_LIST(X1))
 }

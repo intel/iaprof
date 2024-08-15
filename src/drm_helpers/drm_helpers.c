@@ -168,7 +168,7 @@ bool read_sysfs(int sysfs_dir_fd, const char *file_path, uint64_t *out_value)
 int get_drm_device_info(device_info *devinfo)
 {
         int sysfs_dir_fd, i;
-        uint32_t devid = 0, ret;
+        uint32_t devid = 0;
 
         sysfs_dir_fd = open_sysfs_dir(devinfo->fd);
         if (sysfs_dir_fd < 0) {

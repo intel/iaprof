@@ -30,9 +30,9 @@ extern uint64_t iba;
 * which the BPF programs' ringbuffer can contain.
 ***************************************/
 
-int handle_mapping(void *data_arg);
+/* int handle_mapping(void *data_arg); */
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz, uint64_t id);
+                  uint64_t src_sz);
 int handle_unmap(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
@@ -100,7 +100,7 @@ struct bpf_info_t {
 
         /* munmap */
         struct bpf_program *munmap_prog;
-        
+
         /* requests */
         struct bpf_program *request_submit_prog;
         struct bpf_program *request_retire_prog;

@@ -5,6 +5,116 @@
 #include "iaprof.h"
 #include "buffer_profile.h"
 
+
+int buffer_ID_cmp(const struct buffer_ID a, const struct buffer_ID b) {
+        if (a.vm_id < b.vm_id)       { return -1; }
+        if (a.vm_id > b.vm_id)       { return  1; }
+        if (a.gpu_addr < b.gpu_addr) { return -1; }
+        if (a.gpu_addr > b.gpu_addr) { return  1; }
+
+        return 0;
+}
+
+tree(buffer_ID_struct, buffer_profile_struct) buffer_profiles;
+
+struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
+        struct buffer_ID                                 id;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
+
+        id = (struct buffer_ID){ vm_id, gpu_addr };
+
+        it = tree_lookup(buffer_profiles, id);
+        if (tree_it_good(it)) {
+                return &tree_it_val(it);
+        }
+
+        return NULL;
+}
+
+struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
+        struct buffer_ID                                 id;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
+        struct buffer_profile                            new_profile;
+
+        id = (struct buffer_ID){ vm_id, gpu_addr };
+
+        if (buffer_profiles == NULL) {
+                buffer_profiles = tree_make(buffer_ID_struct, buffer_profile_struct);
+        } else {
+                it = tree_lookup(buffer_profiles, id);
+                if (tree_it_good(it)) {
+                        goto found;
+                }
+        }
+
+        memset(&new_profile, 0, sizeof(new_profile));
+        it = tree_insert(buffer_profiles, id, new_profile);
+
+found:;
+        return &tree_it_val(it);
+}
+
+static void clear_stalls(struct buffer_profile *gem) {
+        uint64_t offset, *tmp;
+        struct offset_profile **found;
+
+        if (gem->stall_counts != NULL) {
+                hash_table_traverse(gem->stall_counts,
+                                        offset, tmp)
+                {
+                        (void)offset;
+                        found = (struct offset_profile **)tmp;
+                        free(*found);
+                }
+                hash_table_free(gem->stall_counts);
+                gem->stall_counts = NULL;
+        }
+}
+
+void free_buffer_profile(struct buffer_profile *gem) {
+        clear_stalls(gem);
+        if (gem->buff != NULL) {
+                free(gem->buff);
+                gem->buff = NULL;
+        }
+
+        if (gem->execbuf_stack_str != NULL) {
+            free(gem->execbuf_stack_str);
+            gem->execbuf_stack_str = NULL;
+        }
+
+        if (gem->kv != NULL) {
+            iga_fini(gem->kv);
+            gem->kv = NULL;
+        }
+}
+
+void free_buffer_profiles() {
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
+
+        tree_traverse(buffer_profiles, it) {
+                free_buffer_profile(&tree_it_val(it));
+        }
+
+        tree_free(buffer_profiles);
+        buffer_profiles = NULL;
+}
+
+void delete_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
+        struct buffer_ID                                 id;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
+
+        id = (struct buffer_ID){ vm_id, gpu_addr };
+
+        it = tree_lookup(buffer_profiles, id);
+        if (!tree_it_good(it)) {
+                return;
+        }
+
+        free_buffer_profile(&tree_it_val(it));
+        tree_delete(buffer_profiles, id);
+}
+
 /**
   Global array of GEMs that we've seen.
   This is what we'll search through when we get an
@@ -37,150 +147,41 @@ void print_buffer_profiles()
                 gem = &(buffer_profile_arr[i]);
 
                 printf(
-                        "file=0x%lx handle=%u vm_id=%u cpu_addr=0x%lx gpu_addr=0x%llx buff_sz=%zu\n",
-                        gem->file, gem->handle, gem->vm_id, gem->cpu_addr,
-                        gem->vm_bind_info.gpu_addr, gem->buff_sz);
+                        "vm_id=%u gpu_addr=0x%lx buff_sz=%zu\n",
+                        gem->vm_id, gem->gpu_addr, gem->buff_sz);
         }
-}
-
-void free_interval_profiles()
-{
-        int i;
-        uint64_t offset, *tmp;
-        struct offset_profile **found;
-
-        for (i = 0; i < buffer_profile_used; i++) {
-                if (interval_profile_arr[i].counts) {
-                        hash_table_traverse(interval_profile_arr[i].counts,
-                                            offset, tmp)
-                        {
-                                found = (struct offset_profile **)tmp;
-                                free(*found);
-                        }
-                        hash_table_free(interval_profile_arr[i].counts);
-                }
-        }
-        free(interval_profile_arr);
 }
 
 void clear_interval_profiles()
 {
-        int i;
-        uint64_t offset, *tmp;
-        struct offset_profile **found;
-
-        for (i = 0; i < buffer_profile_used; i++) {
-                if (interval_profile_arr[i].counts) {
-                        hash_table_traverse(interval_profile_arr[i].counts,
-                                            offset, tmp)
-                        {
-                                found = (struct offset_profile **)tmp;
-                                free(*found);
-                        }
-                        hash_table_free(interval_profile_arr[i].counts);
-                }
-        }
-
-        memset(interval_profile_arr, 0,
-               buffer_profile_size * sizeof(struct interval_profile));
-}
-
-void free_buffer_profiles()
-{
-        int n;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return;
-        }
-
-
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &(buffer_profile_arr[n]);
-                if (gem->buff && gem->buff_sz) {
-                        free(gem->buff);
-                }
-        }
-        free(buffer_profile_arr);
-
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return;
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                clear_stalls(gem);
         }
 }
 
-/* Ensure that we have enough room to place a newly-seen sample, and place it.
-   Does NOT grab the lock, so the caller should. */
-uint64_t grow_buffer_profiles()
+void clear_unbound_buffers()
 {
-        size_t old_size;
-
-        /* Ensure there's enough room in the array */
-        if (buffer_profile_size == buffer_profile_used) {
-                /* Not enough room in the array */
-                old_size = buffer_profile_size;
-
-                buffer_profile_size += 64;
-
-                buffer_profile_arr = realloc(
-                        buffer_profile_arr,
-                        buffer_profile_size * sizeof(struct buffer_profile));
-                interval_profile_arr = realloc(
-                        interval_profile_arr,
-                        buffer_profile_size * sizeof(struct interval_profile));
-
-                memset(buffer_profile_arr + buffer_profile_used, 0,
-                       (buffer_profile_size - old_size) *
-                               sizeof(struct buffer_profile));
-                memset(interval_profile_arr + buffer_profile_used, 0,
-                       (buffer_profile_size - old_size) *
-                               sizeof(struct interval_profile));
-
-                if (debug)
-                        fprintf(stderr, "INFO: Increasing buffer size.\n");
-        }
-
-        buffer_profile_used++;
-        return buffer_profile_used - 1;
-}
-
-/* Looks up a buffer in the buffer_profile_arr by file/handle pair
-   (using its mmap call).
-   Returns -1 if not found. */
-int get_buffer_profile_by_mapping(uint64_t file, uint32_t handle)
-{
-        int n;
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if ((gem->handle == handle) &&
-                    (gem->file == file)) {
-                        return n;
+again:;
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                if (gem->unbound) {
+                        delete_buffer_profile(gem->vm_id, gem->gpu_addr);
+
+                        /* Iterator is invalid due to deletion. Start search again. */
+
+                        /* An alternative approach would be to store all to-be-deleted
+                         * buffer IDs in an array and then call delete_buffer_profile()
+                         * for each of those. This seems simpler. */
+                        goto again;
                 }
         }
-
-        return -1;
-}
-
-/* Looks up a buffer in the buffer_profile_arr by the vm_id and gpu_addr
-   provided by a vm_bind call.
-   Returns -1 if not found. */
-int get_buffer_profile_by_binding(uint32_t vm_id, uint64_t gpu_addr)
-{
-        int n;
-        struct buffer_profile *gem;
-
-        for (n = 0; n < buffer_profile_used; n++) {
-                gem = &buffer_profile_arr[n];
-                if ((gem->vm_bind_info.vm_id == vm_id) &&
-                    (gem->vm_bind_info.gpu_addr == gpu_addr)) {
-                        return n;
-                }
-        }
-
-        return -1;
 }
 
 struct vm_profile *get_vm_profile(uint32_t vm_id)
@@ -207,7 +208,6 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t c
 {
         struct vm_profile *vm;
         struct request_profile_list *rq;
-        char found;
 
         vm = get_vm_profile(vm_id);
         if (!vm) {

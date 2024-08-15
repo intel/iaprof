@@ -66,13 +66,14 @@ int request_submit_tp(struct request_submit_args *ctx)
                 return -1;
         }
 
-        info->type = REQUEST_SUBMIT;
+        info->type = BPF_EVENT_TYPE_REQUEST;
+        info->request_type = REQUEST_SUBMIT;
         info->seqno = ctx->seqno;
         info->gem_ctx = ctx->gem_ctx;
         info->class = ctx->class;
         info->instance = ctx->instance;
         info->time = bpf_ktime_get_ns();
-        
+
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         return 0;
@@ -94,7 +95,8 @@ int request_retire_tp(struct request_retire_args *ctx)
                 return -1;
         }
 
-        info->type = REQUEST_RETIRE;
+        info->type = BPF_EVENT_TYPE_REQUEST;
+        info->request_type = REQUEST_RETIRE;
         info->seqno = ctx->seqno;
         info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
@@ -120,7 +122,8 @@ int request_in_tp(struct request_in_args *ctx)
                 return -1;
         }
 
-        info->type = REQUEST_IN;
+        info->type = BPF_EVENT_TYPE_REQUEST;
+        info->request_type = REQUEST_IN;
         info->seqno = ctx->seqno;
         info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
@@ -146,7 +149,8 @@ int request_out_tp(struct request_out_args *ctx)
                 return -1;
         }
 
-        info->type = REQUEST_OUT;
+        info->type = BPF_EVENT_TYPE_REQUEST;
+        info->request_type = REQUEST_OUT;
         info->seqno = ctx->seqno;
         info->gem_ctx = ctx->gem_ctx;
         info->time = bpf_ktime_get_ns();
@@ -168,10 +172,10 @@ int request_retire_kprobe(struct pt_regs *ctx)
         u64 gpu_addr, vaddr, addr, size;
         u32 head, tail;
         int err;
-        
+
         struct gpu_mapping gmapping = {};
 /*         struct cpu_mapping cmapping = {}; */
-        
+
         /* Get the GPU address and VM ID that is associated with the batchbuffer
            that this request is for */
         rq = (struct i915_request *)PT_REGS_PARM1(ctx);
@@ -179,11 +183,11 @@ int request_retire_kprobe(struct pt_regs *ctx)
         ring = BPF_CORE_READ(rq, ring);
         node = (struct drm_mm_node *)(((char *)vma) + bpf_core_field_offset(struct i915_vma, node));
         gpu_addr = (u64) BPF_CORE_READ(node, start);
-        
+
         head = BPF_CORE_READ(rq, head);
         tail = BPF_CORE_READ(rq, tail);
         vaddr = (u64) BPF_CORE_READ(ring, vaddr);
-        
+
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
                 bpf_printk(
@@ -192,6 +196,7 @@ int request_retire_kprobe(struct pt_regs *ctx)
         }
 
         /* Common stuff */
+        info->type = BPF_EVENT_TYPE_BATCHBUFFER;
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
@@ -214,7 +219,7 @@ int request_retire_kprobe(struct pt_regs *ctx)
                 info->buff_sz = 0;
         }
         bpf_ringbuf_submit(info, 0);
-        
+
         return 0;
 }
 #endif
