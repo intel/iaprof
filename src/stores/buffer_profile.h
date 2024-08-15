@@ -14,6 +14,7 @@
 use_hash_table(uint64_t, uint64_t);
 
 void clear_interval_profiles();
+void clear_unbound_buffers();
 void print_buffer_profiles();
 
 /* Stores information about a single buffer. We overwrite and accumulate
@@ -29,6 +30,7 @@ struct buffer_profile {
         uint32_t vm_id;
         uint64_t gpu_addr;
         uint64_t bind_size;
+        int      unbound;
 
         /* A copy of the buffer bytes itself */
         uint64_t buff_sz;

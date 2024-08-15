@@ -312,6 +312,7 @@ int handle_eustall_read(struct epoll_event *event)
 
         /* Reset for the next interval */
         clear_interval_profiles();
+        clear_unbound_buffers();
 
         return 0;
 }
@@ -399,6 +400,8 @@ void *collect_thread_main(void *a)
                 if (eustall_fd_index != -1) {
                         handle_fd_read(&(events[eustall_fd_index]));
                 }
+
+
         }
 
         print_flamegraph();

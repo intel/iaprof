@@ -255,7 +255,7 @@ int handle_vm_unbind(void *data_arg)
                 goto cleanup;
         }
 
-        delete_buffer_profile(info->vm_id, info->gpu_addr);
+        gem->unbound = 1;
 
 cleanup:
         return 0;

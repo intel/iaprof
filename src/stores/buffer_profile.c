@@ -156,6 +156,27 @@ void clear_interval_profiles()
         }
 }
 
+void clear_unbound_buffers()
+{
+        tree_it(buffer_ID_struct, buffer_profile_struct) it;
+        struct buffer_profile *gem;
+
+again:;
+        tree_traverse(buffer_profiles, it) {
+                gem = &tree_it_val(it);
+                if (gem->unbound) {
+                        delete_buffer_profile(gem->vm_id, gem->gpu_addr);
+
+                        /* Iterator is invalid due to deletion. Start search again. */
+
+                        /* An alternative approach would be to store all to-be-deleted
+                         * buffer IDs in an array and then call delete_buffer_profile()
+                         * for each of those. This seems simpler. */
+                        goto again;
+                }
+        }
+}
+
 struct vm_profile *get_vm_profile(uint32_t vm_id)
 {
         uint32_t old_size;
