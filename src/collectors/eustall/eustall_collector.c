@@ -149,7 +149,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                                 }
                                 continue;
                         }
-                        if (!(gem->exec_info.pid)) {
+                        if (!(gem->pid)) {
                                 if (debug) {
                                         printf("  no exec_info!\n");
                                 }

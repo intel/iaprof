@@ -20,7 +20,11 @@ void print_buffer_profiles();
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
 struct buffer_profile {
-        struct execbuf_start_info exec_info;
+        char name[TASK_COMM_LEN];
+        uint64_t time;
+        uint32_t cpu;
+        uint32_t tid;
+        uint32_t ctx_id;
 
         uint64_t file;
         uint32_t handle;

@@ -145,11 +145,11 @@ int print_execbuf_start(struct execbuf_start_info *info)
 int print_execbuf_gem(struct buffer_profile *gem)
 {
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_gem");
-        printf(" %-*llu", TIME_LEN, gem->exec_info.time);
-        printf(" %-*u", CPU_LEN, gem->exec_info.cpu);
-        printf(" %-*u", PID_LEN, gem->exec_info.pid);
-        printf(" %-*u", TID_LEN, gem->exec_info.tid);
-        printf(" ctx_id=%u vm_id=%u", gem->exec_info.ctx_id, gem->exec_info.vm_id);
+        printf(" %-*lu", TIME_LEN, gem->time);
+        printf(" %-*u", CPU_LEN, gem->cpu);
+        printf(" %-*u", PID_LEN, gem->pid);
+        printf(" %-*u", TID_LEN, gem->tid);
+        printf(" ctx_id=%u", gem->ctx_id);
         printf(" file=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx size=%lu\n",
                gem->file, gem->handle, gem->vm_id, gem->gpu_addr,
                gem->bind_size);

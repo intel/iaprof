@@ -36,7 +36,7 @@ uint32_t global_vm_id = 0;
 ***************************************/
 
 int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz, uint64_t id)
+                  uint64_t src_sz)
 {
         if (!src_sz || !src)
                 return -1;
@@ -44,20 +44,14 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
                 fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
                 return -1;
         }
-        if (*dst) {
-                /* Free up the old copy */
-                free(*dst);
-                *dst = NULL;
-                *dst_sz = 0;
-        }
+
+        *dst = realloc(*dst, src_sz);
+        memcpy(*dst, src, src_sz);
+        *dst_sz = src_sz;
 
         if (debug) {
                 printf("handle_binary\n");
         }
-
-        *dst = calloc(src_sz, sizeof(unsigned char));
-        *dst_sz = src_sz;
-        memcpy(*dst, src, src_sz);
 
         return 0;
 }
@@ -229,7 +223,7 @@ int handle_vm_bind(void *data_arg)
                 goto cleanup;
         }
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, info->handle);
+                      info->buff_sz);
 
 cleanup:
         return 0;
@@ -283,7 +277,7 @@ int handle_batchbuffer(void *data_arg)
         }
 
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
+                      info->buff_sz);
 
 cleanup:
         return 0;
@@ -321,8 +315,11 @@ int handle_execbuf_start(void *data_arg)
                 gem = &tree_it_val(it);
                 if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
-                        memcpy(&(gem->exec_info), info,
-                               sizeof(struct execbuf_start_info));
+                        memcpy(gem->name, info->name, TASK_COMM_LEN);
+                        gem->time = info->time;
+                        gem->cpu = info->cpu;
+                        gem->tid = info->tid;
+                        gem->ctx_id = info->ctx_id;
 
                         if (verbose) {
                                 print_execbuf_gem(gem);
@@ -349,8 +346,14 @@ int handle_execbuf_start(void *data_arg)
                 /* We didn't get a copy of the batchbuffer from BPF! */
                 goto cleanup;
         }
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
+        if (handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
+                      info->buff_sz) != 0) {
+
+                fprintf(stderr,
+                        "WARNING: handle_binary() returned non-zero\n");
+                goto cleanup;
+        }
+
         if ((!gem->buff) || (!gem->buff_sz)) {
                 goto cleanup;
         }
@@ -412,7 +415,7 @@ int handle_execbuf_end(void *data_arg)
                 goto cleanup;
         }
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz, gem->handle);
+                      info->buff_sz);
 
 cleanup:
         return 0;

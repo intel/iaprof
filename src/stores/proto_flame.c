@@ -38,8 +38,8 @@ uint64_t grow_proto_flames()
 }
 void store_cpu_side(uint64_t index, struct buffer_profile *gem)
 {
-        proto_flame_arr[index].proc_name = strdup(gem->exec_info.name);
-        proto_flame_arr[index].pid = gem->exec_info.pid;
+        proto_flame_arr[index].proc_name = strdup(gem->name);
+        proto_flame_arr[index].pid = gem->pid;
         if (gem->execbuf_stack_str) {
                 proto_flame_arr[index].cpu_stack =
                         strdup(gem->execbuf_stack_str);
@@ -124,7 +124,7 @@ void store_kernel_flames(struct buffer_profile *gem)
 
         if (debug) {
                 printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
-                       gem->exec_info.pid);
+                       gem->pid);
         }
 
         /* Iterate over the offsets that we have EU stalls for */
