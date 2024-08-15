@@ -27,8 +27,8 @@ void print_debug_profile()
         if (!debug) {
                 return;
         }
-        
-        printf("buffer_profile_arr used=%zu size=%zu\n", buffer_profile_used, buffer_profile_size * sizeof(struct buffer_profile));
+
+        printf("buffer_profiles %lu\n", tree_len(buffer_profiles));
 
         /* Iterate over each buffer */
         tree_traverse(buffer_profiles, it) {

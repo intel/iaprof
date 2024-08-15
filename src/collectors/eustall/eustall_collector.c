@@ -171,7 +171,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         }
 
                         found++;
-                  
+
                         if (found == 1) {
                                 first_found_offset = offset;
                                 first_found_gem = gem;
@@ -189,7 +189,7 @@ none_found:
                         }
                         eustall_info.unmatched += num_stalls_in_sample(&sample);
                 } else if (found == 1) {
-                        associate_sample(&sample, last_found_gem,
+                        associate_sample(&sample, first_found_gem,
                                          addr,
                                          first_found_offset, info.subslice,
                                          time);
@@ -202,7 +202,7 @@ none_found:
                                                     info.subslice, time);
                         }
 
-                        associate_sample(&sample, last_found_gem,
+                        associate_sample(&sample, first_found_gem,
                                          addr,
                                          first_found_offset, info.subslice,
                                          time);

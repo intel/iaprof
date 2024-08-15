@@ -418,7 +418,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       uint32_t offset, uint64_t size)
 {
         uint32_t *dword_ptr, op;
-        uint64_t off, tmp, root_off, noops;
+        uint64_t off, tmp, noops;
         enum bb_parser_status retval;
         char noop_debug;
 
@@ -488,7 +488,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
                                 op = op & OP_3D;
                         }
-                        
+
                         if ((op != MI_NOOP) && noops) {
                                 bb_debug = noop_debug;
                                 if (bb_debug) {
@@ -518,20 +518,20 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 break;
                         case MI_NOOP:
                                 noops++;
-                                
+
                                 /* Save bb_debug, clear it */
                                 if (bb_debug) {
                                         noop_debug = bb_debug;
                                 }
                                 bb_debug = 0;
-                                
+
                                 if (noops == 64) {
                                         if (bb_debug) {
                                                 printf("Too many NOOPs!\n");
                                         }
                                         return BB_PARSER_STATUS_OK;
                                 }
-                                
+
                                 parser->cur_cmd = MI_NOOP;
                                 parser->cur_num_dwords = MI_NOOP_DWORDS;
                                 break;
