@@ -235,8 +235,10 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
-        /* Register the PID with the debug_i915 collector */
-        init_debug_i915(devinfo.fd, info->pid);
+        if (gpu_syms) {
+                /* Register the PID with the debug_i915 collector */
+                init_debug_i915(devinfo.fd, info->pid);
+        }
 
         if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
                 fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
