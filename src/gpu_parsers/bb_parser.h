@@ -239,7 +239,7 @@ uint32_t op_len(uint32_t *bb)
 #define CFE_STATE OP_GFXPIPE(0x2, 0x2, 0x0)
 #define CFE_STATE_DWORDS 5
 
-void find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
+char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
         tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
@@ -259,10 +259,11 @@ void find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
                                        gem->gpu_addr);
                         }
                         parser->gem = gem;
-                        return;
+                        return 1;
                 }
         }
-        return;
+        
+        return 0;
 }
 
 /******************************************************************************
@@ -374,8 +375,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 }
                 parser->pc[parser->pc_depth] = parser->bbsp - 4;
 
-                find_jump_buffer(parser, parser->bbsp);
-                if (!parser->gem) {
+                if (!find_jump_buffer(parser, parser->bbsp)) {
                         if (bb_debug) {
                                 fprintf(stderr,
                                         "WARNING: Couldn't find a buffer ");

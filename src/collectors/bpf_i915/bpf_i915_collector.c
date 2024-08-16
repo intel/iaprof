@@ -203,13 +203,15 @@ int handle_vm_create(void *data_arg)
 int handle_vm_bind(void *data_arg)
 {
         struct vm_bind_info *info;
+        struct buffer_profile *gem;
 
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
                 print_vm_bind(info);
         }
 
-        get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
+        gem = get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
+        gem->bind_size = info->size;
 
         return 0;
 }

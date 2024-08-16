@@ -48,6 +48,8 @@ struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu
         }
 
         memset(&new_profile, 0, sizeof(new_profile));
+        new_profile.vm_id = vm_id;
+        new_profile.gpu_addr = gpu_addr;
         it = tree_insert(buffer_profiles, id, new_profile);
 
 found:;
