@@ -70,6 +70,7 @@ use_tree_c(buffer_ID_struct, buffer_profile_struct, buffer_ID_cmp);
 
 extern tree(buffer_ID_struct, buffer_profile_struct) buffer_profiles;
 
+void init_buffer_profiles();
 struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
 struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
 void delete_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);

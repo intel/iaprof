@@ -224,6 +224,12 @@ struct debug_i915_info_t debug_i915_info = {};
 #define MAX_EPOLL_EVENTS 64
 
 /* Thread and interval */
+
+enum {
+    STOP_REQUESTED = 1,
+    STOP_NOW       = 2,
+};
+
 pthread_t collect_thread_id;
 pthread_t sidecar_thread_id;
 timer_t interval_timer;
@@ -385,9 +391,6 @@ void *collect_thread_main(void *a)
                                 "There was an error calling epoll_wait. Aborting.\n");
                         exit(1);
                 }
-                if (nfds == 0) {
-                        continue;
-                }
 
                 /* Search the array of returns fds for the one that collects eustalls */
                 eustall_fd_index = -1;
@@ -398,6 +401,14 @@ void *collect_thread_main(void *a)
                         }
                 }
 
+                if (main_thread_should_stop && eustall_fd_index == -1) {
+                        main_thread_should_stop = STOP_NOW;
+                }
+
+                if (nfds == 0) {
+                        continue;
+                }
+
                 /* Handle the fds, but ensure that the eustall fd is handled last */
                 for (i = 0; i < nfds; i++) {
                         if (i == eustall_fd_index) {
@@ -406,6 +417,7 @@ void *collect_thread_main(void *a)
                         }
                         handle_fd_read(&(events[i]));
                 }
+
                 if (eustall_fd_index != -1) {
                         handle_fd_read(&(events[eustall_fd_index]));
                 }
@@ -467,9 +479,15 @@ int start_sidecar_thread()
 *       MAIN       *
 *******************/
 
-void stop_main_thread(int sig)
+void handle_sigint(int sig)
 {
-        main_thread_should_stop = 1;
+        if (!main_thread_should_stop) {
+            main_thread_should_stop = STOP_REQUESTED;
+            fprintf(stderr,
+                    "\nCollecting remaining eustalls... signal once more to stop now.\n");
+        } else {
+            main_thread_should_stop = STOP_NOW;
+        }
 }
 
 int main(int argc, char **argv)
@@ -484,6 +502,9 @@ int main(int argc, char **argv)
 
         /* Begin profiling */
         print_status("Initializing, please wait...\n");
+
+        init_buffer_profiles();
+
         if (start_collect_thread() != 0) {
                 fprintf(stderr,
                         "Failed to start the collection thread. Aborting.\n");
@@ -506,7 +527,7 @@ int main(int argc, char **argv)
         }
 
         sa.sa_flags = 0;
-        sa.sa_handler = stop_main_thread;
+        sa.sa_handler = handle_sigint;
         sigemptyset(&sa.sa_mask);
         if (sigaction(SIGINT, &sa, NULL) == -1) {
                 fprintf(stderr, "Error creating SIGINT handler. Aborting.\n");
@@ -522,12 +543,14 @@ int main(int argc, char **argv)
                 pthread_join(sidecar_thread_id, NULL);
         } else {
                 /* Wait until we get a signal (Ctrl-C) */
-                while (!main_thread_should_stop) {
+                while (main_thread_should_stop != STOP_NOW) {
                         nanosleep(&request, &leftover);
 
                         gettimeofday(&tv, NULL);
 
-                        print_status_table((int)tv.tv_sec - startsecs);
+                        if (!main_thread_should_stop) {
+                                print_status_table((int)tv.tv_sec - startsecs);
+                        }
                 }
         }
         if (collect_thread_profiling) {
