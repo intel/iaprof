@@ -212,6 +212,7 @@ int handle_vm_bind(void *data_arg)
 
         gem = get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
         gem->bind_size = info->size;
+        gem->pid = info->pid;
 
         return 0;
 }
