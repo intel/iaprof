@@ -253,7 +253,7 @@ int handle_batchbuffer(void *data_arg)
         if (verbose) {
                 print_batchbuffer(info);
         }
-
+        
         /* Find the buffer that this batchbuffer is associated with */
         gem = get_buffer_profile(info->vm_id, info->gpu_addr);
         if (gem == NULL) {
@@ -541,7 +541,7 @@ int deinit_bpf_i915()
         bpf_program__unload(bpf_info.request_retire_prog);
         bpf_program__unload(bpf_info.request_in_prog);
         bpf_program__unload(bpf_info.request_out_prog);
-
+        
         main_bpf__destroy(bpf_info.obj);
 
         return 0;
@@ -633,9 +633,6 @@ int init_bpf_i915()
 
         bpf_info.munmap_prog =
                 (struct bpf_program *)bpf_info.obj->progs.munmap_tp;
-
-/*         bpf_info.request_retire_kprobe_prog = */
-/*                 (struct bpf_program *)bpf_info.obj->progs.request_retire_kprobe; */
 
         bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb),
                                        handle_sample, NULL, NULL);
@@ -790,12 +787,6 @@ int init_bpf_i915()
                 fprintf(stderr, "Failed to attach a tracepoint!\n");
                 return -1;
         }
-/*         err = attach_kprobe("i915_request_retire", */
-/*                             bpf_info.request_retire_kprobe_prog, 0); */
-/*         if (err != 0) { */
-/*                 fprintf(stderr, "Failed to attach a kprobe!\n"); */
-/*                 return -1; */
-/*         } */
 
         /* XXX: Finish vm_close support in BPF and re-enable. This should
      free up any addresses bound to the VM. */
