@@ -89,9 +89,11 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
         char found;
         uint64_t addr, start, end, offset, first_found_offset;
         struct eustall_sample sample;
+        uint64_t vm_id;
+        struct vm_profile **vmp;
+        struct vm_profile *vm;
         struct buffer_profile *gem, *first_found_gem;
 
-        struct vm_profile *vm;
         struct timespec spec;
         unsigned long long time;
 
@@ -119,17 +121,16 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         goto none_found;
                 }
 
-                /*
-                 * If we knew the vm_id for this eustall, we could do this lookup in
-                 * log time by calling get_containing_buffer_profile()...
-                 */
-                FOR_BUFFER_PROFILE(gem, {
-                        start = gem->gpu_addr;
-                        end = start + gem->bind_size;
+                hash_table_traverse(vm_profiles, vm_id, vmp) {
+                        (void)vmp;
 
-                        if ((addr < start) || (addr >= end)) {
+                        gem = get_containing_buffer_profile(vm_id, addr);
+                        if (gem == NULL) {
                                 continue;
                         }
+
+                        start = gem->gpu_addr;
+                        end = start + gem->bind_size;
                         offset = addr - start;
 
                         if (debug) {
@@ -139,14 +140,8 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                                        gem->gpu_addr, iba);
                         }
 
-/*                         vm = get_vm_profile(gem->vm_id); */
-                        vm = get_or_create_vm_profile(gem->vm_id);
-                        if (!vm) {
-                                if (debug) {
-                                        printf("  no vm!\n");
-                                }
-                                continue;
-                        }
+                        vm = *vmp;
+
                         if (vm->active == 0) {
                                 if (debug) {
                                         printf("  inactive!\n");
@@ -180,7 +175,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         }
 
                         continue;
-                });
+                }
 
 none_found:
                 /* Now that we've found 0+ matches, print or store them. */

@@ -242,24 +242,18 @@ uint32_t op_len(uint32_t *bb)
 char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
         struct buffer_profile *gem;
-        uint64_t start, end;
 
-        /* @TODO: This can be done in log time now, so do that. */
-
-        FOR_BUFFER_PROFILE(gem, {
-                start = gem->gpu_addr;
-                end = start + gem->bind_size;
-                if ((bbsp >= start) && (bbsp < end)) {
-                        if (bb_debug) {
-                                printf("Found a matching batch buffer ");
-                                printf("to jump to. vm_id=%u gpu_addr=0x%lx\n",
-                                       gem->vm_id,
-                                       gem->gpu_addr);
-                        }
-                        parser->gem = gem;
-                        return 1;
+        gem = get_containing_buffer_profile(parser->gem->vm_id, bbsp);
+        if (gem != NULL) {
+                if (bb_debug) {
+                        printf("Found a matching batch buffer ");
+                        printf("to jump to. vm_id=%u gpu_addr=0x%lx\n",
+                                gem->vm_id,
+                                gem->gpu_addr);
                 }
-        });
+                parser->gem = gem;
+                return 1;
+        }
 
         return 0;
 }
