@@ -206,12 +206,9 @@ void store_kernel_flames(struct buffer_profile *gem)
 
 void store_interval_flames()
 {
-        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
-        tree_traverse(buffer_profiles, it) {
-                gem = &tree_it_val(it);
-
+        FOR_BUFFER_PROFILE(gem, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
                 if (gem->stall_counts == NULL) {
@@ -219,5 +216,5 @@ void store_interval_flames()
                 }
 
                 store_kernel_flames(gem);
-        }
+        });
 }

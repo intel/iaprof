@@ -241,14 +241,12 @@ uint32_t op_len(uint32_t *bb)
 
 char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
-        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
         uint64_t start, end;
 
         /* @TODO: This can be done in log time now, so do that. */
 
-        tree_traverse(buffer_profiles, it) {
-                gem = &tree_it_val(it);
+        FOR_BUFFER_PROFILE(gem, {
                 start = gem->gpu_addr;
                 end = start + gem->bind_size;
                 if ((bbsp >= start) && (bbsp < end)) {
@@ -261,8 +259,8 @@ char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
                         parser->gem = gem;
                         return 1;
                 }
-        }
-        
+        });
+
         return 0;
 }
 

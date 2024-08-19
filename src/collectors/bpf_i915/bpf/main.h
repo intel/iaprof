@@ -64,6 +64,7 @@ struct __attribute__((packed)) vm_create_info {
         __u32 pid, tid, cpu;
         __u64 time;
         int stackid;
+        __u32 vm_id;
 };
 
 /* Collected from a vm_bind */

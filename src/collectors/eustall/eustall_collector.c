@@ -89,7 +89,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
         char found;
         uint64_t addr, start, end, offset, first_found_offset;
         struct eustall_sample sample;
-        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem, *first_found_gem;
 
         struct vm_profile *vm;
@@ -120,9 +119,11 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         goto none_found;
                 }
 
-                /* @TODO: This can be done in log time now, so do that. */
-                tree_traverse(buffer_profiles, it) {
-                        gem = &tree_it_val(it);
+                /*
+                 * If we knew the vm_id for this eustall, we could do this lookup in
+                 * log time by calling get_containing_buffer_profile()...
+                 */
+                FOR_BUFFER_PROFILE(gem, {
                         start = gem->gpu_addr;
                         end = start + gem->bind_size;
 
@@ -138,7 +139,8 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                                        gem->gpu_addr, iba);
                         }
 
-                        vm = get_vm_profile(gem->vm_id);
+/*                         vm = get_vm_profile(gem->vm_id); */
+                        vm = get_or_create_vm_profile(gem->vm_id);
                         if (!vm) {
                                 if (debug) {
                                         printf("  no vm!\n");
@@ -178,7 +180,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         }
 
                         continue;
-                }
+                });
 
 none_found:
                 /* Now that we've found 0+ matches, print or store them. */

@@ -71,7 +71,8 @@ int print_vm_create(struct vm_create_info *info)
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
         printf(" %-*u", PID_LEN, info->pid);
-        printf(" %-*u\n", TID_LEN, info->tid);
+        printf(" %-*u", TID_LEN, info->tid);
+        printf(" vm_id=%u\n", info->vm_id);
 
         return 0;
 }

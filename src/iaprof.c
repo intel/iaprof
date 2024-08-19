@@ -430,7 +430,7 @@ void *collect_thread_main(void *a)
         free(events);
         close(eustall_info.perf_fd);
         deinit_bpf_i915();
-        free_buffer_profiles();
+        free_profiles();
 
         return NULL;
 }
@@ -503,7 +503,7 @@ int main(int argc, char **argv)
         /* Begin profiling */
         print_status("Initializing, please wait...\n");
 
-        init_buffer_profiles();
+        init_profiles();
 
         if (start_collect_thread() != 0) {
                 fprintf(stderr,

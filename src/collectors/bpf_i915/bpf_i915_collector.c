@@ -192,6 +192,11 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
+        /* @TODO: Do it this way when we can get the vm_id from BPF.
+         * Until then, we'll use get_or_create_vm() everywhere. */
+
+/*         create_vm_profile(info->vm_id); */
+
         if (gpu_syms) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
@@ -273,7 +278,6 @@ cleanup:
 
 int handle_execbuf_start(void *data_arg)
 {
-        tree_it(buffer_ID_struct, buffer_profile_struct) it;
         struct buffer_profile *gem;
         uint64_t file;
         uint32_t vm_id, pid;
@@ -299,8 +303,7 @@ int handle_execbuf_start(void *data_arg)
         vm_id = info->vm_id;
         pid = info->pid;
         file = info->file;
-        tree_traverse(buffer_profiles, it) {
-                gem = &tree_it_val(it);
+        FOR_BUFFER_PROFILE(gem, {
                 if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
                         memcpy(gem->name, info->name, TASK_COMM_LEN);
@@ -319,7 +322,7 @@ int handle_execbuf_start(void *data_arg)
                                             &(gem->execbuf_stack_str));
                         }
                 }
-        }
+        });
 
         gem = get_buffer_profile(vm_id, info->bb_offset);
         if (gem == NULL) {
@@ -366,14 +369,13 @@ int handle_execbuf_start(void *data_arg)
 
 cleanup:
         if (iba) {
-                tree_traverse(buffer_profiles, it) {
-                        gem = &tree_it_val(it);
+                FOR_BUFFER_PROFILE(gem, {
                         if ((gem->vm_id == vm_id) &&
                             (gem->pid == pid) &&
                             (gem->file == file)) {
                                 gem->iba = iba;
                         }
-                }
+                });
         }
 
         return 0;
@@ -523,6 +525,7 @@ int deinit_bpf_i915()
         bpf_program__unload(bpf_info.mmap_ret_prog);
 
         bpf_program__unload(bpf_info.vm_create_ioctl_prog);
+        bpf_program__unload(bpf_info.vm_create_ioctl_ret_prog);
 
         bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
         bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
@@ -599,6 +602,8 @@ int init_bpf_i915()
 
         bpf_info.vm_create_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kprobe;
+        bpf_info.vm_create_ioctl_ret_prog =
+                (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kretprobe;
 
         bpf_info.vm_bind_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
@@ -700,6 +705,12 @@ int init_bpf_i915()
         }
 
         /* i915_gem_vm_create_ioctl */
+        err = attach_kprobe("i915_gem_vm_create_ioctl",
+                            bpf_info.vm_create_ioctl_ret_prog, 0);
+        if (err != 0) {
+                fprintf(stderr, "Failed to attach a kprobe!\n");
+                return -1;
+        }
         err = attach_kprobe("i915_gem_vm_create_ioctl",
                             bpf_info.vm_create_ioctl_prog, 0);
         if (err != 0) {

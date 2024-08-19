@@ -55,36 +55,21 @@ struct buffer_profile {
         hash_table(uint64_t, uint64_t) stall_counts;
 };
 
-struct buffer_ID {
-        uint32_t vm_id;
-        uint64_t gpu_addr;
-};
-
-typedef struct buffer_ID buffer_ID_struct;
 typedef struct buffer_profile buffer_profile_struct;
 
-int buffer_ID_cmp(const struct buffer_ID a, const struct buffer_ID b);
-
-use_tree_c(buffer_ID_struct, buffer_profile_struct, buffer_ID_cmp);
+use_tree(uint64_t, buffer_profile_struct);
 
 
-extern tree(buffer_ID_struct, buffer_profile_struct) buffer_profiles;
-
-void init_buffer_profiles();
-struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
+void init_profiles();
+struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
 struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
+struct buffer_profile *get_containing_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
 void delete_buffer_profile(uint32_t vm_id, uint64_t gpu_addr);
-void free_buffer_profiles();
+void free_profiles();
 
-
-/***************************************
-* VM Profile Array
-**********************
-* The index into this array is the vm_id. Stores
-* requests that are currently active for this VM.
-***************************************/
-
+struct vm_profile *create_vm_profile(uint32_t vm_id);
 struct vm_profile *get_vm_profile(uint32_t vm_id);
+struct vm_profile *get_or_create_vm_profile(uint32_t vm_id);
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance);
 void request_retire(uint32_t seqno, uint32_t gem_ctx);
 void clear_retired_requests();
@@ -100,9 +85,31 @@ struct request_profile_list {
 
 struct vm_profile {
         char active;
+        tree(uint64_t, buffer_profile_struct) buffer_profiles;
         uint32_t num_requests;
         struct request_profile_list *request_list;
 };
 
-extern struct vm_profile *vm_profile_arr;
-extern uint32_t num_vms;
+
+typedef struct vm_profile *vm_profile_ptr;
+use_hash_table(uint64_t, vm_profile_ptr);
+
+extern hash_table(uint64_t, vm_profile_ptr) vm_profiles;
+
+
+#define FOR_BUFFER_PROFILE(gem, ...)                           \
+do {                                                           \
+        uint32_t _vm_id;                                       \
+        struct vm_profile **_vmp;                              \
+        tree_it(uint64_t, buffer_profile_struct) _it;          \
+        hash_table_traverse(vm_profiles, _vm_id, _vmp) {       \
+                (void)_vm_id;                                  \
+                (void)_vmp;                                    \
+                tree_traverse((*_vmp)->buffer_profiles, _it) { \
+                        gem = &tree_it_val(_it);               \
+                        __VA_ARGS__                            \
+                }                                              \
+        }                                                      \
+} while (0)
+
+
