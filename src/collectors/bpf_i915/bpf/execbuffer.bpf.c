@@ -83,6 +83,8 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
                         "WARNING: vm_callback failed to copy %lu bytes from 0x%lx: %d",
                         size, addr, err);
                 info->buff_sz = 0;
+                bpf_ringbuf_discard(info, 0);
+                return 0;
         } else {
                 bpf_printk(
                         "WARNING: vm_callback SUCCESSFULLY copied %lu bytes from 0x%lx: %d",
@@ -222,6 +224,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         info->file = file;
         info->vm_id = vm_id;
         info->ctx_id = ctx_id;
+        info->buffer_count = buffer_count;
         info->batch_start_offset = batch_start_offset;
         info->batch_len = BPF_CORE_READ(execbuffer, batch_len);
         info->bb_offset = offset;
