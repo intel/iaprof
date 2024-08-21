@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "iaprof.h"
 #include "utils/utils.h"
 
 #define MAX_CHARS_ADDR 16
@@ -90,7 +91,6 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
 
         if (debug) {
                 printf("handle_binary\n");
-                dump_buffer(*dst, *dst_sz, 0);
         }
 
         return 0;

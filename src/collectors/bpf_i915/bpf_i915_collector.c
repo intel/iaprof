@@ -32,31 +32,6 @@
 uint32_t global_vm_id = 0;
 
 /***************************************
-* Helpers
-***************************************/
-
-int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz)
-{
-        if (!src_sz || !src)
-                return -1;
-        if (*dst == src) {
-                fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
-                return -1;
-        }
-
-        *dst = realloc(*dst, src_sz);
-        memcpy(*dst, src, src_sz);
-        *dst_sz = src_sz;
-
-        if (debug) {
-                printf("handle_binary\n");
-        }
-
-        return 0;
-}
-
-/***************************************
 * BPF Handlers
 ***************************************/
 

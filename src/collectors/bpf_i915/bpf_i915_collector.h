@@ -31,8 +31,6 @@ extern uint64_t iba;
 ***************************************/
 
 /* int handle_mapping(void *data_arg); */
-int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz);
 int handle_unmap(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);

@@ -15,6 +15,7 @@
 
 #include "iaprof.h"
 #include "debug_i915_collector.h"
+#include "stores/buffer_profile.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
@@ -494,7 +495,8 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 goto cleanup;
         }
         
-        store_buffer_copy(vm_id, vm_bind->va_start, ptr, vm_bind->va_length);
+/*         store_buffer_copy(vm_id, vm_bind->va_start, ptr, vm_bind->va_length); */
+        munmap(ptr, vm_bind->va_length);
         
 cleanup:
         return;
