@@ -502,6 +502,20 @@ cleanup:
         return;
 }
 
+void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_index)
+{
+        struct prelim_drm_i915_debug_event_vm *vm;
+
+        vm = (struct prelim_drm_i915_debug_event_vm *)event;
+        
+        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
+                return;
+        }
+        
+        printf("handle=%llu\n", vm->handle);
+        
+}
+
 int read_debug_i915_event(int fd, int pid_index)
 {
         int retval, ack_retval;
@@ -527,6 +541,8 @@ int read_debug_i915_event(int fd, int pid_index)
                 handle_event_uuid(fd, event, pid_index);
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
+        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM) {
+                handle_event_vm(fd, event, pid_index);
         }
 
         /* ACK the event, otherwise the workload will stall. */

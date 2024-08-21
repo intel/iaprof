@@ -18,8 +18,7 @@ struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
         struct vm_profile *vm;
         tree_it(uint64_t, buffer_profile_struct) it;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
+        vm = get_vm_profile(vm_id);
         if (vm == NULL) {
                 return NULL;
         }
@@ -37,8 +36,7 @@ struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu
         tree_it(uint64_t, buffer_profile_struct) it;
         struct buffer_profile new_profile;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
+        vm = get_vm_profile(vm_id);
         if (vm == NULL) {
                 return NULL;
         }
@@ -62,8 +60,7 @@ struct buffer_profile *get_containing_buffer_profile(uint32_t vm_id, uint64_t gp
         tree_it(uint64_t, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
+        vm = get_vm_profile(vm_id);
         if (vm == NULL) {
                 return NULL;
         }
@@ -255,17 +252,12 @@ struct vm_profile *get_vm_profile(uint32_t vm_id) {
         return _get_vm_profile(vm_id, 0);
 }
 
-struct vm_profile *get_or_create_vm_profile(uint32_t vm_id) {
-        return _get_vm_profile(vm_id, 1);
-}
-
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
 {
         struct vm_profile *vm;
         struct request_profile_list *rq;
 
-/*         vm = get_vm_profile(vm_id); */
-        vm = get_or_create_vm_profile(vm_id);
+        vm = get_vm_profile(vm_id);
         if (!vm) {
                 fprintf(stderr,
                         "WARNING: Can't store a request for a vm that hasn't been created! (vm_id = %u)\n",

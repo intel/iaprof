@@ -167,10 +167,7 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
-        /* @TODO: Do it this way when we can get the vm_id from BPF.
-         * Until then, we'll use get_or_create_vm() everywhere. */
-
-/*         create_vm_profile(info->vm_id); */
+        create_vm_profile(info->vm_id);
 
         if (gpu_syms) {
                 /* Register the PID with the debug_i915 collector */
@@ -678,13 +675,13 @@ int init_bpf_i915()
 
         /* i915_gem_vm_create_ioctl */
         err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_ret_prog, 0);
+                            bpf_info.vm_create_ioctl_prog, 0);
         if (err != 0) {
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
         }
         err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_prog, 0);
+                            bpf_info.vm_create_ioctl_ret_prog, 1);
         if (err != 0) {
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
