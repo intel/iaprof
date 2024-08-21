@@ -123,7 +123,7 @@ void store_kernel_flames(struct buffer_profile *gem)
         size_t insn_text_len;
 
         if (debug) {
-                printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
+                debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
                        gem->pid);
         }
 
@@ -206,15 +206,19 @@ void store_kernel_flames(struct buffer_profile *gem)
 
 void store_interval_flames()
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
                 if (gem->stall_counts == NULL) {
-                        continue;
+                        goto next;
                 }
 
                 store_kernel_flames(gem);
+
+/* Jump here so that the macro releases locks. */
+next:;
         });
 }

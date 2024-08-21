@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "iaprof.h"
 #include "utils/utils.h"
 
 #define MAX_CHARS_ADDR 16
@@ -57,10 +58,8 @@ void find_elf_magic_bytes(pid_t pid, char debug)
                         if (!buf)
                                 continue;
                         if (*((uint32_t *)buf) == 0x464c457f) {
-                                if (debug) {
-                                        printf("Reading from 0x%lx - 0x%lx...\n",
-                                               start_addr, end_addr);
-                                }
+                                debug_printf("Reading from 0x%lx - 0x%lx...\n",
+                                                start_addr, end_addr);
                                 free(buf);
                                 buf = copy_buffer(pid, (uint64_t)start_addr,
                                                   size, debug);

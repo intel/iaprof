@@ -1,5 +1,7 @@
 #include "printer.h"
 
+#include "iaprof.h"
+
 #include "collectors/bpf_i915/bpf/main.h"
 #include "collectors/bpf_i915/bpf/main.skel.h"
 #include "collectors/eustall/eustall_collector.h"
@@ -196,12 +198,12 @@ int print_request(struct request_info *rinfo)
 
 int print_total_eustall(uint64_t num, unsigned long long time)
 {
-        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");
-        printf(" %-*llu", TIME_LEN, time);
-        printf(" %-*u", CPU_LEN, 0);
-        printf(" %-*u", PID_LEN, 0);
-        printf(" %-*u", TID_LEN, 0);
-        printf(" num=%" PRIu64 " \n", num);
+        debug_printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");
+        debug_printf(" %-*llu", TIME_LEN, time);
+        debug_printf(" %-*u", CPU_LEN, 0);
+        debug_printf(" %-*u", PID_LEN, 0);
+        debug_printf(" %-*u", TID_LEN, 0);
+        debug_printf(" num=%" PRIu64 " \n", num);
 
         return 0;
 }

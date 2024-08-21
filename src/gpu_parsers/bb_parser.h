@@ -34,6 +34,7 @@ struct bb_parser {
         uint64_t cur_cmd;
         uint8_t cur_num_dwords;
 
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         /* Bookkeeping. Number of dwords that we've parsed. */
@@ -243,7 +244,7 @@ char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
         struct buffer_profile *gem;
 
-        gem = get_containing_buffer_profile(parser->gem->vm_id, bbsp);
+        gem = get_containing_buffer_profile(parser->vm, bbsp);
         if (gem != NULL) {
                 if (bb_debug) {
                         printf("Found a matching batch buffer ");
@@ -406,6 +407,7 @@ char mi_batch_buffer_end(struct bb_parser *parser)
 }
 
 enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
+                                      struct vm_profile *acquired_vm,
                                       struct buffer_profile *gem,
                                       uint32_t offset, uint64_t size)
 {
@@ -420,6 +422,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         parser->pc_depth = 1;
         parser->pc[parser->pc_depth] = gem->gpu_addr + offset;
         parser->batch_len[parser->pc_depth] = size;
+        parser->vm = acquired_vm;
         parser->gem = gem;
         parser->in_cmd = 0;
         parser->cur_cmd = 0;

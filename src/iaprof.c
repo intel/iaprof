@@ -17,6 +17,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <errno.h>
 
 #include "iaprof.h"
 
@@ -55,6 +56,8 @@ char bb_debug = 0;
 char quiet = 0;
 char gpu_syms = 1;
 char *g_sidecar = NULL;
+
+pthread_mutex_t debug_print_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
@@ -218,9 +221,13 @@ void print_status_table(int seconds)
 
 /* Collector info */
 struct device_info devinfo = {};
+
+/* No thread race protection needed. Only accessed in bpf_collect_thread */
 struct bpf_info_t bpf_info = {};
+
 struct eustall_info_t eustall_info = {};
-struct debug_i915_info_t debug_i915_info = {};
+
+
 #define MAX_EPOLL_EVENTS 64
 
 /* Thread and interval */
@@ -230,16 +237,18 @@ enum {
     STOP_NOW       = 2,
 };
 
-pthread_t collect_thread_id;
+pthread_t bpf_collect_thread_id;
+pthread_t debug_i915_collect_thread_id;
+pthread_t eustall_collect_thread_id;
 pthread_t sidecar_thread_id;
 timer_t interval_timer;
-static char collect_thread_should_stop = 0;
-static char collect_thread_profiling = 0;
+static char collect_threads_should_stop = 0;
+static char collect_threads_profiling = 0;
 static char main_thread_should_stop = 0;
 
-void stop_collect_thread()
+void stop_collect_threads()
 {
-        collect_thread_should_stop = 1;
+        collect_threads_should_stop = 1;
 }
 
 void add_to_epoll_fd(int fd)
@@ -255,19 +264,9 @@ void add_to_epoll_fd(int fd)
         }
 }
 
-void init_collect_thread()
+void init_driver()
 {
-        sigset_t mask;
         int retval;
-
-        /* The collect thread should block SIGINT, so that all
-           SIGINTs go to the main thread. */
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGINT);
-        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-                fprintf(stderr, "Error blocking signal. Aborting.\n");
-                return;
-        }
 
         /* We'll need the i915 driver for multiple collectors */
         retval = open_first_driver(&devinfo);
@@ -287,18 +286,9 @@ void init_collect_thread()
                 exit(1);
         }
 
-        /* BPF collector */
-        init_bpf_i915();
-
-        /* EU stall collector. Add to the epoll_fd that the bpf_i915
-           collector created. */
-        if (init_eustall(&devinfo)) {
-                fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
-                exit(1);
-        }
 }
 
-int handle_eustall_read(struct epoll_event *event)
+int handle_eustall_read(int fd)
 {
         int len;
 
@@ -307,7 +297,7 @@ int handle_eustall_read(struct epoll_event *event)
         print_vms();
 
         /* eustall collector */
-        len = read(event->data.fd, eustall_info.perf_buf,
+        len = read(fd, eustall_info.perf_buf,
                    DEFAULT_USER_BUF_SIZE);
         if (len > 0) {
                 handle_eustall_samples(eustall_info.perf_buf, len);
@@ -329,117 +319,220 @@ int handle_eustall_read(struct epoll_event *event)
         return 0;
 }
 
-int handle_fd_read(struct epoll_event *event)
+void *eustall_collect_thread_main(void *a) {
+        sigset_t      mask;
+        struct pollfd pollfd;
+        int           n_ready;
+
+        /* The collect thread should block SIGINT, so that all
+           SIGINTs go to the main thread. */
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
+                fprintf(stderr, "Error blocking signal. Aborting.\n");
+                goto out;
+        }
+
+        /* EU stall collector. Add to the epoll_fd that the bpf_i915
+           collector created. */
+        if (init_eustall(&devinfo)) {
+                fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
+                goto out;
+        }
+
+        collect_threads_profiling += 1;
+
+        pollfd.fd     = eustall_info.perf_fd;
+        pollfd.events = POLLIN;
+
+        while (collect_threads_should_stop == 0) {
+                n_ready = poll(&pollfd, 1, 100);
+
+                if (n_ready < 0) {
+                        switch (errno) {
+                                case EINTR:
+                                        /* poll was interrupted. Just try again. */
+                                        errno = 0;
+                                        goto next;
+                                default:
+                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
+                                        goto out;
+                        }
+                }
+
+
+
+                if (n_ready) {
+                        handle_eustall_read(pollfd.fd);
+                } else {
+                        /* If we reach the timeout and soft stop has been signaled,
+                         * issue STOP_NOW. */
+
+                        if (main_thread_should_stop) {
+                                main_thread_should_stop = STOP_NOW;
+                        }
+                }
+next:;
+        }
+
+out:;
+        return NULL;
+}
+
+void *bpf_collect_thread_main(void *a) {
+        sigset_t mask;
+        struct pollfd pollfd;
+        int n_ready;
+        int retval;
+
+        /* The collect thread should block SIGINT, so that all
+           SIGINTs go to the main thread. */
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
+                fprintf(stderr, "Error blocking signal. Aborting.\n");
+                goto out;
+        }
+
+        init_bpf_i915();
+
+        collect_threads_profiling += 1;
+
+        /* bpf_i915 collector. Note that libbpf sets event->data.fd to
+           ring_cnt, which, because we only have one ringbuffer, is zero. */
+
+        pollfd.fd = bpf_info.rb_fd;
+        pollfd.events = POLLIN;
+
+        while (collect_threads_should_stop == 0) {
+                n_ready = poll(&pollfd, 1, 100);
+
+                if (n_ready < 0) {
+                        switch (errno) {
+                                case EINTR:
+                                        /* poll was interrupted. Just try again. */
+                                        n_ready = 0;
+                                        break;
+                                default:
+                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
+                                        goto out_deinit;
+                        }
+                        errno = 0;
+                }
+
+                if (n_ready) {
+                        retval = ring_buffer__consume(bpf_info.rb);
+                        if (retval < 0) {
+                                fprintf(stderr,
+                                        "WARNING: ring_buffer__consume failed.\n");
+                        }
+                }
+        }
+
+out_deinit:;
+        deinit_bpf_i915();
+
+out:;
+        return NULL;
+}
+
+void *debug_i915_collect_thread_main(void *a) {
+        sigset_t      mask;
+        int           n_fds;
+        struct pollfd pollfds[MAX_PIDS];
+        int           n_ready;
+        int           i;
+
+        /* The collect thread should block SIGINT, so that all
+           SIGINTs go to the main thread. */
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
+                fprintf(stderr, "Error blocking signal. Aborting.\n");
+                return NULL;
+        }
+
+        collect_threads_profiling += 1;
+
+        while (collect_threads_should_stop == 0) {
+                /* Copy the pollfds array from debug_i915_info so that we don't
+                 * need to hold the lock while we poll. */
+                pthread_rwlock_rdlock(&debug_i915_info_lock);
+                n_fds = debug_i915_info.num_pids;
+                memcpy(pollfds, debug_i915_info.pollfds, n_fds * sizeof(struct pollfd));
+                pthread_rwlock_unlock(&debug_i915_info_lock);
+
+                n_ready = poll(pollfds, n_fds, 100);
+
+                if (n_ready < 0) {
+                        switch (errno) {
+                                case EINTR:
+                                        /* poll was interrupted. Just try again. */
+                                        n_ready = 0;
+                                        break;
+                                default:
+                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
+                                        goto out;
+                        }
+                        errno = 0;
+                }
+
+                if (n_ready) {
+                        if (!gpu_syms && debug) {
+                                fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
+                        }
+
+                        for (i = 0; i < n_fds; i += 1) {
+                                if (pollfds[i].revents == POLLIN) {
+                                        /* We don't hold the debug_i915_info_lock at
+                                         * this point going down this call stack, but
+                                         * it may get grabbed within it (e.g. by
+                                         * debug_i915_add_sym). */
+                                        read_debug_i915_events(pollfds[i].fd, i);
+                                }
+                        }
+                }
+        }
+
+out:;
+        return NULL;
+}
+
+int start_bpf_collect_thread()
 {
         int retval;
 
-        if (event->events & EPOLLERR) {
-                /* Error or hangup. Abort! */
-                fprintf(stderr, "Encountered an error in one");
-                fprintf(stderr, " of the file descriptors. Aborting.\n");
-                return -1;
-        }
-        if (event->events & EPOLLHUP) {
-                return -1;
-        }
-        if (!(event->events & EPOLLIN)) {
-                /* The fd is not ready to be read, so skip it */
+        retval = pthread_create(&bpf_collect_thread_id, NULL, &bpf_collect_thread_main,
+                                NULL);
+        if (retval != 0) {
                 fprintf(stderr,
-                        "WARNING: EPOLLIN was not set. Why were we awoken?\n");
-                return 0;
-        }
-        if (event->data.fd == eustall_info.perf_fd) {
-                return handle_eustall_read(event);
-        } else if (event->data.fd == 0) {
-                /* bpf_i915 collector. Note that libbpf sets event->data.fd to
-                   ring_cnt, which, because we only have one ringbuffer, is zero. */
-                retval = ring_buffer__consume(bpf_info.rb);
-                if (retval < 0) {
-                        fprintf(stderr,
-                                "WARNING: ring_buffer__consume failed.\n");
-                }
-        } else {
-                if (!gpu_syms && debug) {
-                        fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
-                }
-                /* debug_i915 collector */
-                read_debug_i915_events(event->data.fd);
+                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                return -1;
         }
 
         return 0;
 }
 
-void *collect_thread_main(void *a)
-{
-        int i, nfds, eustall_fd_index;
-        struct epoll_event *events;
-
-        init_collect_thread();
-
-        events = calloc(MAX_EPOLL_EVENTS, sizeof(struct epoll_event));
-
-        if (verbose)
-                print_header();
-
-        collect_thread_profiling = 1;
-        while (collect_thread_should_stop == 0) {
-                /* Poll on the epoll instance */
-                nfds = epoll_wait(bpf_info.epoll_fd, events, MAX_EPOLL_EVENTS,
-                                  100);
-                if (nfds == -1) {
-                        fprintf(stderr,
-                                "There was an error calling epoll_wait. Aborting.\n");
-                        exit(1);
-                }
-
-                /* Search the array of returns fds for the one that collects eustalls */
-                eustall_fd_index = -1;
-                for (i = 0; i < nfds; i++) {
-                        if (events[i].data.fd == eustall_info.perf_fd) {
-                                eustall_fd_index = i;
-                                break;
-                        }
-                }
-
-                if (main_thread_should_stop && eustall_fd_index == -1) {
-                        main_thread_should_stop = STOP_NOW;
-                }
-
-                if (nfds == 0) {
-                        continue;
-                }
-
-                /* Handle the fds, but ensure that the eustall fd is handled last */
-                for (i = 0; i < nfds; i++) {
-                        if (i == eustall_fd_index) {
-                                /* We'll handle it later! */
-                                continue;
-                        }
-                        handle_fd_read(&(events[i]));
-                }
-
-                if (eustall_fd_index != -1) {
-                        handle_fd_read(&(events[eustall_fd_index]));
-                }
-
-
-        }
-
-        print_flamegraph();
-
-        free(events);
-        close(eustall_info.perf_fd);
-        deinit_bpf_i915();
-        free_profiles();
-
-        return NULL;
-}
-
-int start_collect_thread()
+int start_debug_i915_collect_thread()
 {
         int retval;
 
-        retval = pthread_create(&collect_thread_id, NULL, &collect_thread_main,
+        retval = pthread_create(&debug_i915_collect_thread_id, NULL, &debug_i915_collect_thread_main,
+                                NULL);
+        if (retval != 0) {
+                fprintf(stderr,
+                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                return -1;
+        }
+
+        return 0;
+}
+
+int start_eustall_collect_thread()
+{
+        int retval;
+
+        retval = pthread_create(&eustall_collect_thread_id, NULL, &eustall_collect_thread_main,
                                 NULL);
         if (retval != 0) {
                 fprintf(stderr,
@@ -504,15 +597,30 @@ int main(int argc, char **argv)
         print_status("Initializing, please wait...\n");
 
         init_profiles();
+        init_driver();
 
-        if (start_collect_thread() != 0) {
+        if (verbose) {
+                print_header();
+        }
+
+        if (start_bpf_collect_thread() != 0) {
+                fprintf(stderr,
+                        "Failed to start the collection thread. Aborting.\n");
+                exit(1);
+        }
+        if (start_debug_i915_collect_thread() != 0) {
+                fprintf(stderr,
+                        "Failed to start the collection thread. Aborting.\n");
+                exit(1);
+        }
+        if (start_eustall_collect_thread() != 0) {
                 fprintf(stderr,
                         "Failed to start the collection thread. Aborting.\n");
                 exit(1);
         }
 
         /* Wait for the collection thread to start */
-        while (!collect_thread_profiling) {
+        while (collect_threads_profiling < 3) {
                 nanosleep(&request, &leftover);
         }
         print_status("Profiling, Ctrl-C to exit...\n");
@@ -553,7 +661,7 @@ int main(int argc, char **argv)
                         }
                 }
         }
-        if (collect_thread_profiling) {
+        if (collect_threads_profiling) {
                 print_status("\nProfile stopped. Assembling output...\n");
         } else {
                 print_status(
@@ -561,8 +669,14 @@ int main(int argc, char **argv)
         }
 
         /* Wait for the collection thread to finish */
-        stop_collect_thread();
-        pthread_join(collect_thread_id, NULL);
+        stop_collect_threads();
+        pthread_join(bpf_collect_thread_id, NULL);
+        pthread_join(debug_i915_collect_thread_id, NULL);
+        pthread_join(eustall_collect_thread_id, NULL);
+
+        print_flamegraph();
+
+        free_profiles();
 
         fflush(stdout);
 }

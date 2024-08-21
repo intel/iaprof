@@ -49,9 +49,7 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
         memcpy(*dst, src, src_sz);
         *dst_sz = src_sz;
 
-        if (debug) {
-                printf("handle_binary\n");
-        }
+        debug_printf("handle_binary\n");
 
         return 0;
 }
@@ -192,10 +190,7 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
-        /* @TODO: Do it this way when we can get the vm_id from BPF.
-         * Until then, we'll use get_or_create_vm() everywhere. */
-
-/*         create_vm_profile(info->vm_id); */
+        create_vm_profile(info->vm_id);
 
         if (gpu_syms) {
                 /* Register the PID with the debug_i915 collector */
@@ -208,6 +203,7 @@ int handle_vm_create(void *data_arg)
 int handle_vm_bind(void *data_arg)
 {
         struct vm_bind_info *info;
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         info = (struct vm_bind_info *)data_arg;
@@ -215,9 +211,14 @@ int handle_vm_bind(void *data_arg)
                 print_vm_bind(info);
         }
 
-        gem = get_or_create_buffer_profile(info->vm_id, info->gpu_addr);
+        vm = acquire_vm_profile(info->vm_id);
+
+        gem = get_or_create_buffer_profile(vm, info->gpu_addr);
         gem->bind_size = info->size;
         gem->pid = info->pid;
+        gem->handle = info->handle;
+
+        release_vm_profile(vm);
 
         return 0;
 }
@@ -225,6 +226,7 @@ int handle_vm_bind(void *data_arg)
 int handle_vm_unbind(void *data_arg)
 {
         struct vm_unbind_info *info;
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         info = (struct vm_unbind_info *)data_arg;
@@ -232,7 +234,9 @@ int handle_vm_unbind(void *data_arg)
                 print_vm_unbind(info);
         }
 
-        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        vm = acquire_vm_profile(info->vm_id);
+
+        gem = get_buffer_profile(vm, info->gpu_addr);
         if (gem == NULL) {
                 if (debug) {
                         fprintf(stderr,
@@ -245,12 +249,15 @@ int handle_vm_unbind(void *data_arg)
         gem->unbound = 1;
 
 cleanup:
+        release_vm_profile(vm);
+
         return 0;
 }
 
 int handle_batchbuffer(void *data_arg)
 {
         struct batchbuffer_info *info;
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         info = (struct batchbuffer_info *)data_arg;
@@ -258,9 +265,11 @@ int handle_batchbuffer(void *data_arg)
         if (verbose) {
                 print_batchbuffer(info);
         }
-        
+
+        vm = acquire_vm_profile(info->vm_id);
+
         /* Find the buffer that this batchbuffer is associated with */
-        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        gem = get_buffer_profile(vm, info->gpu_addr);
         if (gem == NULL) {
                 if (debug ) {
                         fprintf(stderr,
@@ -273,11 +282,14 @@ int handle_batchbuffer(void *data_arg)
                       info->buff_sz);
 
 cleanup:
+        release_vm_profile(vm);
+
         return 0;
 }
 
 int handle_execbuf_start(void *data_arg)
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
         uint64_t file;
         uint32_t vm_id, pid;
@@ -303,7 +315,7 @@ int handle_execbuf_start(void *data_arg)
         vm_id = info->vm_id;
         pid = info->pid;
         file = info->file;
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
                         memcpy(gem->name, info->name, TASK_COMM_LEN);
@@ -324,7 +336,8 @@ int handle_execbuf_start(void *data_arg)
                 }
         });
 
-        gem = get_buffer_profile(vm_id, info->bb_offset);
+        vm = acquire_vm_profile(vm_id);
+        gem = get_buffer_profile(vm, info->bb_offset);
         if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
@@ -352,11 +365,11 @@ int handle_execbuf_start(void *data_arg)
         /* Parse the batchbuffer */
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
         memset(&parser, 0, sizeof(struct bb_parser));
-        bb_parser_parse(&parser, gem, info->batch_start_offset,
+        bb_parser_parse(&parser, vm, gem, info->batch_start_offset,
                         info->batch_len);
         clock_gettime(CLOCK_MONOTONIC, &parser_end);
-        if (verbose) {
-                printf("Parsed %zu dwords in %.5f seconds.\n",
+        if (bb_debug) {
+                debug_printf("Parsed %zu dwords in %.5f seconds.\n",
                         parser.num_dwords,
                         ((double)parser_end.tv_sec +
                         1.0e-9 * parser_end.tv_nsec) -
@@ -368,8 +381,10 @@ int handle_execbuf_start(void *data_arg)
         }
 
 cleanup:
+        release_vm_profile(vm);
+
         if (iba) {
-                FOR_BUFFER_PROFILE(gem, {
+                FOR_BUFFER_PROFILE(vm, gem, {
                         if ((gem->vm_id == vm_id) &&
                             (gem->pid == pid) &&
                             (gem->file == file)) {
@@ -384,6 +399,7 @@ cleanup:
 int handle_execbuf_end(void *data_arg)
 {
         struct execbuf_end_info *info;
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         /* First, just print out the execbuf_end */
@@ -392,7 +408,8 @@ int handle_execbuf_end(void *data_arg)
                 print_execbuf_end(info);
         }
 
-        gem = get_buffer_profile(info->vm_id, info->gpu_addr);
+        vm = acquire_vm_profile(info->vm_id);
+        gem = get_buffer_profile(vm, info->gpu_addr);
         if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer that matches 0x%llx\n",
@@ -408,6 +425,7 @@ int handle_execbuf_end(void *data_arg)
                       info->buff_sz);
 
 cleanup:
+        release_vm_profile(vm);
         return 0;
 }
 
@@ -421,7 +439,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
-/*                 case BPF_EVENT_TYPE_MAPPING:       return handle_mapping(data_arg); */
+                case BPF_EVENT_TYPE_MAPPING:       return 0; /* return handle_mapping(data_arg); */
                 case BPF_EVENT_TYPE_UNMAP:         return handle_unmap(data_arg);
                 case BPF_EVENT_TYPE_VM_CREATE:     return handle_vm_create(data_arg);
                 case BPF_EVENT_TYPE_VM_BIND:       return handle_vm_bind(data_arg);
@@ -524,9 +542,6 @@ int deinit_bpf_i915()
         bpf_program__unload(bpf_info.mmap_prog);
         bpf_program__unload(bpf_info.mmap_ret_prog);
 
-        bpf_program__unload(bpf_info.vm_create_ioctl_prog);
-        bpf_program__unload(bpf_info.vm_create_ioctl_ret_prog);
-
         bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
         bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
 
@@ -544,7 +559,7 @@ int deinit_bpf_i915()
         bpf_program__unload(bpf_info.request_retire_prog);
         bpf_program__unload(bpf_info.request_in_prog);
         bpf_program__unload(bpf_info.request_out_prog);
-        
+
         main_bpf__destroy(bpf_info.obj);
 
         return 0;
@@ -599,11 +614,6 @@ int init_bpf_i915()
         bpf_info.userptr_ioctl_ret_prog =
                 (struct bpf_program *)
                         bpf_info.obj->progs.userptr_ioctl_kretprobe;
-
-        bpf_info.vm_create_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kprobe;
-        bpf_info.vm_create_ioctl_ret_prog =
-                (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kretprobe;
 
         bpf_info.vm_bind_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
@@ -696,20 +706,6 @@ int init_bpf_i915()
         }
         err = attach_kprobe("i915_gem_userptr_ioctl",
                             bpf_info.userptr_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_vm_create_ioctl */
-        err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_ret_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_prog, 0);
         if (err != 0) {
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
@@ -820,5 +816,5 @@ void print_ringbuf_stats()
 
         avail = ring__avail_data_size(ring_buffer__ring(bpf_info.rb, 0));
         size = ring__size(ring_buffer__ring(bpf_info.rb, 0));
-        printf("GEM ringbuf usage: %lu / %lu\n", avail, size);
+        debug_printf("GEM ringbuf usage: %lu / %lu\n", avail, size);
 }

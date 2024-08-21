@@ -21,16 +21,17 @@ void print_debug_buffer_profile(struct buffer_profile *gem)
 /* Prints all GPU kernels that we found */
 void print_debug_profile()
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         if (!debug) {
                 return;
         }
 
-        printf("buffer_profiles\n");
+        debug_printf("buffer_profiles\n");
 
         /* Iterate over each buffer */
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 print_debug_buffer_profile(gem);
         });
 }
@@ -51,12 +52,12 @@ void print_vms()
         hash_table_traverse(vm_profiles, vm_id, vmp) {
                 vm = *vmp;
 
-                printf("  vm_id=%lu active=%d num_requests=%u\n", vm_id,
+                debug_printf("  vm_id=%lu active=%d num_requests=%u\n", vm_id,
                        vm->active, vm->num_requests);
 
                 for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if (rq->seqno && rq->gem_ctx) {
-                                printf("    seqno=%u gem_ctx=%u retired=%d class=0x%x instance=0x%x\n",
+                                debug_printf("    seqno=%u gem_ctx=%u retired=%d class=0x%x instance=0x%x\n",
                                        rq->seqno, rq->gem_ctx, rq->retired, (unsigned int) rq->class, (unsigned int) rq->instance);
                         }
                 }

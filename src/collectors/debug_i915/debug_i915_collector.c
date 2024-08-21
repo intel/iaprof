@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <string.h>
+#include <errno.h>
+#include <pthread.h>
 /* #include <libgen.h> */
 #include <ctype.h>
+#include <fcntl.h>
 #include <libiberty/demangle.h>
 
 #include <libelf.h>
@@ -13,6 +16,11 @@
 #include "debug_i915_collector.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
+
+
+
+struct debug_i915_info_t debug_i915_info;
+pthread_rwlock_t debug_i915_info_lock;
 
 typedef char *sym_str_t;
 
@@ -27,32 +35,53 @@ void init_debug_i915(int i915_fd, int pid)
 {
         int debug_fd;
         int i;
+        int flags;
+
+        /* This is called from the bpf_collect_thread when we see a new
+         * PID. We must protect debug_i915_info from data races when it
+         * is likely to be simultaneously accessed from
+         * debug_i915_collect_thread. */
+
+        pthread_rwlock_rdlock(&debug_i915_info_lock);
 
         /* First, check if we've already initialized this PID. */
         for (i = 0; i < debug_i915_info.num_pids; i++) {
                 if (debug_i915_info.pids[i] == pid) {
-                        return;
+                        goto out_unlock;
                 }
         }
+
+        pthread_rwlock_unlock(&debug_i915_info_lock);
 
         /* Open the fd to begin debugging this PID */
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
         debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+
         if (debug_fd < 0) {
                 fprintf(stderr,
                         "Failed to open the debug interface for PID %d.\n",
                         pid);
-                return;
+                goto out;
         }
 
+        flags = fcntl(debug_fd, F_GETFL, 0);
+        fcntl(debug_fd, F_SETFL, flags | O_NONBLOCK);
+
+        pthread_rwlock_wrlock(&debug_i915_info_lock);
+
+        /* @TODO: check for MAX_PIDS */
+
         /* Add the PID and fd to the arrays */
-        debug_i915_info.fds[debug_i915_info.num_pids] = debug_fd;
+        debug_i915_info.pollfds[debug_i915_info.num_pids].fd = debug_fd;
+        debug_i915_info.pollfds[debug_i915_info.num_pids].events = POLLIN;
         debug_i915_info.pids[debug_i915_info.num_pids] = pid;
         debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid;
         debug_i915_info.num_pids++;
 
-        add_to_epoll_fd(debug_fd);
+out_unlock:;
+        pthread_rwlock_unlock(&debug_i915_info_lock);
+out:;
 }
 
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
@@ -124,6 +153,8 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         char *name;
         Debug_Info *info;
 
+        pthread_rwlock_wrlock(&debug_i915_info_lock);
+
         table = &(debug_i915_info.symtabs[pid_index]);
 
         /* Grow the symbol table */
@@ -153,10 +184,10 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                 }
         }
 
-        if (debug) {
-                printf("    Symbol 0x%lx:%s @ %s:%d\n", entry->start_addr,
-                       entry->symbol, entry->filename, entry->linenum);
-        }
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", entry->start_addr,
+                entry->symbol, entry->filename, entry->linenum);
+
+        pthread_rwlock_unlock(&debug_i915_info_lock);
 }
 
 void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
@@ -267,7 +298,7 @@ hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
         dwarf = dwarf_begin_elf(elf, DWARF_C_READ, NULL);
 
         if (dwarf == NULL) {
-                fprintf(stderr, "error opening dwarf from elf: %s\n", dwarf_errmsg(dwarf_errno()));
+/*                 fprintf(stderr, "error opening dwarf from elf: %s\n", dwarf_errmsg(dwarf_errno())); */
                 goto out;
         }
 
@@ -358,18 +389,14 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 }
 
                 /* Get the string name */
-                if (debug) {
-                        printf("Section: %s type: %d\n",
-                               elf_strptr(elf, string_table_index,
-                                          section_header->sh_name),
-                               section_header->sh_type);
-                }
+                debug_printf("Section: %s type: %d\n",
+                        elf_strptr(elf, string_table_index,
+                                section_header->sh_name),
+                                section_header->sh_type);
 
                 /* If this is a .symtab section, it'll be marked as SHT_SYMTAB */
                 if (section_header->sh_type == SHT_SYMTAB) {
-                        if (debug) {
-                                printf("  Symbol table:\n");
-                        }
+                        debug_printf("  Symbol table:\n");
                         handle_elf_symtab(elf, section, string_table_index,
                                           pid_index, debug_info_table);
                 }
@@ -429,16 +456,22 @@ cleanup:
         return;
 }
 
+/* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
 {
         int retval, ack_retval;
         struct prelim_drm_i915_debug_event_ack ack_event = {};
+
+        __attribute__((aligned(__alignof__(struct prelim_drm_i915_debug_event))))
+        char event_buff[sizeof(struct prelim_drm_i915_debug_event) + MAX_EVENT_SIZE];
+
         struct prelim_drm_i915_debug_event *event;
 
-        event = (struct prelim_drm_i915_debug_event *)debug_i915_info.event_buff;
+        event = (struct prelim_drm_i915_debug_event *)event_buff;
 
         memset(event, 0,
                sizeof(struct prelim_drm_i915_debug_event) + MAX_EVENT_SIZE);
+
         event->size = MAX_EVENT_SIZE;
         event->type = PRELIM_DRM_I915_DEBUG_EVENT_READ;
         event->flags = 0;
@@ -446,8 +479,13 @@ int read_debug_i915_event(int fd, int pid_index)
         retval = ioctl(fd, PRELIM_I915_DEBUG_IOCTL_READ_EVENT, event);
 
         if (retval != 0) {
-                fprintf(stderr, "read_event failed with: %d\n", retval);
-                return -1;
+                if (errno == ETIMEDOUT || errno == EAGAIN) {
+                        /* No more events. */
+                } else {
+                        fprintf(stderr, "read_event failed with: %d, errno=%d\n", retval, errno);
+                }
+                errno = 0;
+                return 0;
         }
 
         /* ACK the event, otherwise the workload will stall. */
@@ -458,7 +496,7 @@ int read_debug_i915_event(int fd, int pid_index)
                                    &ack_event);
                 if (ack_retval != 0) {
                         fprintf(stderr, "  Failed to ACK event!\n");
-                        return -1;
+                        return 1;
                 }
         }
 
@@ -466,38 +504,19 @@ int read_debug_i915_event(int fd, int pid_index)
                              PRELIM_DRM_I915_DEBUG_EVENT_DESTROY |
                              PRELIM_DRM_I915_DEBUG_EVENT_STATE_CHANGE |
                              PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK)) {
-                return -2;
+                return 1;
         }
 
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
         }
 
-        return 0;
+        return 1;
 }
 
-void read_debug_i915_events(int fd)
+void read_debug_i915_events(int fd, int pid_index)
 {
-        int result, max_loops, i, pid_index;
-
-        pid_index = -1;
-
-        /* First, find the index of the PID that this event came from. */
-        for (i = 0; i < debug_i915_info.num_pids; i++) {
-                if (debug_i915_info.fds[i] == fd) {
-                        pid_index = i;
-                        break;
-                }
-        }
-
-        if (pid_index < 0) { return; }
-
-        max_loops = 5;
-        result = 0;
-        do {
-                result = read_debug_i915_event(fd, pid_index);
-                max_loops--;
-        } while ((result == 0) && (max_loops != 0));
+        while (read_debug_i915_event(fd, pid_index));
 }
 
 char *debug_i915_event_to_str(int debug_event)

@@ -89,8 +89,6 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
         char found;
         uint64_t addr, start, end, offset, first_found_offset;
         struct eustall_sample sample;
-        uint64_t vm_id;
-        struct vm_profile **vmp;
         struct vm_profile *vm;
         struct buffer_profile *gem, *first_found_gem;
 
@@ -121,38 +119,29 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                         goto none_found;
                 }
 
-                hash_table_traverse(vm_profiles, vm_id, vmp) {
-                        (void)vmp;
+                FOR_VM_PROFILE(vm, {
+                        if (vm->active == 0) {
+                                debug_printf("  inactive!\n");
+                                goto next;
+                        }
 
-                        gem = get_containing_buffer_profile(vm_id, addr);
+                        gem = get_containing_buffer_profile(vm, addr);
                         if (gem == NULL) {
-                                continue;
+                                goto next;
                         }
 
                         start = gem->gpu_addr;
                         end = start + gem->bind_size;
                         offset = addr - start;
 
-                        if (debug) {
-                                printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
-                                       addr, start, end, offset,
-                                       gem->handle, gem->vm_id,
-                                       gem->gpu_addr, iba);
-                        }
+                        debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
+                                addr, start, end, offset,
+                                gem->handle, gem->vm_id,
+                                gem->gpu_addr, iba);
 
-                        vm = *vmp;
-
-                        if (vm->active == 0) {
-                                if (debug) {
-                                        printf("  inactive!\n");
-                                }
-                                continue;
-                        }
                         if (!(gem->pid)) {
-                                if (debug) {
-                                        printf("  no exec_info!\n");
-                                }
-                                continue;
+                                debug_printf("  no exec_info!\n");
+                                goto next;
                         }
 
                         if ((addr - start) > MAX_BINARY_SIZE) {
@@ -174,8 +163,9 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
                                 first_found_gem = gem;
                         }
 
-                        continue;
-                }
+/* Jump here instead of continue so that the macro invokes the unlock functions. */
+next:;
+                });
 
 none_found:
                 /* Now that we've found 0+ matches, print or store them. */
@@ -291,7 +281,6 @@ int init_eustall(device_info *devinfo)
 
         /* Add the fd to the epoll_fd */
         eustall_info.perf_fd = fd;
-        add_to_epoll_fd(fd);
 
         free(properties);
 

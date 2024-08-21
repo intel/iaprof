@@ -80,10 +80,6 @@ struct bpf_info_t {
         struct bpf_program *userptr_ioctl_prog;
         struct bpf_program *userptr_ioctl_ret_prog;
 
-        /* i915_gem_vm_create_ioctl */
-        struct bpf_program *vm_create_ioctl_prog;
-        struct bpf_program *vm_create_ioctl_ret_prog;
-
         /* i915_gem_vm_bind_ioctl */
         struct bpf_program *vm_bind_ioctl_prog;
         struct bpf_program *vm_bind_ioctl_ret_prog;

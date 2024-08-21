@@ -1,6 +1,8 @@
 #pragma once
 
 #include <drm/i915_drm_prelim.h>
+#include <poll.h>
+#include <pthread.h>
 
 /******************************************************************************
 * debug_i915
@@ -41,13 +43,8 @@ struct debug_i915_info_t {
         /* Keep track of PIDs that we've opened with the debug interface,
            as well as their fd */
         int pids[MAX_PIDS];
-        int fds[MAX_PIDS];
+        struct pollfd pollfds[MAX_PIDS];
         int num_pids;
-
-        /* Reuse this buffer to read events that we get */
-        struct prelim_drm_i915_debug_event
-                event_buff[sizeof(struct prelim_drm_i915_debug_event) +
-                           MAX_EVENT_SIZE];
 
         /* Store symbols to be printed later, in parallel with the `pids` and
            `fds` arrays above. */
@@ -55,6 +52,8 @@ struct debug_i915_info_t {
 };
 
 extern struct debug_i915_info_t debug_i915_info;
+extern pthread_rwlock_t debug_i915_info_lock;
+
 
 /******************************************************************************
 * Initialization
@@ -64,7 +63,7 @@ extern struct debug_i915_info_t debug_i915_info;
 
 void init_debug_i915(int i915_fd, int pid);
 int read_debug_i915_event(int fd, int pid_index);
-void read_debug_i915_events(int fd);
+void read_debug_i915_events(int fd, int pid_index);
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
 
 void free_debug_i915();

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "iaprof.h"
 #include "buffer_profile.h"
@@ -8,21 +9,18 @@
 static uint64_t vm_id_hash(uint64_t vm_id) { return vm_id; }
 
 hash_table(uint64_t, vm_profile_ptr) vm_profiles;
+pthread_rwlock_t vm_profiles_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 
 void init_profiles() {
         vm_profiles = hash_table_make(uint64_t, vm_profile_ptr, vm_id_hash);
 }
 
-struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
-        struct vm_profile *vm;
+struct buffer_profile *get_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_profile_struct) it;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
-        if (vm == NULL) {
-                return NULL;
-        }
+        assert(vm->lock_holder == pthread_self()
+                && "get_buffer_profile called, but vm->lock not held by this thread!");
 
         it = tree_lookup(vm->buffer_profiles, gpu_addr);
         if (tree_it_good(it)) {
@@ -32,16 +30,12 @@ struct buffer_profile *get_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
         return NULL;
 }
 
-struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
-        struct vm_profile *vm;
+struct buffer_profile *get_or_create_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_profile_struct) it;
         struct buffer_profile new_profile;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
-        if (vm == NULL) {
-                return NULL;
-        }
+        assert(vm->lock_holder == pthread_self()
+                && "get_or_create_buffer_profile called, but vm->lock not held by this thread!");
 
         it = tree_lookup(vm->buffer_profiles, gpu_addr);
         if (tree_it_good(it)) {
@@ -49,7 +43,7 @@ struct buffer_profile *get_or_create_buffer_profile(uint32_t vm_id, uint64_t gpu
         }
 
         memset(&new_profile, 0, sizeof(new_profile));
-        new_profile.vm_id = vm_id;
+        new_profile.vm_id = vm->vm_id;
         new_profile.gpu_addr = gpu_addr;
         it = tree_insert(vm->buffer_profiles, gpu_addr, new_profile);
 
@@ -57,16 +51,12 @@ found:;
         return &tree_it_val(it);
 }
 
-struct buffer_profile *get_containing_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
-        struct vm_profile *vm;
+struct buffer_profile *get_containing_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_profile_struct) it;
         struct buffer_profile *gem;
 
-        /* @tmp */
-        vm = get_or_create_vm_profile(vm_id);
-        if (vm == NULL) {
-                return NULL;
-        }
+        assert(vm->lock_holder == pthread_self()
+                && "get_containing_buffer_profile called, but vm->lock not held by this thread!");
 
         it = tree_gtr(vm->buffer_profiles, gpu_addr);
         tree_it_prev(it);
@@ -138,6 +128,8 @@ void free_profiles() {
         struct request_profile_list  *rq;
         struct request_profile_list  *next_rq;
 
+        pthread_rwlock_wrlock(&vm_profiles_lock);
+
         hash_table_traverse(vm_profiles, vm_id, vmp) {
                 (void)vm_id;
 
@@ -157,16 +149,16 @@ void free_profiles() {
         }
 
         hash_table_free(vm_profiles);
+
+        /* Keep the write lock locked. No one should be touching vm_profiles
+         * past this point. */
 }
 
-void delete_buffer_profile(uint32_t vm_id, uint64_t gpu_addr) {
-        struct vm_profile *vm;
+void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_profile_struct) it;
 
-        vm = get_vm_profile(vm_id);
-        if (vm == NULL) {
-                return;
-        }
+        assert(vm->lock_holder == pthread_self()
+                && "delete_buffer_profile called, but vm->lock not held by this thread!");
 
         it = tree_lookup(vm->buffer_profiles, gpu_addr);
         if (!tree_it_good(it)) {
@@ -181,6 +173,7 @@ uint64_t iba = 0;
 
 void print_buffer_profiles()
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
         if (!debug)
@@ -188,7 +181,7 @@ void print_buffer_profiles()
 
         printf( "==== BUFFER_PROFILE_ARR =====\n");
 
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 printf(
                         "vm_id=%u gpu_addr=0x%lx buff_sz=%zu\n",
                         gem->vm_id, gem->gpu_addr, gem->buff_sz);
@@ -197,27 +190,36 @@ void print_buffer_profiles()
 
 void clear_interval_profiles()
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 clear_stalls(gem);
         });
 }
 
 void clear_unbound_buffers()
 {
+        struct vm_profile *vm;
         struct buffer_profile *gem;
 
 again:;
-        FOR_BUFFER_PROFILE(gem, {
+        FOR_BUFFER_PROFILE(vm, gem, {
                 if (gem->unbound) {
-                        delete_buffer_profile(gem->vm_id, gem->gpu_addr);
+                        delete_buffer_profile(vm, gem->gpu_addr);
 
                         /* Iterator is invalid due to deletion. Start search again. */
 
                         /* An alternative approach would be to store all to-be-deleted
                          * buffer IDs in an array and then call delete_buffer_profile()
                          * for each of those. This seems simpler. */
+
+                        /* The FOR_BUFFER_PROFILE macro aquires the vm_profile, but if
+                         * we break like this, it won't have a chance to release it.
+                         * Do that manually. */
+
+                        release_vm_profile(vm);
+
                         goto again;
                 }
         });
@@ -240,6 +242,9 @@ static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
         vm = malloc(sizeof(*vm));
         memset(vm, 0, sizeof(*vm));
 
+        pthread_mutex_init(&vm->lock, NULL);
+        vm->vm_id = vm_id;
+
         vm->buffer_profiles = tree_make(uint64_t, buffer_profile_struct);
 
         hash_table_insert(vm_profiles, (uint64_t)vm_id, vm);
@@ -255,17 +260,47 @@ struct vm_profile *get_vm_profile(uint32_t vm_id) {
         return _get_vm_profile(vm_id, 0);
 }
 
-struct vm_profile *get_or_create_vm_profile(uint32_t vm_id) {
-        return _get_vm_profile(vm_id, 1);
+void lock_vm_profile(struct vm_profile *vm) {
+        pthread_mutex_lock(&vm->lock);
+        vm->lock_holder = pthread_self();
 }
+
+void unlock_vm_profile(struct vm_profile *vm) {
+        assert(vm->lock_holder == pthread_self()
+                && "attempt to unlock a vm_profile by a thread that does not own the lock!");
+        vm->lock_holder = 0;
+        pthread_mutex_unlock(&vm->lock);
+}
+
+struct vm_profile *acquire_vm_profile(uint32_t vm_id) {
+        struct vm_profile *vm;
+
+        pthread_rwlock_rdlock(&vm_profiles_lock);
+
+        vm = _get_vm_profile(vm_id, 0);
+
+        if (vm == NULL) {
+                pthread_rwlock_unlock(&vm_profiles_lock);
+                return NULL;
+        }
+
+        lock_vm_profile(vm);
+
+        return vm;
+}
+
+void release_vm_profile(struct vm_profile *vm) {
+        unlock_vm_profile(vm);
+        pthread_rwlock_unlock(&vm_profiles_lock);
+}
+
 
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
 {
         struct vm_profile *vm;
         struct request_profile_list *rq;
 
-/*         vm = get_vm_profile(vm_id); */
-        vm = get_or_create_vm_profile(vm_id);
+        vm = acquire_vm_profile(vm_id);
         if (!vm) {
                 fprintf(stderr,
                         "WARNING: Can't store a request for a vm that hasn't been created! (vm_id = %u)\n",
@@ -284,6 +319,8 @@ void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t c
 
         vm->request_list = rq;
         vm->num_requests += 1;
+
+        release_vm_profile(vm);
 }
 
 /* Mark a request as "retired." It'll be deleted after this interval is entirely over. */
@@ -294,7 +331,15 @@ void request_retire(uint32_t seqno, uint32_t gem_ctx)
         struct vm_profile *vm;
         struct request_profile_list *rq;
 
+        /* Since we have to do a scan to find the corresponding vm_profile,
+         * we need to handle the thread sync manually here... is there a
+         * better way? */
+
+        pthread_rwlock_rdlock(&vm_profiles_lock);
+
         hash_table_traverse(vm_profiles, vm_id, vmp) {
+                /* Don't acquire_vm_profile(). We're not touching buffers and
+                 * don't want to double-grab the vm_profiles_lock. */
                 vm = *vmp;
 
                 (void)vm_id;
@@ -302,10 +347,13 @@ void request_retire(uint32_t seqno, uint32_t gem_ctx)
                 for (rq = vm->request_list; rq != NULL; rq = rq->next) {
                         if ((rq->seqno == seqno) && (rq->gem_ctx == gem_ctx)) {
                                 rq->retired = 1;
-                                return;
+                                goto out_unlock;
                         }
                 }
         }
+
+out_unlock:;
+        pthread_rwlock_unlock(&vm_profiles_lock);
 }
 
 void clear_retired_requests()
