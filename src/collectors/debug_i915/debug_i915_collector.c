@@ -5,6 +5,10 @@
 /* #include <libgen.h> */
 #include <ctype.h>
 #include <libiberty/demangle.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 #include <libelf.h>
 #include <elfutils/libdw.h>
@@ -23,36 +27,62 @@ typedef struct {
 
 use_hash_table(sym_str_t, Debug_Info);
 
+int store_buffer_copy(uint32_t vm_id, uint64_t gpu_addr, void *buff, uint64_t buff_sz)
+{
+        struct buffer_profile *gem;
+
+        /* Find the buffer that this batchbuffer is associated with */
+        gem = get_buffer_profile(vm_id, gpu_addr);
+        if (gem == NULL) {
+                if (debug) {
+                        fprintf(stderr,
+                                "WARNING: couldn't find a buffer to store a binary in.\n");
+                }
+                goto cleanup;
+        }
+
+        handle_binary(&(gem->buff), buff, &(gem->buff_sz),
+                      buff_sz);
+
+cleanup:
+        return 0;
+}
+
+
 void init_debug_i915(int i915_fd, int pid)
 {
-        int debug_fd;
-        int i;
+        int debug_fd, i;
+        char pid_already_init;
 
         /* First, check if we've already initialized this PID. */
+        pid_already_init = 0;
         for (i = 0; i < debug_i915_info.num_pids; i++) {
                 if (debug_i915_info.pids[i] == pid) {
-                        return;
+                        pid_already_init = 1;
+                        break;
                 }
         }
 
-        /* Open the fd to begin debugging this PID */
-        struct prelim_drm_i915_debugger_open_param open = {};
-        open.pid = pid;
-        debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
-        if (debug_fd < 0) {
-                fprintf(stderr,
-                        "Failed to open the debug interface for PID %d.\n",
-                        pid);
-                return;
+        if (!pid_already_init) {
+                /* Open the fd to begin debugging this PID */
+                struct prelim_drm_i915_debugger_open_param open = {};
+                open.pid = pid;
+                debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+                if (debug_fd < 0) {
+                        fprintf(stderr,
+                                "Failed to open the debug interface for PID %d.\n",
+                                pid);
+                        return;
+                }
+        
+                /* Add the PID and fd to the arrays */
+                debug_i915_info.fds[debug_i915_info.num_pids] = debug_fd;
+                debug_i915_info.pids[debug_i915_info.num_pids] = pid;
+                debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid;
+                debug_i915_info.num_pids++;
+        
+                add_to_epoll_fd(debug_fd);
         }
-
-        /* Add the PID and fd to the arrays */
-        debug_i915_info.fds[debug_i915_info.num_pids] = debug_fd;
-        debug_i915_info.pids[debug_i915_info.num_pids] = pid;
-        debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid;
-        debug_i915_info.num_pids++;
-
-        add_to_epoll_fd(debug_fd);
 }
 
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
@@ -429,6 +459,47 @@ cleanup:
         return;
 }
 
+void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
+                          int pid_index)
+{
+        struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
+        struct prelim_drm_i915_debug_vm_open vmo = {};
+        int fd;
+        uint8_t *ptr;
+
+        vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
+        
+        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
+                return;
+        }
+        
+        printf("vm_handle=%llu va_start=0x%llx va_length=%llu num_uuids=%u flags=0x%x\n",
+               vm_bind->vm_handle, vm_bind->va_start, vm_bind->va_length, vm_bind->num_uuids,
+               vm_bind->flags);
+               
+        vmo.client_handle = vm_bind->client_handle;
+        vmo.handle = vm_bind->vm_handle;
+        vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
+        fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, &vmo);
+        
+        if (fd < 0) {
+                fprintf(stderr,
+                        "Failed to get fd from vm_open_ioctl: %d\n", fd);
+                return;
+        }
+        
+        ptr = (uint8_t *) mmap(NULL, vm_bind->va_length, PROT_READ, MAP_SHARED, fd, vm_bind->va_start);
+        if (ptr == MAP_FAILED) {
+                fprintf(stderr, "FAILED TO MMAP: %d\n", errno);
+                goto cleanup;
+        }
+        
+        store_buffer_copy(vm_id, vm_bind->va_start, ptr, vm_bind->va_length);
+        
+cleanup:
+        return;
+}
+
 int read_debug_i915_event(int fd, int pid_index)
 {
         int retval, ack_retval;
@@ -449,6 +520,12 @@ int read_debug_i915_event(int fd, int pid_index)
                 fprintf(stderr, "read_event failed with: %d\n", retval);
                 return -1;
         }
+        /* Handle the event */
+        if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
+                handle_event_uuid(fd, event, pid_index);
+        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
+                handle_event_vm_bind(fd, event, pid_index);
+        }
 
         /* ACK the event, otherwise the workload will stall. */
         if (event->flags & PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK) {
@@ -461,18 +538,7 @@ int read_debug_i915_event(int fd, int pid_index)
                         return -1;
                 }
         }
-
-        if (event->flags & ~(PRELIM_DRM_I915_DEBUG_EVENT_CREATE |
-                             PRELIM_DRM_I915_DEBUG_EVENT_DESTROY |
-                             PRELIM_DRM_I915_DEBUG_EVENT_STATE_CHANGE |
-                             PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK)) {
-                return -2;
-        }
-
-        if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
-                handle_event_uuid(fd, event, pid_index);
-        }
-
+        
         return 0;
 }
 
