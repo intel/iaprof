@@ -73,7 +73,29 @@ void find_elf_magic_bytes(pid_t pid, char debug)
         fflush(stdout);
 }
 
-#define MAX_DUPLICATES 256
+int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
+                  uint64_t src_sz)
+{
+        if (!src_sz || !src)
+                return -1;
+        if (*dst == src) {
+                fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
+                return -1;
+        }
+
+        *dst = realloc(*dst, src_sz);
+        memcpy(*dst, src, src_sz);
+        *dst_sz = src_sz;
+
+        if (debug) {
+                printf("handle_binary\n");
+        }
+
+        return 0;
+}
+
+
+#define MAX_DUPLICATES 1024
 void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
 {
         char filename[256];

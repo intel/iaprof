@@ -8,5 +8,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id);
 void print_map(pid_t pid);
 unsigned char *copy_buffer(uint32_t pid, uint64_t ptr, uint64_t size,
                            char debug);
+int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
+                  uint64_t src_sz);
 uint64_t str_hash(char *s);
 int str_equ(char *a, char *b);

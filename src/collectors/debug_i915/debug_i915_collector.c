@@ -8,12 +8,17 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <libiberty/demangle.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 #include <libelf.h>
 #include <elfutils/libdw.h>
 
 #include "iaprof.h"
 #include "debug_i915_collector.h"
+#include "stores/buffer_profile.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
@@ -30,6 +35,32 @@ typedef struct {
 } Debug_Info;
 
 use_hash_table(sym_str_t, Debug_Info);
+
+int store_buffer_copy(uint32_t vm_id, uint64_t gpu_addr, void *buff, uint64_t buff_sz)
+{
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
+
+        vm = acquire_vm_profile(vm_id);
+
+        /* Find the buffer that this batchbuffer is associated with */
+        gem = get_buffer_profile(vm, gpu_addr);
+        if (gem == NULL) {
+                if (debug) {
+                        fprintf(stderr,
+                                "WARNING: couldn't find a buffer to store a binary in.\n");
+                }
+                goto cleanup;
+        }
+
+        handle_binary(&(gem->buff), buff, &(gem->buff_sz),
+                      buff_sz);
+
+cleanup:
+        release_vm_profile(vm);
+        return 0;
+}
+
 
 void init_debug_i915(int i915_fd, int pid)
 {
@@ -456,6 +487,62 @@ cleanup:
         return;
 }
 
+void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
+                          int pid_index)
+{
+        struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
+        struct prelim_drm_i915_debug_vm_open vmo = {};
+        int fd;
+        uint8_t *ptr;
+
+        vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
+
+        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
+                return;
+        }
+
+        debug_printf("vm_handle=%llu va_start=0x%llx va_length=%llu num_uuids=%u flags=0x%x\n",
+               vm_bind->vm_handle, vm_bind->va_start, vm_bind->va_length, vm_bind->num_uuids,
+               vm_bind->flags);
+
+        vmo.client_handle = vm_bind->client_handle;
+        vmo.handle = vm_bind->vm_handle;
+        vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
+        fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, &vmo);
+
+        if (fd < 0) {
+                fprintf(stderr,
+                        "Failed to get fd from vm_open_ioctl: %d\n", fd);
+                return;
+        }
+
+        ptr = (uint8_t *) mmap(NULL, vm_bind->va_length, PROT_READ, MAP_SHARED, fd, vm_bind->va_start);
+        if (ptr == MAP_FAILED) {
+                fprintf(stderr, "FAILED TO MMAP: %d\n", errno);
+                goto cleanup;
+        }
+
+/*         store_buffer_copy(vm_id, vm_bind->va_start, ptr, vm_bind->va_length); */
+        munmap(ptr, vm_bind->va_length);
+
+cleanup:
+        return;
+}
+
+void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_index)
+{
+        struct prelim_drm_i915_debug_event_vm *vm;
+
+        vm = (struct prelim_drm_i915_debug_event_vm *)event;
+
+        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
+                return;
+        }
+
+        printf("handle=%llu\n", vm->handle);
+
+}
+
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
 {
@@ -486,6 +573,14 @@ int read_debug_i915_event(int fd, int pid_index)
                 }
                 errno = 0;
                 return 0;
+        }
+        /* Handle the event */
+        if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
+                handle_event_uuid(fd, event, pid_index);
+        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
+                handle_event_vm_bind(fd, event, pid_index);
+        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM) {
+                handle_event_vm(fd, event, pid_index);
         }
 
         /* ACK the event, otherwise the workload will stall. */

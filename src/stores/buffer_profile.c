@@ -294,7 +294,6 @@ void release_vm_profile(struct vm_profile *vm) {
         pthread_rwlock_unlock(&vm_profiles_lock);
 }
 
-
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
 {
         struct vm_profile *vm;

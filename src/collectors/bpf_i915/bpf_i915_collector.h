@@ -31,8 +31,6 @@ extern uint64_t iba;
 ***************************************/
 
 /* int handle_mapping(void *data_arg); */
-int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz);
 int handle_unmap(void *data_arg);
 int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
@@ -79,6 +77,10 @@ struct bpf_info_t {
         /* i915_gem_userptr_ioctl */
         struct bpf_program *userptr_ioctl_prog;
         struct bpf_program *userptr_ioctl_ret_prog;
+
+        /* i915_gem_vm_create_ioctl */
+        struct bpf_program *vm_create_ioctl_prog;
+        struct bpf_program *vm_create_ioctl_ret_prog;
 
         /* i915_gem_vm_bind_ioctl */
         struct bpf_program *vm_bind_ioctl_prog;

@@ -20,6 +20,17 @@ struct {
         __type(value, u32);
 } context_create_wait_for_exec SEC(".maps");
 
+struct vm_create_wait_for_ret_val {
+        struct drm_i915_gem_vm_control *args;
+};
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, u32);
+        __type(value, struct vm_create_wait_for_ret_val);
+} vm_create_wait_for_ret SEC(".maps");
+
 SEC("kprobe/i915_gem_context_create_ioctl")
 int context_create_ioctl_kprobe(struct pt_regs *ctx)
 {
@@ -80,27 +91,6 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
                                         bpf_map_update_elem(
                                                 &context_create_wait_for_exec,
                                                 &ctx_id, &vm_id, 0);
-
-                                        /* Reserve some space on the ringbuffer */
-                                        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
-                                        if (!info) {
-                                                bpf_printk(
-                                                        "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
-                                                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                                                bpf_printk("Unconsumed data: %lu", status);
-                                                return -1;
-                                        }
-
-                                        info->type = BPF_EVENT_TYPE_VM_CREATE;
-                                        info->cpu = cpu;
-                                        info->pid = bpf_get_current_pid_tgid() >> 32;
-                                        info->tid = bpf_get_current_pid_tgid();
-                                        info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
-                                        info->time = bpf_ktime_get_ns();
-
-                                        info->vm_id = vm_id;
-
-                                        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
                                 }
                         }
 
@@ -108,6 +98,71 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
                                 ext, next_extension);
                 }
         }
+
+        return 0;
+}
+
+/***************************************
+* i915_gem_vm_create_ioctl
+*
+* Look for new virtual address spaces that userspace is creating.
+***************************************/
+
+SEC("kprobe/i915_gem_vm_create_ioctl")
+int vm_create_ioctl_kprobe(struct pt_regs *ctx)
+{
+        struct vm_create_wait_for_ret_val arg = {};
+        struct drm_i915_gem_vm_control *args;
+        u32 cpu = bpf_get_smp_processor_id();
+
+        args = (struct drm_i915_gem_vm_control *) PT_REGS_PARM2(ctx);
+        arg.args = args;
+
+        bpf_map_update_elem(&vm_create_wait_for_ret, &cpu, &arg, 0);
+
+        return 0;
+}
+
+SEC("kretprobe/i915_gem_vm_create_ioctl")
+int vm_create_ioctl_kretprobe(struct pt_regs *ctx)
+{
+        struct vm_create_info *info;
+        u64 status;
+        u32 cpu, vm_id;
+        void *lookup;
+        struct drm_i915_gem_vm_control *args;
+        struct vm_create_wait_for_ret_val arg = {};
+
+        cpu = bpf_get_smp_processor_id();
+        lookup = bpf_map_lookup_elem(&vm_create_wait_for_ret, &cpu);
+        if (!lookup) {
+                bpf_printk("WARNING: vm_create_ioctl kretprobe didn't see the kprobe.");
+                return -1;
+        }
+        __builtin_memcpy(&arg, lookup, sizeof(struct vm_create_wait_for_ret_val));
+        args = arg.args;
+        vm_id = BPF_CORE_READ(args, vm_id);
+        bpf_printk("vm_create(ret): vm_id=%u", vm_id);
+
+        /* Reserve some space on the ringbuffer */
+        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
+        if (!info) {
+                bpf_printk(
+                        "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
+                return -1;
+        }
+
+        info->type = BPF_EVENT_TYPE_VM_CREATE;
+        info->cpu = cpu;
+        info->pid = bpf_get_current_pid_tgid() >> 32;
+        info->tid = bpf_get_current_pid_tgid();
+        info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+        info->time = bpf_ktime_get_ns();
+        info->vm_id = vm_id;
+
+        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         return 0;
 }

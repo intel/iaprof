@@ -32,29 +32,6 @@
 uint32_t global_vm_id = 0;
 
 /***************************************
-* Helpers
-***************************************/
-
-int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
-                  uint64_t src_sz)
-{
-        if (!src_sz || !src)
-                return -1;
-        if (*dst == src) {
-                fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
-                return -1;
-        }
-
-        *dst = realloc(*dst, src_sz);
-        memcpy(*dst, src, src_sz);
-        *dst_sz = src_sz;
-
-        debug_printf("handle_binary\n");
-
-        return 0;
-}
-
-/***************************************
 * BPF Handlers
 ***************************************/
 
@@ -615,6 +592,12 @@ int init_bpf_i915()
                 (struct bpf_program *)
                         bpf_info.obj->progs.userptr_ioctl_kretprobe;
 
+        bpf_info.vm_create_ioctl_prog =
+                (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kprobe;
+        bpf_info.vm_create_ioctl_ret_prog =
+                (struct bpf_program *)
+                        bpf_info.obj->progs.vm_create_ioctl_kretprobe;
+
         bpf_info.vm_bind_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
         bpf_info.vm_bind_ioctl_ret_prog =
@@ -706,6 +689,20 @@ int init_bpf_i915()
         }
         err = attach_kprobe("i915_gem_userptr_ioctl",
                             bpf_info.userptr_ioctl_ret_prog, 1);
+        if (err != 0) {
+                fprintf(stderr, "Failed to attach a kprobe!\n");
+                return -1;
+        }
+
+        /* i915_gem_vm_create_ioctl */
+        err = attach_kprobe("i915_gem_vm_create_ioctl",
+                            bpf_info.vm_create_ioctl_prog, 0);
+        if (err != 0) {
+                fprintf(stderr, "Failed to attach a kprobe!\n");
+                return -1;
+        }
+        err = attach_kprobe("i915_gem_vm_create_ioctl",
+                            bpf_info.vm_create_ioctl_ret_prog, 1);
         if (err != 0) {
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
