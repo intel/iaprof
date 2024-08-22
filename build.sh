@@ -159,6 +159,10 @@ ${CC} ${COMMON_FLAGS} -c \
   ${UTILS_DIR}/utils.c \
   -o ${UTILS_DIR}/utils.o
 
+${CC} ${COMMON_FLAGS} -c \
+  ${UTILS_DIR}/array.c \
+  -o ${UTILS_DIR}/array.o
+
 ####################
 #   GPU PARSERS    #
 ####################
@@ -200,6 +204,7 @@ ${CC} ${LDFLAGS} \
   ${PRINTERS_DIR}/debug/debug_printer.o \
   \
   ${UTILS_DIR}/utils.o \
+  ${UTILS_DIR}/array.o \
   \
   ${GPU_PARSERS_DIR}/shader_decoder.o \
   \

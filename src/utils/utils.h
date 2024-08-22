@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <inttypes.h>
 
+uint64_t next_power_of_2(uint64_t x);
 void find_elf_magic_bytes(pid_t pid, char debug);
 void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id);
 void print_map(pid_t pid);

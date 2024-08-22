@@ -18,6 +18,21 @@
 
 #include "printers/printer.h"
 
+pthread_cond_t eustall_deferred_attrib_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t eustall_deferred_attrib_cond_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t eustall_waitlist_mtx = PTHREAD_MUTEX_INITIALIZER;
+
+array_t *eustall_waitlist;
+static array_t eustall_waitlist_a;
+static array_t eustall_waitlist_b;
+
+struct deferred_eustall {
+        unsigned long long time;
+        struct eustall_sample sample;
+        struct prelim_drm_i915_stall_cntr_info info;
+        char satisfied;
+};
+
 uint64_t uint64_t_hash(uint64_t i)
 {
         return i;
@@ -82,135 +97,188 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
         return 0;
 }
 
-int handle_eustall_samples(uint8_t *perf_buf, int len)
-{
-        struct prelim_drm_i915_stall_cntr_info info;
-        int i, num_not_found, num_found;
-        char found;
+static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
+        int found;
         uint64_t addr, start, end, offset, first_found_offset;
-        struct eustall_sample sample;
+        struct deferred_eustall deferred;
         struct vm_profile *vm;
         struct buffer_profile *gem, *first_found_gem;
 
+        addr = (((uint64_t)sample->ip) << 3) + iba;
+
+        /* Look up this sample by the GPU address (sample->ip). If we find
+                multiple matches, that means that multiple contexts are using
+                the same virtual address, and there's no way to determine which
+                one the EU stall is associated with */
+        found = 0;
+
+        first_found_offset = 0;
+        first_found_gem = NULL;
+
+        if (!iba) {
+                goto none_found;
+        }
+
+        FOR_VM_PROFILE(vm, {
+                if (vm->active == 0) {
+                        debug_printf("  inactive!\n");
+                        goto next;
+                }
+
+                gem = get_containing_buffer_profile(vm, addr);
+                if (gem == NULL) {
+                        goto next;
+                }
+
+                start = gem->gpu_addr;
+                end = start + gem->bind_size;
+                offset = addr - start;
+
+                debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
+                        addr, start, end, offset,
+                        gem->handle, gem->vm_id,
+                        gem->gpu_addr, iba);
+
+                if (!(gem->pid)) {
+                        debug_printf("  no exec_info!\n");
+                        goto next;
+                }
+
+                if ((addr - start) > MAX_BINARY_SIZE) {
+                        if (debug) {
+                                fprintf(stderr,
+                                        "WARNING: eustall gpu_addr=0x%lx",
+                                        addr);
+                                fprintf(stderr, " lands in handle=%u,",
+                                        gem->handle);
+                                fprintf(stderr,
+                                        " which is bigger than MAX_BINARY_SIZE.\n");
+                        }
+                }
+
+                found++;
+
+                if (found == 1) {
+                        first_found_offset = offset;
+                        first_found_gem = gem;
+                }
+
+/* Jump here instead of continue so that the macro invokes the unlock functions. */
+next:;
+        });
+
+none_found:
+        /* Now that we've found 0+ matches, print or store them. */
+        if (found == 0) {
+                if (!is_deferred) {
+                        deferred.sample    = *sample;
+                        deferred.info      = *info;
+                        deferred.satisfied = 0;
+
+                        pthread_mutex_lock(&eustall_waitlist_mtx);
+                        array_push(*eustall_waitlist, deferred);
+                        pthread_mutex_unlock(&eustall_waitlist_mtx);
+
+                        if (verbose) {
+                                print_eustall_drop(sample, addr, info->subslice,
+                                                        time);
+                        }
+                        eustall_info.unmatched += num_stalls_in_sample(sample);
+                }
+        } else if (found == 1) {
+                associate_sample(sample, first_found_gem,
+                                        addr,
+                                        first_found_offset, info->subslice,
+                                        time);
+                eustall_info.matched += num_stalls_in_sample(sample);
+        } else if (found > 1) {
+                /* We have to guess. Choose the last one that we've found. */
+                if (verbose) {
+                        print_eustall_churn(sample, addr,
+                                                first_found_offset,
+                                                info->subslice, time);
+                }
+
+                associate_sample(sample, first_found_gem,
+                                        addr,
+                                        first_found_offset, info->subslice,
+                                        time);
+                eustall_info.guessed += num_stalls_in_sample(sample);
+        }
+
+        return found > 0;
+}
+
+int handle_eustall_samples(void *perf_buf, int len)
+{
         struct timespec spec;
         unsigned long long time;
+        int i;
+        struct eustall_sample *sample;
+        struct prelim_drm_i915_stall_cntr_info *info;
+
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-        num_not_found = 0;
-        num_found = 0;
         for (i = 0; i < len; i += 64) {
-                /* TODO: don't copy */
-                memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
-                memcpy(&info, perf_buf + i + 48, sizeof(info));
-                addr = (((uint64_t)sample.ip) << 3) + iba;
+                sample = perf_buf + i;
+                info   = perf_buf + i + 48;
 
-                /* Look up this sample by the GPU address (sample.ip). If we find
-                   multiple matches, that means that multiple contexts are using
-                   the same virtual address, and there's no way to determine which
-                   one the EU stall is associated with */
-                found = 0;
-
-                first_found_offset = 0;
-                first_found_gem = NULL;
-
-                if (!iba) {
-                        goto none_found;
-                }
-
-                FOR_VM_PROFILE(vm, {
-                        if (vm->active == 0) {
-                                debug_printf("  inactive!\n");
-                                goto next;
-                        }
-
-                        gem = get_containing_buffer_profile(vm, addr);
-                        if (gem == NULL) {
-                                goto next;
-                        }
-
-                        start = gem->gpu_addr;
-                        end = start + gem->bind_size;
-                        offset = addr - start;
-
-                        debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
-                                addr, start, end, offset,
-                                gem->handle, gem->vm_id,
-                                gem->gpu_addr, iba);
-
-                        if (!(gem->pid)) {
-                                debug_printf("  no exec_info!\n");
-                                goto next;
-                        }
-
-                        if ((addr - start) > MAX_BINARY_SIZE) {
-                                if (debug) {
-                                        fprintf(stderr,
-                                                "WARNING: eustall gpu_addr=0x%lx",
-                                                addr);
-                                        fprintf(stderr, " lands in handle=%u,",
-                                                gem->handle);
-                                        fprintf(stderr,
-                                                " which is bigger than MAX_BINARY_SIZE.\n");
-                                }
-                        }
-
-                        found++;
-
-                        if (found == 1) {
-                                first_found_offset = offset;
-                                first_found_gem = gem;
-                        }
-
-/* Jump here instead of continue so that the macro invokes the unlock functions. */
-next:;
-                });
-
-none_found:
-                /* Now that we've found 0+ matches, print or store them. */
-                if (found == 0) {
-                        if (verbose) {
-                                print_eustall_drop(&sample, addr, info.subslice,
-                                                   time);
-                        }
-                        eustall_info.unmatched += num_stalls_in_sample(&sample);
-                } else if (found == 1) {
-                        associate_sample(&sample, first_found_gem,
-                                         addr,
-                                         first_found_offset, info.subslice,
-                                         time);
-                        eustall_info.matched += num_stalls_in_sample(&sample);
-                } else if (found > 1) {
-                        /* We have to guess. Choose the last one that we've found. */
-                        if (verbose) {
-                                print_eustall_churn(&sample, addr,
-                                                    first_found_offset,
-                                                    info.subslice, time);
-                        }
-
-                        associate_sample(&sample, first_found_gem,
-                                         addr,
-                                         first_found_offset, info.subslice,
-                                         time);
-                        eustall_info.guessed += num_stalls_in_sample(&sample);
-                }
+                handle_eustall_sample(sample, info, time, /* is_deferred = */ 0);
         }
 
-        if (debug && (num_found != 0)) {
-                print_total_eustall(num_found, time);
-        }
-
-        if (num_not_found) {
-                if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Dropping %d eustall samples.\n",
-                                num_not_found);
-                }
-                return EUSTALL_STATUS_NOTFOUND;
-        }
         return EUSTALL_STATUS_OK;
+}
+
+void handle_deferred_eustalls() {
+        array_t *working;
+        struct deferred_eustall *stall;
+        int n_satisfied;
+
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+
+        if (array_len(*eustall_waitlist) == 0) {
+                pthread_mutex_unlock(&eustall_waitlist_mtx);
+                return;
+        }
+
+        /* Double buffer so that more eustalls can be added to the
+         * wait list while we're working on the current set. */
+        working = eustall_waitlist;
+        eustall_waitlist = working == &eustall_waitlist_a
+                                ? &eustall_waitlist_b
+                                : &eustall_waitlist_a;
+        array_clear(*eustall_waitlist);
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
+
+        /* Try to satisfy each pending eustall. */
+        n_satisfied = 0;
+        array_traverse(*working, stall) {
+                stall->satisfied = handle_eustall_sample(&stall->sample, &stall->info, stall->time, 1);
+                n_satisfied += !!stall->satisfied;
+        }
+
+        if (n_satisfied) {
+                debug_printf("Satisfied %d/%d deferred eustall samples.\n", n_satisfied, array_len(*working));
+        }
+
+        /* Put any yet-unsatisfied eustalls back on the current waitlist. */
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        array_traverse(*working, stall) {
+                if (!stall->satisfied) {
+                        array_push(*eustall_waitlist, *stall);
+                }
+        }
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
+
+}
+
+void init_eustall_waitlist() {
+        eustall_waitlist_a = array_make(struct deferred_eustall);
+        eustall_waitlist_b = array_make(struct deferred_eustall);
+        eustall_waitlist   = &eustall_waitlist_a;
 }
 
 int init_eustall(device_info *devinfo)
@@ -286,4 +354,10 @@ int init_eustall(device_info *devinfo)
         free(properties);
 
         return 0;
+}
+
+void wakeup_eustall_deferred_attrib_thread() {
+        pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
+        pthread_cond_signal(&eustall_deferred_attrib_cond);
+        pthread_mutex_unlock(&eustall_deferred_attrib_cond_mtx);
 }

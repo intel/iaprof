@@ -8,6 +8,7 @@
 #include <sys/uio.h>
 #include <pthread.h>
 #include <time.h>
+#include <assert.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -189,19 +190,21 @@ int handle_vm_bind(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->vm_id);
-        
+
         if (!vm) {
                 fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
                         info->vm_id, info->gpu_addr);
                 return 0;
         }
-        
+
         gem = get_or_create_buffer_profile(vm, info->gpu_addr);
         gem->bind_size = info->size;
         gem->pid = info->pid;
         gem->handle = info->handle;
 
         release_vm_profile(vm);
+
+        wakeup_eustall_deferred_attrib_thread();
 
         return 0;
 }
@@ -333,7 +336,7 @@ int handle_execbuf_end(void *data_arg)
 
         vm = acquire_vm_profile(info->vm_id);
         gem = get_buffer_profile(vm, info->gpu_addr);
-        
+
         if ((gem == NULL) || (vm == NULL)) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
@@ -372,7 +375,9 @@ int handle_execbuf_end(void *data_arg)
                                 1.0e-9 * parser_start.tv_nsec));
         }
         if (parser.iba) {
+                assert(iba == 0 && "iba is already set");
                 iba = parser.iba;
+                wakeup_eustall_deferred_attrib_thread();
         }
 
 cleanup:
@@ -386,7 +391,7 @@ cleanup:
                         }
                 });
         }
-        
+
         return 0;
 }
 
