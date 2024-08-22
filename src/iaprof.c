@@ -353,11 +353,6 @@ void *eustall_collect_thread_main(void *a) {
         flags = fcntl(pollfd.fd, F_GETFL, 0);
         fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
 
-        while (read(pollfd.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE) > 0) {
-                fprintf(stderr, "Reading initial eustalls\n");
-        }
-        fprintf(stderr, "Finished reading initial eustalls\n");
-
         while (collect_threads_should_stop == 0) {
                 n_ready = poll(&pollfd, 1, 100);
 
