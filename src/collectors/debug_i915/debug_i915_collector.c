@@ -602,10 +602,6 @@ int read_debug_i915_event(int fd, int pid_index)
                 return 1;
         }
 
-        if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
-                handle_event_uuid(fd, event, pid_index);
-        }
-
         return 1;
 }
 
