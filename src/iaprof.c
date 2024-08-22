@@ -233,8 +233,11 @@ struct eustall_info_t eustall_info = {};
 /* Thread and interval */
 
 enum {
-    STOP_REQUESTED = 1,
-    STOP_NOW       = 2,
+    STOP_REQUESTED  = (1 << 0),
+    EUSTALL_DONE    = (1 << 1),
+    BPF_DONE        = (1 << 2),
+    DEBUG_i915_DONE = (1 << 3),
+    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_i915_DONE),
 };
 
 pthread_t bpf_collect_thread_id;
@@ -363,13 +366,13 @@ void *eustall_collect_thread_main(void *a) {
 
 
                 if (n_ready) {
+                        if (main_thread_should_stop != STOP_NOW) {
+                                main_thread_should_stop &= ~EUSTALL_DONE;
+                        }
                         handle_eustall_read(pollfd.fd);
                 } else {
-                        /* If we reach the timeout and soft stop has been signaled,
-                         * issue STOP_NOW. */
-
                         if (main_thread_should_stop) {
-                                main_thread_should_stop = STOP_NOW;
+                                main_thread_should_stop |= EUSTALL_DONE;
                         }
                 }
 next:;
@@ -421,10 +424,18 @@ void *bpf_collect_thread_main(void *a) {
                 }
 
                 if (n_ready) {
+                        if (main_thread_should_stop != STOP_NOW) {
+                                main_thread_should_stop &= ~BPF_DONE;
+                        }
+
                         retval = ring_buffer__consume(bpf_info.rb);
                         if (retval < 0) {
                                 fprintf(stderr,
                                         "WARNING: ring_buffer__consume failed.\n");
+                        }
+                } else {
+                        if (main_thread_should_stop) {
+                                main_thread_should_stop |= BPF_DONE;
                         }
                 }
         }
@@ -478,6 +489,10 @@ void *debug_i915_collect_thread_main(void *a) {
                 }
 
                 if (n_ready) {
+                        if (main_thread_should_stop != STOP_NOW) {
+                                main_thread_should_stop &= ~DEBUG_i915_DONE;
+                        }
+
                         if (!gpu_syms && debug) {
                                 fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
                         }
@@ -490,6 +505,10 @@ void *debug_i915_collect_thread_main(void *a) {
                                          * debug_i915_add_sym). */
                                         read_debug_i915_events(pollfds[i].fd, i);
                                 }
+                        }
+                } else {
+                        if (main_thread_should_stop) {
+                                main_thread_should_stop |= DEBUG_i915_DONE;
                         }
                 }
         }
