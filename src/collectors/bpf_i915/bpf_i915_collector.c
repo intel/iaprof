@@ -169,7 +169,7 @@ int handle_vm_create(void *data_arg)
 
         create_vm_profile(info->vm_id);
 
-        if (gpu_syms) {
+        if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
         }
@@ -189,7 +189,13 @@ int handle_vm_bind(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->vm_id);
-
+        
+        if (!vm) {
+                fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
+                        info->vm_id, info->gpu_addr);
+                return 0;
+        }
+        
         gem = get_or_create_buffer_profile(vm, info->gpu_addr);
         gem->bind_size = info->size;
         gem->pid = info->pid;
@@ -268,11 +274,8 @@ int handle_execbuf_start(void *data_arg)
 {
         struct vm_profile *vm;
         struct buffer_profile *gem;
-        uint64_t file;
-        uint32_t vm_id, pid;
+        uint32_t vm_id;
         struct execbuf_start_info *info;
-        struct bb_parser parser;
-        struct timespec parser_start, parser_end;
 
         info = (struct execbuf_start_info *)data_arg;
         if (verbose) {
@@ -290,8 +293,6 @@ int handle_execbuf_start(void *data_arg)
 
            Here, we'll iterate over all buffers in the given vm_id. */
         vm_id = info->vm_id;
-        pid = info->pid;
-        file = info->file;
         FOR_BUFFER_PROFILE(vm, gem, {
                 if (gem->vm_id == vm_id) {
                         /* Store the execbuf information */
@@ -313,18 +314,35 @@ int handle_execbuf_start(void *data_arg)
                 }
         });
 
-        vm = acquire_vm_profile(vm_id);
-        gem = get_buffer_profile(vm, info->bb_offset);
-        if (gem == NULL) {
+        return 0;
+}
+
+int handle_execbuf_end(void *data_arg)
+{
+        struct execbuf_end_info *info;
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
+        struct bb_parser parser;
+        struct timespec parser_start, parser_end;
+
+        /* First, just print out the execbuf_end */
+        info = (struct execbuf_end_info *)data_arg;
+        if (verbose) {
+                print_execbuf_end(info);
+        }
+
+        vm = acquire_vm_profile(info->vm_id);
+        gem = get_buffer_profile(vm, info->gpu_addr);
+        
+        if ((gem == NULL) || (vm == NULL)) {
                 fprintf(stderr,
-                        "WARNING: Unable to find a buffer that matches 0x%llx\n",
-                        info->bb_offset);
+                        "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
+                        info->vm_id, info->gpu_addr);
                 goto cleanup;
         }
 
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
-                /* We didn't get a copy of the batchbuffer from BPF! */
                 goto cleanup;
         }
         if (handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
@@ -361,48 +379,14 @@ cleanup:
         release_vm_profile(vm);
 
         if (iba) {
+                /* Associate the IBA with all buffers in this VM */
                 FOR_BUFFER_PROFILE(vm, gem, {
-                        if ((gem->vm_id == vm_id) &&
-                            (gem->pid == pid) &&
-                            (gem->file == file)) {
+                        if (gem->vm_id == info->vm_id) {
                                 gem->iba = iba;
                         }
                 });
         }
-
-        return 0;
-}
-
-int handle_execbuf_end(void *data_arg)
-{
-        struct execbuf_end_info *info;
-        struct vm_profile *vm;
-        struct buffer_profile *gem;
-
-        /* First, just print out the execbuf_end */
-        info = (struct execbuf_end_info *)data_arg;
-        if (verbose) {
-                print_execbuf_end(info);
-        }
-
-        vm = acquire_vm_profile(info->vm_id);
-        gem = get_buffer_profile(vm, info->gpu_addr);
-        if (gem == NULL) {
-                fprintf(stderr,
-                        "WARNING: Unable to find a buffer that matches 0x%llx\n",
-                        info->gpu_addr);
-                goto cleanup;
-        }
-
-        /* Copy the batchbuffer that we got from the ringbuffer */
-        if (info->buff_sz == 0) {
-                goto cleanup;
-        }
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz);
-
-cleanup:
-        release_vm_profile(vm);
+        
         return 0;
 }
 

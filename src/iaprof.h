@@ -7,7 +7,7 @@
 extern char debug;
 extern char bb_debug;
 extern char verbose;
-extern char gpu_syms;
+extern char debug_collector;
 extern int g_samples_matched;
 extern int g_samples_unmatched;
 

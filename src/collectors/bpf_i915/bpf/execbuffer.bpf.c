@@ -18,6 +18,8 @@ struct execbuffer_wait_for_ret_val {
         u64 size;
         u64 gpu_addr;
         u32 vm_id;
+        u64 batch_start_offset;
+        u64 batch_len;
 };
 
 struct {
@@ -175,6 +177,8 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         val.objects = (u64)objects;
         val.cpu_addr = cpu_addr;
         val.gpu_addr = offset;
+        val.batch_start_offset = batch_start_offset;
+        val.batch_len = batch_len;
         val.vm_id = vm_id;
         val.size = size;
         cpu = bpf_get_smp_processor_id();
@@ -248,7 +252,7 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
         struct execbuffer_wait_for_ret_val *val;
         struct drm_i915_gem_exec_object2 *objects;
         u32 cpu, vm_id;
-        u64 size, cpu_addr, gpu_addr;
+        u64 size, cpu_addr, gpu_addr, batch_start_offset, batch_len;
 
         cpu = bpf_get_smp_processor_id();
         void *arg = bpf_map_lookup_elem(&execbuffer_wait_for_ret, &cpu);
@@ -261,6 +265,8 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
         size = val->size;
         gpu_addr = val->gpu_addr;
         vm_id = val->vm_id;
+        batch_start_offset = val->batch_start_offset;
+        batch_len = val->batch_len;
 
         /* Output the end of an execbuffer to the ringbuffer */
         einfo = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
@@ -288,6 +294,8 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
 
         einfo->type = BPF_EVENT_TYPE_EXECBUF_END;
         einfo->gpu_addr = gpu_addr;
+        einfo->batch_start_offset = batch_start_offset;
+        einfo->batch_len = batch_len;
         einfo->vm_id = vm_id;
         einfo->cpu = cpu;
         einfo->pid = bpf_get_current_pid_tgid() >> 32;

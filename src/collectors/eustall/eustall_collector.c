@@ -102,6 +102,7 @@ int handle_eustall_samples(uint8_t *perf_buf, int len)
         num_not_found = 0;
         num_found = 0;
         for (i = 0; i < len; i += 64) {
+                /* TODO: don't copy */
                 memcpy(&sample, perf_buf + i, sizeof(struct eustall_sample));
                 memcpy(&info, perf_buf + i + 48, sizeof(info));
                 addr = (((uint64_t)sample.ip) << 3) + iba;
