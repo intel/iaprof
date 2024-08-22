@@ -169,7 +169,7 @@ int handle_vm_create(void *data_arg)
 
         create_vm_profile(info->vm_id);
 
-        if (gpu_syms) {
+        if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
         }
@@ -189,7 +189,13 @@ int handle_vm_bind(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->vm_id);
-
+        
+        if (!vm) {
+                fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
+                        info->vm_id, info->gpu_addr);
+                return 0;
+        }
+        
         gem = get_or_create_buffer_profile(vm, info->gpu_addr);
         gem->bind_size = info->size;
         gem->pid = info->pid;

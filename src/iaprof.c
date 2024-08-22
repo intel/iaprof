@@ -18,6 +18,7 @@
 #include <assert.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include "iaprof.h"
 
@@ -54,7 +55,7 @@ char verbose = 0;
 char debug = 0;
 char bb_debug = 0;
 char quiet = 0;
-char gpu_syms = 1;
+char debug_collector = 1;
 char *g_sidecar = NULL;
 
 pthread_mutex_t debug_print_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -65,7 +66,7 @@ static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "verbose", no_argument, 0, 'v' },
                                         { "batchbuffer-debug", no_argument, 0,
                                           'b' },
-                                        { "no-gpu-syms", no_argument, 0, 'g' },
+                                        { "no-debug-collector", no_argument, 0, 'g' },
                                         { "version", no_argument, 0, 0 },
                                         { 0 } };
 
@@ -78,7 +79,7 @@ void usage()
         printf("\noptional arguments:\n");
         printf("        -d, --debug              debug\n");
         printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
-        printf("        -g, --no-gpu-syms        disable GPU symbols from the i915 debugger\n");
+        printf("        -g, --no-debug-collector disable the i915 debugger\n");
         printf("        -h, --help               help\n");
         printf("        -q, --quiet              quiet\n");
         printf("        -v, --verbose            verbose\n");
@@ -115,7 +116,7 @@ int read_opts(int argc, char **argv)
                         bb_debug = 1;
                         break;
                 case 'g':
-                        gpu_syms = 0;
+                        debug_collector = 0;
                         break;
                 case 'h':
                         usage();
@@ -323,6 +324,7 @@ void *eustall_collect_thread_main(void *a) {
         sigset_t      mask;
         struct pollfd pollfd;
         int           n_ready;
+        int           flags;
 
         /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
@@ -344,7 +346,15 @@ void *eustall_collect_thread_main(void *a) {
 
         pollfd.fd     = eustall_info.perf_fd;
         pollfd.events = POLLIN;
+        
+        flags = fcntl(pollfd.fd, F_GETFL, 0);
+        fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
 
+        while (read(pollfd.fd, eustall_info.perf_buf, DEFAULT_USER_BUF_SIZE) > 0) {
+                fprintf(stderr, "Reading initial eustalls\n");
+        }
+        fprintf(stderr, "Finished reading initial eustalls\n");
+        
         while (collect_threads_should_stop == 0) {
                 n_ready = poll(&pollfd, 1, 100);
 
@@ -478,7 +488,7 @@ void *debug_i915_collect_thread_main(void *a) {
                 }
 
                 if (n_ready) {
-                        if (!gpu_syms && debug) {
+                        if (!debug_collector && debug) {
                                 fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
                         }
 
