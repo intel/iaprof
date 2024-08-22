@@ -142,6 +142,7 @@ struct __attribute__((packed)) execbuf_end_info {
         __u64 buff_sz;
         __u32 vm_id;
         __u64 gpu_addr;
+        __u64 batch_start_offset, batch_len;
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */
