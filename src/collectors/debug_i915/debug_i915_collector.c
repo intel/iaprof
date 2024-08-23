@@ -22,13 +22,13 @@
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
-static uint32_t vm_counter = 0;
+static uint32_t vm_bind_counter = 0;
 struct debug_i915_info_t debug_i915_info;
 pthread_rwlock_t debug_i915_info_lock;
 
-/* For waiting on vm_create events from BPF */
-pthread_cond_t debug_i915_vm_create_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t debug_i915_vm_create_lock = PTHREAD_MUTEX_INITIALIZER;
+/* For waiting on vm_bind events from BPF */
+pthread_cond_t debug_i915_vm_bind_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t debug_i915_vm_bind_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef char *sym_str_t;
 
@@ -38,32 +38,6 @@ typedef struct {
 } Debug_Info;
 
 use_hash_table(sym_str_t, Debug_Info);
-
-int store_buffer_copy(uint32_t vm_id, uint64_t gpu_addr, void *buff, uint64_t buff_sz)
-{
-        struct vm_profile *vm;
-        struct buffer_profile *gem;
-
-        vm = acquire_vm_profile(vm_id);
-
-        /* Find the buffer that this batchbuffer is associated with */
-        gem = get_buffer_profile(vm, gpu_addr);
-        if (gem == NULL) {
-                if (debug) {
-                        fprintf(stderr,
-                                "WARNING: couldn't find a buffer to store a binary in.\n");
-                }
-                goto cleanup;
-        }
-
-        handle_binary(&(gem->buff), buff, &(gem->buff_sz),
-                      buff_sz);
-
-cleanup:
-        release_vm_profile(vm);
-        return 0;
-}
-
 
 void init_debug_i915(int i915_fd, int pid)
 {
@@ -493,20 +467,32 @@ cleanup:
 void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
                           int pid_index)
 {
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
         struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
         struct prelim_drm_i915_debug_vm_open vmo = {};
         int fd;
-        uint8_t *ptr;
+        uint8_t *ptr, *buff;
+        uint64_t buff_sz, gpu_addr;
+        char found;
 
         vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
 
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
+        
+        /* If any of the top 16 bits are set, it's an invalid address. We only want
+           the bottom 48 bits. */
+        gpu_addr = vm_bind->va_start;
+        if (gpu_addr & 0xffff000000000000) {
+                vm_bind_counter++;
+                return;
+        }
 
-        debug_printf("vm_handle=%llu va_start=0x%llx va_length=%llu num_uuids=%u flags=0x%x\n",
-               vm_bind->vm_handle, vm_bind->va_start, vm_bind->va_length, vm_bind->num_uuids,
-               vm_bind->flags);
+        debug_printf("vm_bind vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
+               vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
+               vm_bind_counter);
 
         vmo.client_handle = vm_bind->client_handle;
         vmo.handle = vm_bind->vm_handle;
@@ -516,22 +502,64 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         if (fd < 0) {
                 fprintf(stderr,
                         "Failed to get fd from vm_open_ioctl: %d\n", fd);
-                return;
+                goto cleanup;
         }
-
-        ptr = (uint8_t *) mmap(NULL, vm_bind->va_length, PROT_READ, MAP_SHARED, fd, vm_bind->va_start);
+        
+        ptr = (uint8_t *) mmap(NULL, vm_bind->va_length, PROT_READ, MAP_SHARED, fd, gpu_addr);
         if (ptr == MAP_FAILED) {
                 fprintf(stderr, "FAILED TO MMAP: %d\n", errno);
                 goto cleanup;
         }
+        
+        buff = ptr;
+        buff_sz = vm_bind->va_length;
+        
+        /* Wait on this VM_BIND to happen in BPF, so that we can know which VM
+           to associate it with! */
+        found = 0;
+        FOR_BUFFER_PROFILE(vm, gem, {
+                if (gem->vm_bind_order == vm_bind_counter) {
+                        handle_binary(&(gem->buff), buff, &(gem->buff_sz),
+                                      buff_sz);
+                        found = 1;
+                        unlock_vm_profile(vm);
+                        pthread_rwlock_unlock(&vm_profiles_lock);
+                        goto out;
+                }
+        });
+out:
 
-/*         store_buffer_copy(vm_id, vm_bind->va_start, ptr, vm_bind->va_length); */
-        munmap(ptr, vm_bind->va_length);
+        while (!found) {
+                pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                if (pthread_cond_wait(&debug_i915_vm_bind_cond, &debug_i915_vm_bind_lock) != 0) {
+                        fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
+                        pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+                        goto cleanup;
+                }
+                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+                FOR_BUFFER_PROFILE(vm, gem, {
+                        if (gem->vm_bind_order == vm_bind_counter) {
+                                handle_binary(&(gem->buff), buff, &(gem->buff_sz),
+                                        buff_sz);
+                                found = 1;
+                                unlock_vm_profile(vm);
+                                pthread_rwlock_unlock(&vm_profiles_lock);
+                                goto out2;
+                        }
+                });
+out2:;
+        }
+        
+        debug_printf("vm_bind found a gem!\n");
+        munmap(buff, buff_sz);
 
 cleanup:
+        close(fd);
+        vm_bind_counter++;
         return;
 }
 
+#if 0
 void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_index)
 {
         struct prelim_drm_i915_debug_event_vm *vm_event;
@@ -567,6 +595,7 @@ cleanup:
         vm_counter++;
         return;
 }
+#endif
 
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
@@ -605,8 +634,6 @@ int read_debug_i915_event(int fd, int pid_index)
 #ifdef BUFFER_COPY_METHOD_DEBUG
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
-        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM) {
-                handle_event_vm(fd, event, pid_index);
 #endif
         }
 

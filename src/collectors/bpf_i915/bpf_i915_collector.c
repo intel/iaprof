@@ -31,6 +31,7 @@
 #include "utils/utils.h"
 
 uint32_t global_vm_id = 0;
+static uint32_t vm_bind_bpf_counter = 0;
 
 /***************************************
 * BPF Handlers
@@ -147,13 +148,6 @@ int handle_vm_create(void *data_arg)
         if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
-
-#ifdef BUFFER_COPY_METHOD_DEBUG
-                /* Signal the debug_i915 collector that there's a new VM */
-                pthread_mutex_lock(&debug_i915_vm_create_lock);
-                pthread_cond_signal(&debug_i915_vm_create_cond);
-                pthread_mutex_unlock(&debug_i915_vm_create_lock);
-#endif
         }
 
         return 0;
@@ -175,6 +169,7 @@ int handle_vm_bind(void *data_arg)
         if (!vm) {
                 fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
                         info->vm_id, info->gpu_addr);
+                vm_bind_bpf_counter++;
                 return 0;
         }
 
@@ -182,8 +177,18 @@ int handle_vm_bind(void *data_arg)
         gem->bind_size = info->size;
         gem->pid = info->pid;
         gem->handle = info->handle;
+        gem->vm_bind_order = vm_bind_bpf_counter++;
 
         release_vm_profile(vm);
+        
+#ifdef BUFFER_COPY_METHOD_DEBUG
+        if (debug_collector) {
+                /* Signal the debug_i915 collector that there's a new vm_bind event */
+                pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                pthread_cond_signal(&debug_i915_vm_bind_cond);
+                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+        }
+#endif
 
         wakeup_eustall_deferred_attrib_thread();
 
@@ -223,6 +228,7 @@ cleanup:
 
 int handle_batchbuffer(void *data_arg)
 {
+#ifndef BUFFER_COPY_METHOD_DEBUG
         struct batchbuffer_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
@@ -250,6 +256,7 @@ int handle_batchbuffer(void *data_arg)
 
 cleanup:
         release_vm_profile(vm);
+#endif
 
         return 0;
 }
@@ -316,6 +323,14 @@ int handle_execbuf_end(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->vm_id);
+        
+        if (vm == NULL) {
+                fprintf(stderr,
+                        "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
+                        info->vm_id, info->gpu_addr);
+                goto cleanup;
+        }
+                
         gem = get_buffer_profile(vm, info->gpu_addr);
 
         if ((gem == NULL) || (vm == NULL)) {
@@ -325,6 +340,7 @@ int handle_execbuf_end(void *data_arg)
                 goto cleanup;
         }
 
+#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Copy the batchbuffer that we got from the ringbuffer */
         if (info->buff_sz == 0) {
                 goto cleanup;
@@ -336,6 +352,7 @@ int handle_execbuf_end(void *data_arg)
                         "WARNING: handle_binary() returned non-zero\n");
                 goto cleanup;
         }
+#endif
 
         if ((!gem->buff) || (!gem->buff_sz)) {
                 goto cleanup;

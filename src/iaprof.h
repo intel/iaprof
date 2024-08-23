@@ -22,6 +22,7 @@ do {                                                     \
         if (debug) {                                     \
                 pthread_mutex_lock(&debug_print_lock);   \
                 printf(__VA_ARGS__);                     \
+                fflush(stdout);                          \
                 pthread_mutex_unlock(&debug_print_lock); \
         }                                                \
 } while (0)

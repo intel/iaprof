@@ -53,8 +53,8 @@ struct debug_i915_info_t {
 
 extern struct debug_i915_info_t debug_i915_info;
 extern pthread_rwlock_t debug_i915_info_lock;
-extern pthread_cond_t debug_i915_vm_create_cond;
-extern pthread_mutex_t debug_i915_vm_create_lock;
+extern pthread_cond_t debug_i915_vm_bind_cond;
+extern pthread_mutex_t debug_i915_vm_bind_lock;
 
 /******************************************************************************
 * Initialization

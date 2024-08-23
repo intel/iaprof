@@ -51,7 +51,10 @@ struct __attribute__((packed)) unmap_info {
         __u32 handle;
         __u64 cpu_addr;
         __u64 size;
+        
+#ifndef BUFFER_COPY_METHOD_DEBUG
         unsigned char buff[MAX_BINARY_SIZE];
+#endif
 
         __u32 pid, tid, cpu;
         __u64 time;
@@ -109,10 +112,13 @@ struct __attribute__((packed)) execbuf_start_info {
         __u64 batch_len;
         __u32 batch_start_offset, batch_index, buffer_count;
 
-        /* The GPU address and a copy of the batchbuffer data */
+        /* The GPU address */
         __u64 bb_offset;
+        
+#ifndef BUFFER_COPY_METHOD_DEBUG
         unsigned char buff[MAX_BINARY_SIZE];
         __u64 buff_sz;
+#endif
 
         char name[TASK_COMM_LEN];
         __u32 cpu, pid, tid;
@@ -126,9 +132,13 @@ struct __attribute__((packed)) batchbuffer_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
-        __u64 gpu_addr, buff_sz;
+        __u64 gpu_addr;
         __u32 vm_id;
+        
+#ifndef BUFFER_COPY_METHOD_DEBUG
         unsigned char buff[MAX_BINARY_SIZE];
+        __u64 buff_sz;
+#endif
 };
 
 /* Collected from the end of an execbuffer */
@@ -137,9 +147,10 @@ struct __attribute__((packed)) execbuf_end_info {
 
         __u32 cpu, pid, tid;
         __u64 time;
-
+#ifndef BUFFER_COPY_METHOD_DEBUG
         unsigned char buff[MAX_BINARY_SIZE];
         __u64 buff_sz;
+#endif
         __u32 vm_id;
         __u64 gpu_addr;
         __u64 batch_start_offset, batch_len;
@@ -152,8 +163,11 @@ struct __attribute__((packed)) userptr_info {
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
+
+#ifndef BUFFER_COPY_METHOD_DEBUG
         __u64 buff_sz;
         unsigned char buff[MAX_BINARY_SIZE];
+#endif
 
         __u32 pid, tid, cpu;
         __u64 time;

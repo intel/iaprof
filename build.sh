@@ -4,9 +4,9 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
-CFLAGS="${CFLAGS} -O3 -fsanitize=thread -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
-# CFLAGS="${CFLAGS} -DBUFFER_COPY_METHOD_DEBUG"
-LDFLAGS="-fsanitize=thread -static-libsan"
+CFLAGS="${CFLAGS} -O3 -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+EXTRA_CFLAGS="-DBUFFER_COPY_METHOD_DEBUG"
+LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
@@ -18,7 +18,7 @@ GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(git rev-parse HEAD)
 
 SRC_DIR="${BASE_DIR}/src"
-COMMON_FLAGS="${CFLAGS} -I${SRC_DIR}"
+COMMON_FLAGS="${CFLAGS} -I${SRC_DIR} ${EXTRA_CFLAGS}"
 
 # Commandline arguments
 DO_DEPS=false

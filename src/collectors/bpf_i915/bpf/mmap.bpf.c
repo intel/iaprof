@@ -436,6 +436,7 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
+#ifndef BUFFER_COPY_METHOD_DEBUG
         size = BPF_CORE_READ(arg, user_size);
         if (size > MAX_BINARY_SIZE) {
                 size = MAX_BINARY_SIZE;
@@ -447,6 +448,8 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
                            size);
                 bin->buff_sz = 0;
         }
+#endif
+
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
         return 0;
@@ -508,6 +511,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
+#ifndef BUFFER_COPY_METHOD_DEBUG
         if (size > MAX_BINARY_SIZE) {
                 size = MAX_BINARY_SIZE;
         }
@@ -521,6 +525,8 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
                 bpf_printk("Unconsumed data: %lu", status);
                 return -1;
         }
+#endif
+        
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
         return 0;

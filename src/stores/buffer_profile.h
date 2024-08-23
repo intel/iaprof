@@ -34,6 +34,7 @@ struct buffer_profile {
         uint32_t vm_id;
         uint64_t gpu_addr;
         uint64_t bind_size;
+        uint32_t vm_bind_order;
         int      unbound;
 
         /* A copy of the buffer bytes itself */
@@ -89,6 +90,7 @@ extern pthread_rwlock_t vm_profiles_lock;
 
 void init_profiles();
 struct buffer_profile *get_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
+struct buffer_profile *get_ordered_buffer_profile(uint32_t vm_bind_order);
 struct buffer_profile *get_or_create_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_profile *get_containing_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
 void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);

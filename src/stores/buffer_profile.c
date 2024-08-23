@@ -10,7 +10,6 @@ static uint64_t vm_id_hash(uint64_t vm_id) { return vm_id; }
 
 hash_table(uint64_t, vm_profile_ptr) vm_profiles;
 pthread_rwlock_t vm_profiles_lock = PTHREAD_RWLOCK_INITIALIZER;
-static uint32_t vm_counter = 0;
 
 void init_profiles() {
         vm_profiles = hash_table_make(uint64_t, vm_profile_ptr, vm_id_hash);
@@ -245,7 +244,6 @@ static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
 
         pthread_mutex_init(&vm->lock, NULL);
         vm->vm_id = vm_id;
-        vm->vm_order = vm_counter++;
         vm->buffer_profiles = tree_make(uint64_t, buffer_profile_struct);
 
         hash_table_insert(vm_profiles, (uint64_t)vm_id, vm);
@@ -290,25 +288,6 @@ struct vm_profile *acquire_vm_profile(uint32_t vm_id) {
         lock_vm_profile(vm);
 
         return vm;
-}
-
-struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order) {
-        struct vm_profile **vmp;
-        uint32_t vm_id;
-
-        pthread_rwlock_rdlock(&vm_profiles_lock);
-
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                (void)vm_id;
-
-                if ((*vmp)->vm_order == vm_order) {
-                        lock_vm_profile(*vmp);
-                        return *vmp;
-                }
-        }
-
-        pthread_rwlock_unlock(&vm_profiles_lock);
-        return NULL;
 }
 
 void release_vm_profile(struct vm_profile *vm) {
