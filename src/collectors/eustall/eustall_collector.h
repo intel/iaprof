@@ -1,12 +1,15 @@
 #pragma once
 
 #include <inttypes.h>
+#include <pthread.h>
 
 #include "drm_helpers/drm_helpers.h"
 
 #include "stores/buffer_profile.h"
 
 #include "collectors/bpf_i915/bpf_i915_collector.h"
+
+#include "utils/array.h"
 
 /******************************************************************************
 * Defaults
@@ -25,6 +28,11 @@
 * *********
 * Struct that stores information about the eustall "perf" buffer.
 ******************************************************************************/
+
+extern pthread_cond_t eustall_deferred_attrib_cond;
+extern pthread_mutex_t eustall_deferred_attrib_cond_mtx;
+extern pthread_mutex_t eustall_waitlist_mtx;
+extern array_t *eustall_waitlist;
 
 struct eustall_info_t {
         int perf_fd;
@@ -51,8 +59,11 @@ struct offset_profile;
 int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time);
-int handle_eustall_samples(uint8_t *perf_buf, int len);
+int handle_eustall_samples(void *perf_buf, int len);
 int init_eustall(device_info *devinfo);
+void wakeup_eustall_deferred_attrib_thread();
+void handle_deferred_eustalls();
+void init_eustall_waitlist();
 
 /***************************************
   * offset_profile

@@ -192,19 +192,21 @@ void print_table()
         } else {
                 first = 0;
         }
-        fprintf(stderr, "|-----------------------------------|\n");
-        fprintf(stderr, "|              Stalls               |\n");
-        fprintf(stderr, "|-----------------------------------|\n");
-        fprintf(stderr, "|  Matched  | Unmatched |  Guessed  |\n");
-        fprintf(stderr, "|-----------------------------------|\n");
+        fprintf(stderr, "|--------------------------------------------|\n");
+        fprintf(stderr, "|                    Stalls                  |\n");
+        fprintf(stderr, "|--------------------------------------------|\n");
+        fprintf(stderr, "|  Matched  |  Unmatched/Pending |  Guessed  |\n");
+        fprintf(stderr, "|--------------------------------------------|\n");
         fprintf(stderr, "| ");
         print_number(eustall_info.matched);
-        fprintf(stderr, " | ");
-        print_number(eustall_info.unmatched);
+        fprintf(stderr, " |          ");
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        print_number(array_len(*eustall_waitlist));
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
         fprintf(stderr, " | ");
         print_number(eustall_info.guessed);
         fprintf(stderr, " |\n");
-        fprintf(stderr, "|-----------------------------------|\n");
+        fprintf(stderr, "|--------------------------------------------|\n");
         fflush(stderr);
 }
 
@@ -244,6 +246,7 @@ enum {
 pthread_t bpf_collect_thread_id;
 pthread_t debug_i915_collect_thread_id;
 pthread_t eustall_collect_thread_id;
+pthread_t eustall_deferred_attrib_thread_id;
 pthread_t sidecar_thread_id;
 timer_t interval_timer;
 static char collect_threads_should_stop = 0;
@@ -321,6 +324,18 @@ int handle_eustall_read(int fd)
         clear_unbound_buffers();
 
         return 0;
+}
+
+void *eustall_deferred_attrib_thread_main(void *a) {
+        while (!collect_threads_should_stop) {
+                pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
+                pthread_cond_wait(&eustall_deferred_attrib_cond, &eustall_deferred_attrib_cond_mtx);
+                pthread_mutex_unlock(&eustall_deferred_attrib_cond_mtx);
+
+                handle_deferred_eustalls();
+        }
+
+        return NULL;
 }
 
 void *eustall_collect_thread_main(void *a) {
@@ -567,6 +582,21 @@ int start_eustall_collect_thread()
         return 0;
 }
 
+int start_eustall_deferred_attrib_thread()
+{
+        int retval;
+
+        retval = pthread_create(&eustall_deferred_attrib_thread_id, NULL, &eustall_deferred_attrib_thread_main,
+                                NULL);
+        if (retval != 0) {
+                fprintf(stderr,
+                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                return -1;
+        }
+
+        return 0;
+}
+
 /*******************
 *      SIDECAR     *
 *******************/
@@ -621,6 +651,7 @@ int main(int argc, char **argv)
         print_status("Initializing, please wait...\n");
 
         init_profiles();
+        init_eustall_waitlist();
         init_driver();
 
         if (verbose) {
@@ -640,6 +671,11 @@ int main(int argc, char **argv)
         if (start_eustall_collect_thread() != 0) {
                 fprintf(stderr,
                         "Failed to start the collection thread. Aborting.\n");
+                exit(1);
+        }
+        if (start_eustall_deferred_attrib_thread() != 0) {
+                fprintf(stderr,
+                        "Failed to start the eustall deffered attribution thread. Aborting.\n");
                 exit(1);
         }
 
@@ -697,6 +733,8 @@ int main(int argc, char **argv)
         pthread_join(bpf_collect_thread_id, NULL);
         pthread_join(debug_i915_collect_thread_id, NULL);
         pthread_join(eustall_collect_thread_id, NULL);
+        wakeup_eustall_deferred_attrib_thread();
+        pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
         print_flamegraph();
 
