@@ -169,7 +169,7 @@ void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_delete(vm->buffer_profiles, gpu_addr);
 }
 
-uint64_t iba = 0;
+_Atomic uint64_t iba = 0;
 
 void print_buffer_profiles()
 {
@@ -253,8 +253,10 @@ static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
         return vm;
 }
 
-struct vm_profile *create_vm_profile(uint32_t vm_id) {
-        return _get_vm_profile(vm_id, 1);
+void create_vm_profile(uint32_t vm_id) {
+        pthread_rwlock_wrlock(&vm_profiles_lock);
+        _get_vm_profile(vm_id, 1);
+        pthread_rwlock_unlock(&vm_profiles_lock);
 }
 
 struct vm_profile *get_vm_profile(uint32_t vm_id) {

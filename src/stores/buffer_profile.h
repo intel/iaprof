@@ -94,7 +94,7 @@ struct buffer_profile *get_containing_buffer_profile(struct vm_profile *vm, uint
 void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
 void free_profiles();
 
-struct vm_profile *create_vm_profile(uint32_t vm_id);
+void create_vm_profile(uint32_t vm_id);
 
 /* This function does not lock the vm_profile! */
 struct vm_profile *get_vm_profile(uint32_t vm_id);
