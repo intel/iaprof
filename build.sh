@@ -4,8 +4,9 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
-CFLAGS="${CFLAGS} -O3 -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
-LDFLAGS="-fsanitize=address -static-libsan"
+CFLAGS="${CFLAGS} -O3 -fsanitize=thread -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+# CFLAGS="${CFLAGS} -DBUFFER_COPY_METHOD_DEBUG"
+LDFLAGS="-fsanitize=thread -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"

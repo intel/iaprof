@@ -22,10 +22,13 @@
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
-
-
+static uint32_t vm_counter = 0;
 struct debug_i915_info_t debug_i915_info;
 pthread_rwlock_t debug_i915_info_lock;
+
+/* For waiting on vm_create events from BPF */
+pthread_cond_t debug_i915_vm_create_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t debug_i915_vm_create_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef char *sym_str_t;
 
@@ -531,16 +534,38 @@ cleanup:
 
 void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_index)
 {
-        struct prelim_drm_i915_debug_event_vm *vm;
+        struct prelim_drm_i915_debug_event_vm *vm_event;
+        struct vm_profile *vm;
 
-        vm = (struct prelim_drm_i915_debug_event_vm *)event;
+        vm_event = (struct prelim_drm_i915_debug_event_vm *)event;
 
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
-
-        printf("handle=%llu\n", vm->handle);
-
+        
+        printf("handle=%llu\n", vm_event->handle);
+        fflush(stdout);
+        
+        vm = acquire_ordered_vm_profile(vm_counter);
+        
+        while (!vm) {
+                pthread_mutex_lock(&debug_i915_vm_create_lock);
+                if (pthread_cond_wait(&debug_i915_vm_create_cond, &debug_i915_vm_create_lock) != 0) {
+                        fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
+                        pthread_mutex_unlock(&debug_i915_vm_create_lock);
+                        goto cleanup;
+                }
+                pthread_mutex_unlock(&debug_i915_vm_create_lock);
+                vm = acquire_ordered_vm_profile(vm_counter);
+        }
+        
+        printf("debug_i915 got a vm for %llu (order %u)!\n", vm_event->handle, vm_counter);
+        fflush(stdout);
+        vm->debugger_vm_id = vm_event->handle;
+        release_vm_profile(vm);
+cleanup:
+        vm_counter++;
+        return;
 }
 
 /* Returns whether an event was actually read. */
@@ -577,10 +602,12 @@ int read_debug_i915_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
+#ifdef BUFFER_COPY_METHOD_DEBUG
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM) {
                 handle_event_vm(fd, event, pid_index);
+#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */
@@ -593,13 +620,6 @@ int read_debug_i915_event(int fd, int pid_index)
                         fprintf(stderr, "  Failed to ACK event!\n");
                         return 1;
                 }
-        }
-
-        if (event->flags & ~(PRELIM_DRM_I915_DEBUG_EVENT_CREATE |
-                             PRELIM_DRM_I915_DEBUG_EVENT_DESTROY |
-                             PRELIM_DRM_I915_DEBUG_EVENT_STATE_CHANGE |
-                             PRELIM_DRM_I915_DEBUG_EVENT_NEED_ACK)) {
-                return 1;
         }
 
         return 1;

@@ -71,6 +71,7 @@ struct request_profile_list {
 struct vm_profile {
         uint32_t vm_id;
         uint64_t debugger_vm_id;
+        uint32_t vm_order;
         pthread_mutex_t lock;
         _Atomic pthread_t lock_holder;
         char active;
@@ -102,6 +103,7 @@ void lock_vm_profile(struct vm_profile *vm);
 void unlock_vm_profile(struct vm_profile *vm);
 
 struct vm_profile *acquire_vm_profile(uint32_t vm_id);
+struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order);
 void release_vm_profile(struct vm_profile *vm);
 
 void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance);

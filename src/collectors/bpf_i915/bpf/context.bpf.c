@@ -20,17 +20,6 @@ struct {
         __type(value, u32);
 } context_create_wait_for_exec SEC(".maps");
 
-struct vm_create_wait_for_ret_val {
-        struct drm_i915_gem_vm_control *args;
-};
-
-struct {
-        __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
-        __type(key, u32);
-        __type(value, struct vm_create_wait_for_ret_val);
-} vm_create_wait_for_ret SEC(".maps");
-
 SEC("kprobe/i915_gem_context_create_ioctl")
 int context_create_ioctl_kprobe(struct pt_regs *ctx)
 {
@@ -85,9 +74,8 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
                                 if (param == I915_CONTEXT_PARAM_VM) {
                                         /* Someone is trying to set the VM for this context, let's store it */
                                         vm_id = BPF_CORE_READ_USER(setparam_ext,
-                                                                   param)
-                                                        .value;
-                                        /*           bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id); */
+                                                                   param).value;
+                                        bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id);
                                         bpf_map_update_elem(
                                                 &context_create_wait_for_exec,
                                                 &ctx_id, &vm_id, 0);
@@ -107,6 +95,17 @@ int context_create_ioctl_kretprobe(struct pt_regs *ctx)
 *
 * Look for new virtual address spaces that userspace is creating.
 ***************************************/
+
+struct vm_create_wait_for_ret_val {
+        struct drm_i915_gem_vm_control *args;
+};
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, u32);
+        __type(value, struct vm_create_wait_for_ret_val);
+} vm_create_wait_for_ret SEC(".maps");
 
 SEC("kprobe/i915_gem_vm_create_ioctl")
 int vm_create_ioctl_kprobe(struct pt_regs *ctx)

@@ -166,12 +166,19 @@ int handle_vm_create(void *data_arg)
         if (verbose) {
                 print_vm_create(info);
         }
-
+        
         create_vm_profile(info->vm_id);
-
+        
         if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
+                
+#ifdef BUFFER_COPY_METHOD_DEBUG
+                /* Signal the debug_i915 collector that there's a new VM */
+                pthread_mutex_lock(&debug_i915_vm_create_lock);
+                pthread_cond_signal(&debug_i915_vm_create_cond);
+                pthread_mutex_unlock(&debug_i915_vm_create_lock);
+#endif
         }
 
         return 0;
@@ -497,7 +504,10 @@ int deinit_bpf_i915()
 
         bpf_program__unload(bpf_info.mmap_ioctl_prog);
         bpf_program__unload(bpf_info.mmap_ioctl_ret_prog);
-
+        
+        bpf_program__unload(bpf_info.vm_create_ioctl_prog);
+        bpf_program__unload(bpf_info.vm_create_ioctl_ret_prog);
+        
         bpf_program__unload(bpf_info.mmap_offset_ioctl_prog);
         bpf_program__unload(bpf_info.mmap_offset_ioctl_ret_prog);
         bpf_program__unload(bpf_info.mmap_prog);
@@ -581,7 +591,7 @@ int init_bpf_i915()
         bpf_info.vm_create_ioctl_ret_prog =
                 (struct bpf_program *)
                         bpf_info.obj->progs.vm_create_ioctl_kretprobe;
-
+                        
         bpf_info.vm_bind_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
         bpf_info.vm_bind_ioctl_ret_prog =
@@ -691,7 +701,7 @@ int init_bpf_i915()
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
         }
-
+        
         /* i915_gem_vm_bind_ioctl */
         err = attach_kprobe("i915_gem_vm_bind_ioctl",
                             bpf_info.vm_bind_ioctl_prog, 0);
