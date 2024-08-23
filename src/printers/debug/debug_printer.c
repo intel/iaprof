@@ -38,8 +38,6 @@ void print_debug_profile()
 
 void print_vms()
 {
-        uint64_t vm_id;
-        struct vm_profile **vmp;
         struct vm_profile *vm;
         struct request_profile_list *rq;
 
@@ -49,10 +47,8 @@ void print_vms()
 
         printf("vm_profile_arr:\n");
 
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                vm = *vmp;
-
-                debug_printf("  vm_id=%lu active=%d num_requests=%u\n", vm_id,
+        FOR_VM_PROFILE(vm, {
+                debug_printf("  vm_id=%u active=%d num_requests=%u\n", vm->vm_id,
                        vm->active, vm->num_requests);
 
                 for (rq = vm->request_list; rq != NULL; rq = rq->next) {
@@ -61,5 +57,5 @@ void print_vms()
                                        rq->seqno, rq->gem_ctx, rq->retired, (unsigned int) rq->class, (unsigned int) rq->instance);
                         }
                 }
-        }
+        });
 }

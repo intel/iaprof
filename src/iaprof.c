@@ -249,9 +249,9 @@ pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
 pthread_t sidecar_thread_id;
 timer_t interval_timer;
-static char collect_threads_should_stop = 0;
-static char collect_threads_profiling = 0;
-static char main_thread_should_stop = 0;
+static _Atomic char collect_threads_should_stop = 0;
+static _Atomic char collect_threads_profiling = 0;
+static _Atomic char main_thread_should_stop = 0;
 
 void stop_collect_threads()
 {
@@ -301,7 +301,6 @@ int handle_eustall_read(int fd)
 
         /* Update the buffer_profile */
         mark_vms_active();
-        print_vms();
 
         /* eustall collector */
         len = read(fd, eustall_info.perf_buf,

@@ -214,11 +214,12 @@ again:;
                          * buffer IDs in an array and then call delete_buffer_profile()
                          * for each of those. This seems simpler. */
 
-                        /* The FOR_BUFFER_PROFILE macro aquires the vm_profile, but if
-                         * we break like this, it won't have a chance to release it.
-                         * Do that manually. */
+                        /* The FOR_BUFFER_PROFILE macro locks both the vm_profiles_lock
+                         * and the vm_profile itself, but if we break like this, it won't
+                         * have a chance to release them. Do that manually. */
 
-                        release_vm_profile(vm);
+                        unlock_vm_profile(vm);
+                        pthread_rwlock_unlock(&vm_profiles_lock);
 
                         goto again;
                 }
@@ -294,10 +295,10 @@ struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order) {
         uint32_t vm_id;
 
         pthread_rwlock_rdlock(&vm_profiles_lock);
-        
+
         hash_table_traverse(vm_profiles, vm_id, vmp) {
                 (void)vm_id;
-                
+
                 if ((*vmp)->vm_order == vm_order) {
                         lock_vm_profile(*vmp);
                         return *vmp;
@@ -376,17 +377,11 @@ out_unlock:;
 
 void clear_retired_requests()
 {
-        uint64_t vm_id;
-        struct vm_profile **vmp;
         struct vm_profile *vm;
         struct request_profile_list *rq;
         struct request_profile_list *rq_prev;
 
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                vm = *vmp;
-
-                (void)vm_id;
-
+        FOR_VM_PROFILE(vm, {
                 rq_prev = NULL;
                 rq      = vm->request_list;
                 while (rq != NULL) {
@@ -407,24 +402,18 @@ void clear_retired_requests()
                                 rq      = rq->next;
                         }
                 }
-        }
+        });
 }
 
 #define I915_ENGINE_CLASS_COMPUTE 4
 
 void mark_vms_active()
 {
-        uint64_t vm_id;
-        struct vm_profile **vmp;
         struct vm_profile *vm;
         char active_requests, compute_engine;
         struct request_profile_list *rq;
 
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                vm = *vmp;
-
-                (void)vm_id;
-
+        FOR_VM_PROFILE(vm, {
                 /* Are there any active or retired requests this interval? */
                 active_requests = 0;
                 compute_engine = 0;
@@ -442,5 +431,5 @@ void mark_vms_active()
                 } else {
                         vm->active = 0;
                 }
-        }
+        });
 }

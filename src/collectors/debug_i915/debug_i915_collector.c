@@ -542,12 +542,12 @@ void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
-        
+
         printf("handle=%llu\n", vm_event->handle);
         fflush(stdout);
-        
+
         vm = acquire_ordered_vm_profile(vm_counter);
-        
+
         while (!vm) {
                 pthread_mutex_lock(&debug_i915_vm_create_lock);
                 if (pthread_cond_wait(&debug_i915_vm_create_cond, &debug_i915_vm_create_lock) != 0) {
@@ -558,7 +558,7 @@ void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_
                 pthread_mutex_unlock(&debug_i915_vm_create_lock);
                 vm = acquire_ordered_vm_profile(vm_counter);
         }
-        
+
         printf("debug_i915 got a vm for %llu (order %u)!\n", vm_event->handle, vm_counter);
         fflush(stdout);
         vm->debugger_vm_id = vm_event->handle;

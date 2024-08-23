@@ -78,49 +78,23 @@ int handle_mapping(void *data_arg)
 
 int handle_unmap(void *data_arg)
 {
-        return 0;
-
-#if 0
         struct unmap_info *info;
-        int index, retval;
-        struct buffer_profile *gem;
+/*         struct vm_profile *vm; */
+/*         struct buffer_profile *gem; */
 
-        retval = 0;
-        if (pthread_rwlock_wrlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to acquire the buffer_profile_lock!\n");
-                return -1;
-        }
 
         info = (struct unmap_info *)data_arg;
         if (verbose) {
                 print_unmap(info);
         }
 
-        index = get_buffer_profile_by_mapping(info->file, info->handle);
-        if (index == -1) {
-                if (debug ) {
-                        fprintf(stderr,
-                                "WARNING: unmap called on handle %u without an mmap.\n",
-                                info->handle);
-                }
-                goto cleanup;
-        }
-        gem = &(buffer_profile_arr[index]);
-        gem->mapped = 0;
+/*         FOR_BUFFER_PROFILE(vm, gem, { */
+/*                 if (gem->handle == info->handle) { */
+/*                         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size); */
+/*                 } */
+/*         }); */
 
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size, gem->handle);
-
-        if (retval == -1) {
-                goto cleanup;
-        }
-
-cleanup:
-        if (pthread_rwlock_unlock(&buffer_profile_lock) != 0) {
-                fprintf(stderr, "Failed to unlock the buffer_profile_lock!\n");
-                return -1;
-        }
-        return retval;
-#endif
+        return 0;
 }
 
 int handle_request(void *data_arg)
@@ -167,13 +141,13 @@ int handle_vm_create(void *data_arg)
         if (verbose) {
                 print_vm_create(info);
         }
-        
+
         create_vm_profile(info->vm_id);
-        
+
         if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
                 init_debug_i915(devinfo.fd, info->pid);
-                
+
 #ifdef BUFFER_COPY_METHOD_DEBUG
                 /* Signal the debug_i915 collector that there's a new VM */
                 pthread_mutex_lock(&debug_i915_vm_create_lock);
@@ -509,10 +483,10 @@ int deinit_bpf_i915()
 
         bpf_program__unload(bpf_info.mmap_ioctl_prog);
         bpf_program__unload(bpf_info.mmap_ioctl_ret_prog);
-        
+
         bpf_program__unload(bpf_info.vm_create_ioctl_prog);
         bpf_program__unload(bpf_info.vm_create_ioctl_ret_prog);
-        
+
         bpf_program__unload(bpf_info.mmap_offset_ioctl_prog);
         bpf_program__unload(bpf_info.mmap_offset_ioctl_ret_prog);
         bpf_program__unload(bpf_info.mmap_prog);
@@ -596,7 +570,7 @@ int init_bpf_i915()
         bpf_info.vm_create_ioctl_ret_prog =
                 (struct bpf_program *)
                         bpf_info.obj->progs.vm_create_ioctl_kretprobe;
-                        
+
         bpf_info.vm_bind_ioctl_prog =
                 (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
         bpf_info.vm_bind_ioctl_ret_prog =
@@ -706,7 +680,7 @@ int init_bpf_i915()
                 fprintf(stderr, "Failed to attach a kprobe!\n");
                 return -1;
         }
-        
+
         /* i915_gem_vm_bind_ioctl */
         err = attach_kprobe("i915_gem_vm_bind_ioctl",
                             bpf_info.vm_bind_ioctl_prog, 0);
