@@ -145,11 +145,9 @@ int handle_vm_bind(void *data_arg)
                 print_vm_bind(info, vm_bind_bpf_counter);
         }
         
-#ifdef BUFFER_COPY_METHOD_DEBUG
         if (debug_collector) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
         }
-#endif
 
         vm = acquire_vm_profile(info->vm_id);
 
@@ -170,13 +168,11 @@ int handle_vm_bind(void *data_arg)
         
 cleanup:
         
-#ifdef BUFFER_COPY_METHOD_DEBUG
         if (debug_collector) {
                 /* Signal the debug_i915 collector that there's a new vm_bind event */
                 pthread_cond_signal(&debug_i915_vm_bind_cond);
         }
         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
-#endif
 
         wakeup_eustall_deferred_attrib_thread();
         

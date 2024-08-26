@@ -494,9 +494,12 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         struct vm_profile *vm;
         struct buffer_profile *gem;
         struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
-        struct prelim_drm_i915_debug_vm_open vmo = {};
         uint64_t gpu_addr;
         char found;
+        
+#ifdef BUFFER_COPY_METHOD_DEBUG
+        struct prelim_drm_i915_debug_vm_open vmo = {};
+#endif
 
         vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
 
@@ -512,12 +515,14 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 return;
         }
         
+#ifdef BUFFER_COPY_METHOD_DEBUG
         /* Initialize the vm_open struct of arguments */
         vmo.client_handle = vm_bind->client_handle;
         vmo.handle = vm_bind->vm_handle;
         vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
+#endif
 
-        debug_printf("vm_bind vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
+        debug_printf("vm_bind_debug vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
                vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
                vm_bind_counter);
 
@@ -529,7 +534,9 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
+#ifdef BUFFER_COPY_METHOD_DEBUG
                                 read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
+#endif
                                 found = 1;
                                 unlock_vm_profile(vm);
                                 pthread_rwlock_unlock(&vm_profiles_lock);
@@ -545,7 +552,9 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
+#ifdef BUFFER_COPY_METHOD_DEBUG
                                 read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
+#endif
                                 found = 1;
                                 unlock_vm_profile(vm);
                                 pthread_rwlock_unlock(&vm_profiles_lock);
@@ -560,44 +569,6 @@ cleanup:
         vm_bind_counter++;
         return;
 }
-
-#if 0
-void handle_event_vm(int fd, struct prelim_drm_i915_debug_event *event, int pid_index)
-{
-        struct prelim_drm_i915_debug_event_vm *vm_event;
-        struct vm_profile *vm;
-
-        vm_event = (struct prelim_drm_i915_debug_event_vm *)event;
-
-        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
-                return;
-        }
-
-        printf("handle=%llu\n", vm_event->handle);
-        fflush(stdout);
-
-        vm = acquire_ordered_vm_profile(vm_counter);
-
-        while (!vm) {
-                pthread_mutex_lock(&debug_i915_vm_create_lock);
-                if (pthread_cond_wait(&debug_i915_vm_create_cond, &debug_i915_vm_create_lock) != 0) {
-                        fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
-                        pthread_mutex_unlock(&debug_i915_vm_create_lock);
-                        goto cleanup;
-                }
-                pthread_mutex_unlock(&debug_i915_vm_create_lock);
-                vm = acquire_ordered_vm_profile(vm_counter);
-        }
-
-        printf("debug_i915 got a vm for %llu (order %u)!\n", vm_event->handle, vm_counter);
-        fflush(stdout);
-        vm->debugger_vm_id = vm_event->handle;
-        release_vm_profile(vm);
-cleanup:
-        vm_counter++;
-        return;
-}
-#endif
 
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
@@ -633,10 +604,8 @@ int read_debug_i915_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
-#ifdef BUFFER_COPY_METHOD_DEBUG
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
-#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */
