@@ -161,8 +161,14 @@ int handle_vm_bind(void *data_arg)
 
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
-                print_vm_bind(info);
+                print_vm_bind(info, vm_bind_bpf_counter);
         }
+        
+#ifdef BUFFER_COPY_METHOD_DEBUG
+        if (debug_collector) {
+                pthread_mutex_lock(&debug_i915_vm_bind_lock);
+        }
+#endif
 
         vm = acquire_vm_profile(info->vm_id);
 
@@ -170,27 +176,30 @@ int handle_vm_bind(void *data_arg)
                 fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
                         info->vm_id, info->gpu_addr);
                 vm_bind_bpf_counter++;
-                return 0;
+                goto cleanup;
         }
 
         gem = get_or_create_buffer_profile(vm, info->gpu_addr);
         gem->bind_size = info->size;
         gem->pid = info->pid;
         gem->handle = info->handle;
-        gem->vm_bind_order = vm_bind_bpf_counter++;
+        gem->vm_bind_order = vm_bind_bpf_counter;
+        
+cleanup:
 
         release_vm_profile(vm);
         
 #ifdef BUFFER_COPY_METHOD_DEBUG
         if (debug_collector) {
                 /* Signal the debug_i915 collector that there's a new vm_bind event */
-                pthread_mutex_lock(&debug_i915_vm_bind_lock);
                 pthread_cond_signal(&debug_i915_vm_bind_cond);
-                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
         }
+        pthread_mutex_unlock(&debug_i915_vm_bind_lock);
 #endif
 
         wakeup_eustall_deferred_attrib_thread();
+        
+        vm_bind_bpf_counter++;
 
         return 0;
 }
@@ -333,7 +342,7 @@ int handle_execbuf_end(void *data_arg)
                 
         gem = get_buffer_profile(vm, info->gpu_addr);
 
-        if ((gem == NULL) || (vm == NULL)) {
+        if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
                         info->vm_id, info->gpu_addr);
@@ -355,9 +364,10 @@ int handle_execbuf_end(void *data_arg)
 #endif
 
         if ((!gem->buff) || (!gem->buff_sz)) {
+                fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer gpu_addr=0x%llx.\n", info->gpu_addr);
                 goto cleanup;
         }
-
+        
         /* Parse the batchbuffer */
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
         memset(&parser, 0, sizeof(struct bb_parser));

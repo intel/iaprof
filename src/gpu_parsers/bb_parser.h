@@ -517,13 +517,15 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 /* Save bb_debug, clear it */
                                 if (bb_debug) {
                                         noop_debug = bb_debug;
+                                        bb_debug = 0;
+                                        printf("op=MI_NOOP %lu\n", noops);
                                 }
-                                bb_debug = 0;
 
-                                if (noops == 64) {
-                                        if (bb_debug) {
+                                if (noops == 32) {
+                                        if (noop_debug) {
                                                 printf("Too many NOOPs!\n");
                                         }
+                                        bb_debug = noop_debug;
                                         return BB_PARSER_STATUS_OK;
                                 }
 

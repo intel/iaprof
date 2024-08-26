@@ -5,6 +5,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "iaprof.h"
 #include "utils/utils.h"
@@ -79,7 +80,6 @@ void find_elf_magic_bytes(pid_t pid, char debug)
                                 free(buf);
                                 buf = copy_buffer(pid, (uint64_t)start_addr,
                                                   size, debug);
-                                dump_buffer(buf, size, start_addr);
                         }
                         free(buf);
                 }
@@ -110,6 +110,51 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
         return 0;
 }
 
+int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu_addr)
+{
+        ssize_t bytes_read;
+        size_t should_read, retry_size;
+        uint8_t max_retries, retry;
+        unsigned char *ptr;
+        
+        /* Allocate */
+        *buf = realloc(*buf, size);
+        if (!(*buf))  {
+                fprintf(stderr, "WARNING: Failed to allocate %zu bytes.\n", size);
+                return -1;
+        }
+        
+        /* Sync */
+        fsync(fd);
+        
+        /* Read */
+        should_read = size;
+        retry_size = size;
+        max_retries = 3;
+        retry = 0;
+        ptr = *buf;
+        do {
+                debug_printf("Reading from gpu_addr=0x%lx\n", gpu_addr);
+                bytes_read = pread(fd, ptr, should_read, gpu_addr);
+                
+                gpu_addr += bytes_read;
+                ptr += bytes_read;
+                should_read -= bytes_read;
+                
+                if (bytes_read == 0) {
+                        if (should_read < retry_size) {
+                                retry = 0;
+                        }
+                        retry++;
+                        retry_size = should_read;
+                }
+        } while (((bytes_read == 0) && (retry < max_retries)) || ((bytes_read > 0) && (should_read > 0)));
+        
+        /* Sync again */
+        fsync(fd);
+
+        return 0;
+}
 
 #define MAX_DUPLICATES 1024
 void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
