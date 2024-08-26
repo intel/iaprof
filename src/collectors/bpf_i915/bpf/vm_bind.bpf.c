@@ -61,8 +61,10 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         /* Grab the argument from the kprobe */
         cpu = bpf_get_smp_processor_id();
         lookup = bpf_map_lookup_elem(&vm_bind_ioctl_wait_for_ret, &cpu);
-        if (!lookup)
+        if (!lookup) {
+                bpf_printk("vm_bind kretprobe FAILED");
                 return -1;
+        }
         __builtin_memcpy(&val, lookup,
                          sizeof(struct vm_bind_ioctl_wait_for_ret_val));
         arg = val.arg;
@@ -94,6 +96,7 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
                         gmapping.addr = gpu_addr;
                         gmapping.vm_id = vm_id;
                         bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
+                        bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
                 }
         }
 #endif
@@ -140,8 +143,10 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         struct prelim_drm_i915_gem_vm_bind *arg;
         u64 file, status, gpu_addr;
         u32 vm_id;
-        struct gpu_mapping mapping = {};
+        struct gpu_mapping gmapping = {};
+        struct cpu_mapping cmapping = {};
         int retval = 0;
+        void *lookup;
 
         arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
         file = PT_REGS_PARM3(ctx);
@@ -151,13 +156,29 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         gpu_addr = BPF_CORE_READ(arg, start);
 
 #ifndef BUFFER_COPY_METHOD_DEBUG
-        /* Clean up this mapping in the gpu_cpu_map */
-        mapping.vm_id = vm_id;
-        mapping.addr = gpu_addr;
-        retval = bpf_map_delete_elem(&gpu_cpu_map, &mapping);
+
+        /* Find the CPU mapping for this GPU address */
+        gmapping.vm_id = vm_id;
+        gmapping.addr = gpu_addr;
+        lookup = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
+        if (!lookup) {
+                bpf_printk(
+                        "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
+                return -1;
+        }
+        __builtin_memcpy(&cmapping, lookup,
+                         sizeof(struct cpu_mapping));
+                         
+        /* Delete the element from the gpu_cpu_map and cpu_gpu_map */
+        retval = bpf_map_delete_elem(&gpu_cpu_map, &gmapping);
         if (retval < 0) {
                 bpf_printk(
-                        "WARNING: vm_unbind_ioctl failed to delete from the gpu_cpu_map.");
+                        "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
+        }
+        retval = bpf_map_delete_elem(&cpu_gpu_map, &cmapping);
+        if (retval < 0) {
+                bpf_printk(
+                        "WARNING: vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
         }
 #endif
 

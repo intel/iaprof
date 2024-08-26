@@ -189,10 +189,10 @@ int handle_vm_bind(void *data_arg)
         gem->pid = info->pid;
         gem->handle = info->handle;
         gem->vm_bind_order = vm_bind_bpf_counter;
-        
-cleanup:
 
         release_vm_profile(vm);
+        
+cleanup:
         
 #ifdef BUFFER_COPY_METHOD_DEBUG
         if (debug_collector) {
@@ -202,7 +202,7 @@ cleanup:
         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
 #endif
 
-        wakeup_eustall_deferred_attrib_thread();
+/*         wakeup_eustall_deferred_attrib_thread(); */
         
         vm_bind_bpf_counter++;
 

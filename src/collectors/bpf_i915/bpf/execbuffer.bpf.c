@@ -42,8 +42,6 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
 
-        bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
-
         /*
            We only care about this buffer if it:
            1. Has the same vm_id as the batchbuffer for this execbuffer call.
@@ -54,6 +52,9 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
             (gmapping->addr == ctx->bb_addr)) {
                 return 0;
         }
+        
+        bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
+        
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
                 bpf_printk(

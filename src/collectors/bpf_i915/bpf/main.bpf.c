@@ -115,6 +115,12 @@ struct {
         __type(key, struct gpu_mapping);
         __type(value, struct cpu_mapping);
 } gpu_cpu_map SEC(".maps");
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, struct cpu_mapping);
+        __type(value, struct gpu_mapping);
+} cpu_gpu_map SEC(".maps");
 
 #include "mmap.bpf.c"
 

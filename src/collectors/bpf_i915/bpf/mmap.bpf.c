@@ -477,6 +477,9 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         /* For sending to execbuffer */
         int zero = 0;
         struct unmap_info *bin;
+        
+        struct cpu_mapping cmapping = {};
+        struct gpu_mapping *gmapping;
 
         /* First, make sure this is an i915 buffer */
         addr = ctx->args[0];
@@ -488,6 +491,20 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         if (!val) {
                 return -1;
         }
+        
+#ifndef BUFFER_COPY_METHOD_DEBUG
+        cmapping.size = size;
+        cmapping.addr = addr;
+        gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
+        if (gmapping) {
+                if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
+                        bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!\n", addr);
+                }
+                if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
+                        bpf_printk("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!\n", gmapping->addr);
+                }
+        }
+#endif
 
         /* Reserve some space on the ringbuffer */
         bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
