@@ -478,6 +478,7 @@ void read_bound_data(int debug_fd, struct buffer_profile *gem,
                 return;
         }
         
+        /* Decanonize the address */
         gpu_addr = gpu_addr & ((1ULL << 48) - 1);
         
         debug_printf("vm_bind gpu_addr=0x%lx found a gem gpu_addr=0x%lx %p\n", gpu_addr, gem->gpu_addr, gem);
@@ -525,6 +526,7 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         found = 0;
         while (!found) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
                                 read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
