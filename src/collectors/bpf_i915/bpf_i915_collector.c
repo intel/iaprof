@@ -79,11 +79,12 @@ int handle_mapping(void *data_arg)
 
 int handle_unmap(void *data_arg)
 {
+        
+#ifndef BUFFER_COPY_METHOD_DEBUG
+
         struct unmap_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
 
         info = (struct unmap_info *)data_arg;
         if (verbose) {
