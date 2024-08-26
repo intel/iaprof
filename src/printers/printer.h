@@ -34,5 +34,7 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
                         unsigned long long time);
 int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
                        uint16_t subslice, unsigned long long time);
+int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
+                       uint16_t subslice, unsigned long long time);
 int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
                              uint16_t subslice, unsigned long long time);

@@ -289,6 +289,21 @@ int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
         return 0;
 }
 
+int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
+                        uint16_t subslice, unsigned long long time)
+{
+        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_defer");
+        printf(" %-*llu", TIME_LEN, time);
+        printf(" %-*u", CPU_LEN, 0);
+        printf(" %-*u", PID_LEN, 0);
+        printf(" %-*u", TID_LEN, 0);
+        printf(" gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
+        print_eustall_reason(sample);
+        printf("\n");
+
+        return 0;
+}
+
 int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
                              uint16_t subslice, unsigned long long time)
 {

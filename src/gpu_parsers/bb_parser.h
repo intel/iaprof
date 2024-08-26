@@ -47,6 +47,10 @@ struct bb_parser {
 	   This is an offset from the iba,
 	   or Instruction Base Address. */
         uint64_t sip;
+        
+        /* Kernel Start Pointer. Gets overwritten
+           if multiple are found. */
+        uint64_t ksp;
 
         /* Batch Buffer Start Pointer */
         uint64_t bbsp;
@@ -326,6 +330,36 @@ enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
         return BB_PARSER_STATUS_OK;
 }
 
+enum bb_parser_status compute_walker(struct bb_parser *parser,
+                                            uint32_t *ptr)
+{
+        struct buffer_profile *shader_gem;
+        uint64_t tmp;
+        
+        if (parser->in_cmd == 18) {
+                if (!iba) {
+                        fprintf(stderr, "Want shader address, but IBA is not set yet!\n");
+                        return BB_PARSER_STATUS_OK;
+                }
+                
+                parser->ksp = 0;
+                parser->ksp += iba;
+                parser->ksp |= (*ptr & 0xffffffc0);
+        } else if (parser->in_cmd == 19) {
+                tmp = *ptr;
+                parser->ksp |= ((tmp & 0xffff) << 32);
+                shader_gem = get_containing_buffer_profile(parser->vm, parser->ksp);
+                printf("ksp: 0x%lx\n", parser->ksp);
+                if (shader_gem != NULL) {
+                        shader_gem->is_shader = 1;
+                        debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n", parser->vm->vm_id, shader_gem->gpu_addr);
+                } else {
+                        debug_printf("Did not find the shader for gpu_addr=0x%lx\n", parser->ksp);
+                }
+        }
+        return BB_PARSER_STATUS_OK;
+}
+
 enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
@@ -415,8 +449,6 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         uint64_t off, tmp, noops;
         enum bb_parser_status retval;
         char noop_debug;
-        uint64_t shader_addr;
-        struct buffer_profile *shader_gem;
 
         gem->parsed = 1;
 
@@ -770,23 +802,9 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         }
                         break;
                 case COMPUTE_WALKER:
-                        if (parser->in_cmd == 2) {
-                                if (!iba) {
-                                        fprintf(stderr, "Want shader address, but IBA is not set yet!\n");
-                                        break;
-                                }
-                                shader_addr = iba + ((*dword_ptr) & 0x1FFFF);
-                                shader_gem = get_containing_buffer_profile(parser->vm, shader_addr);
-                                if (shader_gem != NULL) {
-                                        shader_gem->is_shader = 1;
-                                        debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n", parser->vm->vm_id, shader_gem->gpu_addr);
-                                } else {
-                                        debug_printf("Did not find the shader for gpu_addr %lu\n", shader_addr);
-                                }
-                        }
-
-                        if (parser->in_cmd == 38) {
-                                return BB_PARSER_STATUS_OK;
+                        retval = compute_walker(parser, dword_ptr);
+                        if (retval != BB_PARSER_STATUS_OK) {
+                                return retval;
                         }
                         break;
                 }

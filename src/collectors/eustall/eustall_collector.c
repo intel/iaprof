@@ -120,33 +120,33 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
         }
 
         FOR_VM_PROFILE(vm, {
-                if (vm->active == 0) {
-                        debug_printf("  inactive!\n");
-                        goto next;
-                }
+/*                 if (vm->active == 0) { */
+/*                         goto next; */
+/*                 } */
 
                 gem = get_containing_buffer_profile(vm, addr);
+                
                 if (gem == NULL) {
                         goto next;
                 }
-
+                
+                if (!(gem->pid)) {
+                        goto next;
+                }
+                
                 if (!gem->is_shader) {
+                        debug_printf("Not a shader!\n");
                         goto next;
                 }
 
                 start = gem->gpu_addr;
                 end = start + gem->bind_size;
                 offset = addr - start;
-
+                
                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
                         addr, start, end, offset,
                         gem->handle, gem->vm_id,
                         gem->gpu_addr, iba);
-
-                if (!(gem->pid)) {
-                        debug_printf("  no exec_info!\n");
-                        goto next;
-                }
 
                 if ((addr - start) > MAX_BINARY_SIZE) {
                         if (debug) {
@@ -184,10 +184,14 @@ none_found:
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
                         if (verbose) {
-                                print_eustall_drop(sample, addr, info->subslice,
+                                print_eustall_defer(sample, addr, info->subslice,
                                                         time);
                         }
                         eustall_info.unmatched += num_stalls_in_sample(sample);
+                } else {
+                        if (verbose) {
+                                print_eustall_drop(sample, addr, info->subslice, time);
+                        }
                 }
         } else if (found == 1) {
                 associate_sample(sample, first_found_gem,
@@ -239,7 +243,7 @@ int handle_eustall_samples(void *perf_buf, int len)
 void handle_deferred_eustalls() {
         array_t *working;
         struct deferred_eustall *stall;
-        int n_satisfied;
+        int n_satisfied, n_waitlist;
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
 
@@ -247,7 +251,7 @@ void handle_deferred_eustalls() {
                 pthread_mutex_unlock(&eustall_waitlist_mtx);
                 return;
         }
-
+        
         /* Double buffer so that more eustalls can be added to the
          * wait list while we're working on the current set. */
         working = eustall_waitlist;
@@ -256,6 +260,11 @@ void handle_deferred_eustalls() {
                                 : &eustall_waitlist_a;
         array_clear(*eustall_waitlist);
         pthread_mutex_unlock(&eustall_waitlist_mtx);
+        
+        n_waitlist = array_len(*working);
+        if (n_waitlist) {
+                debug_printf("Working on %d deferred eustall samples.\n", n_waitlist);
+        }
 
         /* Try to satisfy each pending eustall. */
         n_satisfied = 0;
@@ -265,7 +274,7 @@ void handle_deferred_eustalls() {
         }
 
         if (n_satisfied) {
-                debug_printf("Satisfied %d/%d deferred eustall samples.\n", n_satisfied, array_len(*working));
+                debug_printf("Satisfied %d/%d deferred eustall samples.\n", n_satisfied, n_waitlist);
         }
 
         /* Put any yet-unsatisfied eustalls back on the current waitlist. */
