@@ -96,8 +96,7 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
 #endif
 
         bpf_ringbuf_submit(info, 0);
-        bpf_printk("batchbuffer %u 0x%lx %lu", ctx->vm_id, gmapping->addr,
-                   cmapping->size);
+        
         return 0;
 }
 
@@ -158,6 +157,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 offset = 0xffffffffffffffff;
         }
 
+#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Find a possible CPU mapping for the primary batchbuffer.
            If we can, go ahead and grab a copy of it! */
         gmapping.vm_id = vm_id;
@@ -174,6 +174,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 cpu_addr = 0;
                 size = 0;
         }
+#endif
 
         /* Pass arguments to the kretprobe */
         __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));

@@ -79,15 +79,15 @@ int print_vm_create(struct vm_create_info *info)
         return 0;
 }
 
-int print_vm_bind(struct vm_bind_info *info)
+int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter)
 {
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_bind");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
         printf(" %-*u", PID_LEN, info->pid);
         printf(" %-*u", TID_LEN, info->tid);
-        printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu flags=0x%llx%s\n",
-               info->file, info->handle, info->vm_id, info->gpu_addr,
+        printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx vm_bind_counter=%u size=%llu flags=0x%llx%s\n",
+               info->file, info->handle, info->vm_id, info->gpu_addr, vm_bind_counter,
                info->size, info->flags, (info->flags & PRELIM_I915_GEM_VM_BIND_MAKE_RESIDENT) ? " (MAKE_RESIDENT)" : "");
 
         return 0;

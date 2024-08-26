@@ -464,6 +464,29 @@ cleanup:
         return;
 }
 
+void read_bound_data(int debug_fd, struct buffer_profile *gem,
+                     struct prelim_drm_i915_debug_vm_open *vmo,
+                     uint64_t gpu_addr, uint64_t size)
+{
+        int fd;
+        
+        fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, vmo);
+
+        if (fd < 0) {
+                fprintf(stderr,
+                        "Failed to get fd from vm_open_ioctl: %d\n", fd);
+                return;
+        }
+        
+        gpu_addr = gpu_addr & ((1ULL << 48) - 1);
+        
+        debug_printf("vm_bind gpu_addr=0x%lx found a gem gpu_addr=0x%lx %p\n", gpu_addr, gem->gpu_addr, gem);
+        handle_binary_from_fd(fd, &(gem->buff), size, gpu_addr);
+        gem->buff_sz = size;
+        
+        close(fd);
+}
+
 void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
                           int pid_index)
 {
@@ -471,9 +494,7 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         struct buffer_profile *gem;
         struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
         struct prelim_drm_i915_debug_vm_open vmo = {};
-        int fd;
-        uint8_t *ptr, *buff;
-        uint64_t buff_sz, gpu_addr;
+        uint64_t gpu_addr;
         char found;
 
         vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
@@ -489,58 +510,40 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 vm_bind_counter++;
                 return;
         }
+        
+        /* Initialize the vm_open struct of arguments */
+        vmo.client_handle = vm_bind->client_handle;
+        vmo.handle = vm_bind->vm_handle;
+        vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
 
         debug_printf("vm_bind vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
                vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
                vm_bind_counter);
 
-        vmo.client_handle = vm_bind->client_handle;
-        vmo.handle = vm_bind->vm_handle;
-        vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
-        fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, &vmo);
-
-        if (fd < 0) {
-                fprintf(stderr,
-                        "Failed to get fd from vm_open_ioctl: %d\n", fd);
-                goto cleanup;
-        }
-        
-        ptr = (uint8_t *) mmap(NULL, vm_bind->va_length, PROT_READ, MAP_SHARED, fd, gpu_addr);
-        if (ptr == MAP_FAILED) {
-                fprintf(stderr, "FAILED TO MMAP: %d\n", errno);
-                goto cleanup;
-        }
-        
-        buff = ptr;
-        buff_sz = vm_bind->va_length;
-        
         /* Wait on this VM_BIND to happen in BPF, so that we can know which VM
            to associate it with! */
         found = 0;
-        FOR_BUFFER_PROFILE(vm, gem, {
-                if (gem->vm_bind_order == vm_bind_counter) {
-                        handle_binary(&(gem->buff), buff, &(gem->buff_sz),
-                                      buff_sz);
-                        found = 1;
-                        unlock_vm_profile(vm);
-                        pthread_rwlock_unlock(&vm_profiles_lock);
-                        goto out;
-                }
-        });
-out:
-
         while (!found) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                FOR_BUFFER_PROFILE(vm, gem, {
+                        if (gem->vm_bind_order == vm_bind_counter) {
+                                read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
+                                found = 1;
+                                unlock_vm_profile(vm);
+                                pthread_rwlock_unlock(&vm_profiles_lock);
+                                goto out2;
+                        }
+                });
+                
                 if (pthread_cond_wait(&debug_i915_vm_bind_cond, &debug_i915_vm_bind_lock) != 0) {
                         fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
                         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
                         goto cleanup;
                 }
-                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+                
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
-                                handle_binary(&(gem->buff), buff, &(gem->buff_sz),
-                                        buff_sz);
+                                read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
                                 found = 1;
                                 unlock_vm_profile(vm);
                                 pthread_rwlock_unlock(&vm_profiles_lock);
@@ -548,13 +551,10 @@ out:
                         }
                 });
 out2:;
+                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
         }
-        
-        debug_printf("vm_bind found a gem!\n");
-        munmap(buff, buff_sz);
 
 cleanup:
-        close(fd);
         vm_bind_counter++;
         return;
 }
