@@ -202,7 +202,7 @@ cleanup:
         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
 #endif
 
-/*         wakeup_eustall_deferred_attrib_thread(); */
+        wakeup_eustall_deferred_attrib_thread();
         
         vm_bind_bpf_counter++;
 
