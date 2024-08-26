@@ -130,6 +130,4 @@ struct {
 
 #include "execbuffer.bpf.c"
 
-#include "request.bpf.c"
-
 char LICENSE[] SEC("license") = "GPL";

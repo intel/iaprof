@@ -103,30 +103,6 @@ int handle_unmap(void *data_arg)
         return 0;
 }
 
-int handle_request(void *data_arg)
-{
-        struct request_info *info;
-
-        info = (struct request_info *)data_arg;
-        if (verbose) {
-                print_request(info);
-        }
-
-        if (info->request_type == REQUEST_SUBMIT) {
-                /* Store this request per-VM */
-                if (global_vm_id == 0) {
-                        fprintf(stderr,
-                                "WARNING: global_vm_id is zero. Something fishy is going on.\n");
-                        return -1;
-                }
-                request_submit(global_vm_id, info->seqno, info->gem_ctx, info->class, info->instance);
-        } else if (info->request_type == REQUEST_RETIRE) {
-                request_retire(info->seqno, info->gem_ctx);
-        }
-
-        return 0;
-}
-
 int handle_userptr(void *data_arg)
 {
         struct userptr_info *info;
@@ -427,7 +403,6 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
                 case BPF_EVENT_TYPE_EXECBUF_END:   return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_BATCHBUFFER:   return handle_batchbuffer(data_arg);
                 case BPF_EVENT_TYPE_USERPTR:       return handle_userptr(data_arg);
-                case BPF_EVENT_TYPE_REQUEST:       return handle_request(data_arg);
         }
 
         fprintf(stderr,
@@ -537,11 +512,6 @@ int deinit_bpf_i915()
 
         bpf_program__unload(bpf_info.munmap_prog);
 
-        bpf_program__unload(bpf_info.request_submit_prog);
-        bpf_program__unload(bpf_info.request_retire_prog);
-        bpf_program__unload(bpf_info.request_in_prog);
-        bpf_program__unload(bpf_info.request_out_prog);
-
         main_bpf__destroy(bpf_info.obj);
 
         return 0;
@@ -624,15 +594,6 @@ int init_bpf_i915()
         bpf_info.do_execbuffer_ret_prog =
                 (struct bpf_program *)
                         bpf_info.obj->progs.do_execbuffer_kretprobe;
-
-        bpf_info.request_submit_prog =
-                (struct bpf_program *)bpf_info.obj->progs.request_submit_tp;
-        bpf_info.request_retire_prog =
-                (struct bpf_program *)bpf_info.obj->progs.request_retire_tp;
-        bpf_info.request_in_prog =
-                (struct bpf_program *)bpf_info.obj->progs.request_in_tp;
-        bpf_info.request_out_prog =
-                (struct bpf_program *)bpf_info.obj->progs.request_out_tp;
 
         bpf_info.munmap_prog =
                 (struct bpf_program *)bpf_info.obj->progs.munmap_tp;
@@ -766,32 +727,6 @@ int init_bpf_i915()
         /* munmap */
         err = attach_tracepoint("syscalls", "sys_enter_munmap",
                                 bpf_info.munmap_prog);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a tracepoint!\n");
-                return -1;
-        }
-
-        /* requests */
-        err = attach_tracepoint("i915", "i915_request_submit",
-                                bpf_info.request_submit_prog);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a tracepoint!\n");
-                return -1;
-        }
-        err = attach_tracepoint("i915", "i915_request_retire",
-                                bpf_info.request_retire_prog);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a tracepoint!\n");
-                return -1;
-        }
-        err = attach_tracepoint("i915", "i915_request_in",
-                                bpf_info.request_in_prog);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a tracepoint!\n");
-                return -1;
-        }
-        err = attach_tracepoint("i915", "i915_request_out",
-                                bpf_info.request_out_prog);
         if (err != 0) {
                 fprintf(stderr, "Failed to attach a tracepoint!\n");
                 return -1;

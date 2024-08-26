@@ -171,30 +171,6 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
         return 0;
 }
 
-int print_request(struct request_info *rinfo)
-{
-        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "request");
-        printf(" %-*llu", TIME_LEN, rinfo->time);
-        printf(" %-*u", CPU_LEN, 0);
-        printf(" %-*u", PID_LEN, 0);
-        printf(" %-*u", TID_LEN, 0);
-        printf(" type=");
-        if (rinfo->request_type == REQUEST_SUBMIT) {
-                printf("submit");
-        } else if (rinfo->request_type == REQUEST_RETIRE) {
-                printf("retire");
-        } else if (rinfo->request_type == REQUEST_IN) {
-                printf("in");
-        } else if (rinfo->request_type == REQUEST_OUT) {
-                printf("out");
-        }
-        printf(" seqno=%u", rinfo->seqno);
-        printf(" ctx=%u", rinfo->gem_ctx);
-        printf("\n");
-
-        return 0;
-}
-
 int print_total_eustall(uint64_t num, unsigned long long time)
 {
         debug_printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");

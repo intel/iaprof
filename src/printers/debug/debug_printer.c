@@ -35,27 +35,3 @@ void print_debug_profile()
                 print_debug_buffer_profile(gem);
         });
 }
-
-void print_vms()
-{
-        struct vm_profile *vm;
-        struct request_profile_list *rq;
-
-        if (!debug) {
-                return;
-        }
-
-        printf("vm_profile_arr:\n");
-
-        FOR_VM_PROFILE(vm, {
-                debug_printf("  vm_id=%u active=%d num_requests=%u\n", vm->vm_id,
-                       vm->active, vm->num_requests);
-
-                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
-                        if (rq->seqno && rq->gem_ctx) {
-                                debug_printf("    seqno=%u gem_ctx=%u retired=%d class=0x%x instance=0x%x\n",
-                                       rq->seqno, rq->gem_ctx, rq->retired, (unsigned int) rq->class, (unsigned int) rq->instance);
-                        }
-                }
-        });
-}

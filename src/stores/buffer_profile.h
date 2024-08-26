@@ -63,14 +63,6 @@ typedef struct buffer_profile buffer_profile_struct;
 use_tree(uint64_t, buffer_profile_struct);
 
 
-struct request_profile_list {
-        struct request_profile_list *next;
-        uint32_t seqno;
-        uint32_t gem_ctx;
-        char retired;
-        uint16_t class, instance;
-};
-
 struct vm_profile {
         uint32_t vm_id;
         uint64_t debugger_vm_id;
@@ -79,8 +71,6 @@ struct vm_profile {
         _Atomic pthread_t lock_holder;
         char active;
         tree(uint64_t, buffer_profile_struct) buffer_profiles;
-        uint32_t num_requests;
-        struct request_profile_list *request_list;
 };
 
 
@@ -109,11 +99,6 @@ void unlock_vm_profile(struct vm_profile *vm);
 struct vm_profile *acquire_vm_profile(uint32_t vm_id);
 struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order);
 void release_vm_profile(struct vm_profile *vm);
-
-void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance);
-void request_retire(uint32_t seqno, uint32_t gem_ctx);
-void clear_retired_requests();
-void mark_vms_active();
 
 #define FOR_VM_PROFILE(vm, ...)                                \
 do {                                                           \

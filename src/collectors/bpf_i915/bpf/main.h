@@ -24,7 +24,6 @@ enum {
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_BATCHBUFFER,
     BPF_EVENT_TYPE_USERPTR,
-    BPF_EVENT_TYPE_REQUEST,
 };
 
 /* Collected from an mmap */
@@ -170,24 +169,6 @@ struct __attribute__((packed)) userptr_info {
 #endif
 
         __u32 pid, tid, cpu;
-        __u64 time;
-};
-
-/* Collected from the tracepoints i915_request_* */
-enum i915_request_type {
-        REQUEST_SUBMIT,
-        REQUEST_IN,
-        REQUEST_OUT,
-        REQUEST_RETIRE
-};
-
-struct __attribute__((packed)) request_info {
-        __u8 type;
-
-        enum i915_request_type request_type;
-        __u32 seqno;
-        __u32 gem_ctx;
-        __u16 class, instance;
         __u64 time;
 };
 

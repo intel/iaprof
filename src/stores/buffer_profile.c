@@ -124,8 +124,6 @@ void free_profiles() {
         uint64_t                      vm_id;
         struct vm_profile           **vmp;
         struct vm_profile            *vm;
-        struct request_profile_list  *rq;
-        struct request_profile_list  *next_rq;
 
         pthread_rwlock_wrlock(&vm_profiles_lock);
 
@@ -135,14 +133,6 @@ void free_profiles() {
                 vm = *vmp;
 
                 free_buffer_profiles(vm->buffer_profiles);
-
-                rq      = vm->request_list;
-                next_rq = NULL;
-                while (rq != NULL) {
-                        next_rq = rq->next;
-                        free(rq);
-                        rq = next_rq;
-                }
 
                 free(vm);
         }
@@ -293,124 +283,4 @@ struct vm_profile *acquire_vm_profile(uint32_t vm_id) {
 void release_vm_profile(struct vm_profile *vm) {
         unlock_vm_profile(vm);
         pthread_rwlock_unlock(&vm_profiles_lock);
-}
-
-void request_submit(uint32_t vm_id, uint32_t seqno, uint32_t gem_ctx, uint16_t class, uint16_t instance)
-{
-        struct vm_profile *vm;
-        struct request_profile_list *rq;
-
-        vm = acquire_vm_profile(vm_id);
-        if (!vm) {
-                fprintf(stderr,
-                        "WARNING: Can't store a request for a vm that hasn't been created! (vm_id = %u)\n",
-                        vm_id);
-                return;
-        }
-
-        rq = malloc(sizeof(*rq));
-
-        rq->next    = vm->request_list;
-        rq->seqno   = seqno;
-        rq->gem_ctx = gem_ctx;
-        rq->retired = 0;
-        rq->class = class;
-        rq->instance = instance;
-
-        vm->request_list = rq;
-        vm->num_requests += 1;
-
-        release_vm_profile(vm);
-}
-
-/* Mark a request as "retired." It'll be deleted after this interval is entirely over. */
-void request_retire(uint32_t seqno, uint32_t gem_ctx)
-{
-        uint64_t vm_id;
-        struct vm_profile **vmp;
-        struct vm_profile *vm;
-        struct request_profile_list *rq;
-
-        /* Since we have to do a scan to find the corresponding vm_profile,
-         * we need to handle the thread sync manually here... is there a
-         * better way? */
-
-        pthread_rwlock_rdlock(&vm_profiles_lock);
-
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                /* Don't acquire_vm_profile(). We're not touching buffers and
-                 * don't want to double-grab the vm_profiles_lock. */
-                vm = *vmp;
-
-                (void)vm_id;
-
-                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
-                        if ((rq->seqno == seqno) && (rq->gem_ctx == gem_ctx)) {
-                                rq->retired = 1;
-                                goto out_unlock;
-                        }
-                }
-        }
-
-out_unlock:;
-        pthread_rwlock_unlock(&vm_profiles_lock);
-}
-
-void clear_retired_requests()
-{
-        struct vm_profile *vm;
-        struct request_profile_list *rq;
-        struct request_profile_list *rq_prev;
-
-        FOR_VM_PROFILE(vm, {
-                rq_prev = NULL;
-                rq      = vm->request_list;
-                while (rq != NULL) {
-                        if (rq->retired) {
-                                if (rq_prev == NULL) {
-                                        vm->request_list = rq->next;
-                                } else {
-                                        rq_prev->next = rq->next;
-                                }
-
-                                free(rq);
-
-                                rq = rq_prev == NULL ? vm->request_list : rq_prev->next;
-
-                                vm->num_requests -= 1;
-                        } else {
-                                rq_prev = rq;
-                                rq      = rq->next;
-                        }
-                }
-        });
-}
-
-#define I915_ENGINE_CLASS_COMPUTE 4
-
-void mark_vms_active()
-{
-        struct vm_profile *vm;
-        char active_requests, compute_engine;
-        struct request_profile_list *rq;
-
-        FOR_VM_PROFILE(vm, {
-                /* Are there any active or retired requests this interval? */
-                active_requests = 0;
-                compute_engine = 0;
-                for (rq = vm->request_list; rq != NULL; rq = rq->next) {
-                        if (rq->seqno && rq->gem_ctx) {
-                                active_requests = 1;
-                        }
-                        if (rq->class == I915_ENGINE_CLASS_COMPUTE) {
-                                compute_engine = 1;
-                        }
-                }
-
-                if (active_requests && compute_engine) {
-                        vm->active = 1;
-                } else {
-                        vm->active = 0;
-                }
-        });
 }

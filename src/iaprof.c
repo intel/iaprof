@@ -299,9 +299,6 @@ int handle_eustall_read(int fd)
 {
         int len;
 
-        /* Update the buffer_profile */
-        mark_vms_active();
-
         /* eustall collector */
         len = read(fd, eustall_info.perf_buf,
                    DEFAULT_USER_BUF_SIZE);
@@ -309,11 +306,7 @@ int handle_eustall_read(int fd)
                 handle_eustall_samples(eustall_info.perf_buf, len);
         }
 
-        /* Clear requests that were retired before we collected these eustalls */
-        clear_retired_requests();
-
         if (debug) {
-                print_vms();
                 print_debug_profile();
         }
         store_interval_flames();

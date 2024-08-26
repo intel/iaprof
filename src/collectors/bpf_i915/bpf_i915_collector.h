@@ -100,12 +100,6 @@ struct bpf_info_t {
         /* munmap */
         struct bpf_program *munmap_prog;
 
-        /* requests */
-        struct bpf_program *request_submit_prog;
-        struct bpf_program *request_retire_prog;
-        struct bpf_program *request_in_prog;
-        struct bpf_program *request_out_prog;
-
         /* vm_close */
         /*   struct bpf_program *vm_close_prog; */
 };
