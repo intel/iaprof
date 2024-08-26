@@ -130,6 +130,10 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                         goto next;
                 }
 
+                if (!gem->is_shader) {
+                        goto next;
+                }
+
                 start = gem->gpu_addr;
                 end = start + gem->bind_size;
                 offset = addr - start;
