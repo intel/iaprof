@@ -45,6 +45,8 @@ struct buffer_profile {
         /* The IBA (Instruction Base Address) associated with this buffer */
         uint64_t iba;
 
+        int is_shader;
+
         /* The stack where this buffer was execbuffer'd */
         char *execbuf_stack_str;
 
