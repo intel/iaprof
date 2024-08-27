@@ -70,7 +70,7 @@ struct __attribute__((packed)) vm_create_info {
 };
 
 /* Collected from a vm_bind */
-struct __attribute__((packed)) vm_bind_info {
+struct vm_bind_info {
         __u8 type;
 
         __u64 file;
