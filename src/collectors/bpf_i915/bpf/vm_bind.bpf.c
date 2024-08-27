@@ -85,20 +85,21 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
         return 0;
 }
 
-SEC("kprobe/i915_gem_vm_unbind_ioctl")
-int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
+SEC("fentry/i915_gem_vm_unbind_ioctl")
+int BPF_PROG(i915_gem_vm_unbind_ioctl,
+             struct drm_device *dev, void *data,
+             struct drm_file *file)
 {
         struct vm_unbind_info *info;
         struct prelim_drm_i915_gem_vm_bind *arg;
-        u64 file, status, gpu_addr;
+        u64 status, gpu_addr;
         u32 vm_id;
         struct gpu_mapping gmapping = {};
         struct cpu_mapping cmapping = {};
         int retval = 0;
         void *lookup;
 
-        arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
-        file = PT_REGS_PARM3(ctx);
+        arg = (struct prelim_drm_i915_gem_vm_bind *)data;
 
         /* Get the address and VM that's getting unbound */
         vm_id = BPF_CORE_READ(arg, vm_id);
@@ -113,7 +114,7 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         if (!lookup) {
                 bpf_printk(
                         "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
-                return -1;
+                return 0;
         }
         __builtin_memcpy(&cmapping, lookup,
                          sizeof(struct cpu_mapping));
@@ -138,12 +139,12 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
                         "WARNING: vm_unbind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
-                return -1;
+                return 0;
         }
 
         /* vm_unbind specific values */
         info->type = BPF_EVENT_TYPE_VM_UNBIND;
-        info->file = file;
+        info->file = (u64)file;
         info->handle = BPF_CORE_READ(arg, handle);
         info->vm_id = vm_id;
         info->gpu_addr = gpu_addr;
