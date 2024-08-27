@@ -27,7 +27,7 @@ enum {
 };
 
 /* Collected from an mmap */
-struct __attribute__((packed)) mapping_info {
+struct mapping_info {
         __u8 type;
 
         __u64 file;
@@ -43,7 +43,7 @@ struct __attribute__((packed)) mapping_info {
 
 /* Collected from an munmap, possibly
    after execbuffer */
-struct __attribute__((packed)) unmap_info {
+struct unmap_info {
         __u8 type;
 
         __u64 file;
@@ -60,12 +60,11 @@ struct __attribute__((packed)) unmap_info {
 };
 
 /* Collected from a vm_create */
-struct __attribute__((packed)) vm_create_info {
+struct vm_create_info {
         __u8 type;
 
         __u32 pid, tid, cpu;
         __u64 time;
-        int stackid;
         __u32 vm_id;
 };
 
@@ -87,7 +86,7 @@ struct vm_bind_info {
 };
 
 /* Collected from a vm_unbind */
-struct __attribute__((packed)) vm_unbind_info {
+struct vm_unbind_info {
         __u8 type;
 
         __u64 file;
@@ -126,7 +125,7 @@ struct execbuf_start_info {
 };
 
 /* Represents a copy of a batchbuffer */
-struct __attribute__((packed)) batchbuffer_info {
+struct batchbuffer_info {
         __u8 type;
 
         __u32 pid, tid, cpu;
@@ -165,7 +164,7 @@ struct execbuf_end_info {
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */
-struct __attribute__((packed)) userptr_info {
+struct userptr_info {
         __u8 type;
 
         __u64 file;
