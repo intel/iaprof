@@ -32,6 +32,15 @@
 
 uint32_t global_vm_id = 0;
 static uint32_t vm_bind_bpf_counter = 0;
+static array_t unmapped_buffer_copies;
+
+struct unmapped_buffer_copy {
+        uint64_t  file;
+        uint64_t  handle;
+        void     *buff;
+        uint64_t  size;
+};
+
 
 /***************************************
 * BPF Handlers
@@ -85,18 +94,33 @@ int handle_unmap(void *data_arg)
         struct unmap_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
+        char found;
+        struct unmapped_buffer_copy copy;
 
         info = (struct unmap_info *)data_arg;
         if (verbose) {
                 print_unmap(info);
         }
 
+        dump_buffer(info->buff, info->size, 0);
+        
+        found = 0;
         FOR_BUFFER_PROFILE(vm, gem, {
                 if ((gem->file == info->file) &&
                     (gem->handle == info->handle)) {
                         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size);
+                        found = 1;
                 }
         });
+        
+        if (!found) {
+                copy.file = info->file;
+                copy.handle = info->handle;
+                copy.buff = malloc(info->size);
+                copy.size = info->size;
+                memcpy(copy.buff, info->buff, info->size);
+                array_push(unmapped_buffer_copies, copy);
+        }
         
 #endif
 
@@ -139,6 +163,7 @@ int handle_vm_bind(void *data_arg)
         struct vm_bind_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
+        struct unmapped_buffer_copy *it;
 
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
@@ -162,7 +187,16 @@ int handle_vm_bind(void *data_arg)
         gem->bind_size = info->size;
         gem->pid = info->pid;
         gem->handle = info->handle;
+        gem->file = info->file;
         gem->vm_bind_order = vm_bind_bpf_counter;
+        
+        array_traverse(unmapped_buffer_copies, it) {
+                if (gem->file == it->file && gem->handle == it->handle) {
+                        handle_binary(&(gem->buff), it->buff, &(gem->buff_sz),
+                                        it->size);
+                        break;
+                }
+        }
 
         release_vm_profile(vm);
         
@@ -249,20 +283,34 @@ cleanup:
 
 int handle_execbuf_start(void *data_arg)
 {
-        struct vm_profile *vm;
-        struct buffer_profile *gem;
-        uint32_t vm_id;
+/*         struct vm_profile *vm; */
+/*         struct buffer_profile *gem; */
+/*         uint32_t vm_id; */
         struct execbuf_start_info *info;
 
         info = (struct execbuf_start_info *)data_arg;
         if (verbose) {
                 print_execbuf_start(info);
         }
+        
+        return 0;
+}
 
-        /* Store this vm_id so that requests that get created by this
-           execbuffer call can associate themselves with it */
-        global_vm_id = info->vm_id;
+int handle_execbuf_end(void *data_arg)
+{
+        struct execbuf_end_info *info;
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
+        struct bb_parser parser;
+        struct timespec parser_start, parser_end;
+        uint32_t vm_id;
 
+        /* First, just print out the execbuf_end */
+        info = (struct execbuf_end_info *)data_arg;
+        if (verbose) {
+                print_execbuf_end(info);
+        }
+        
         /* This execbuffer call needs to be associated with all GEMs that
            are referenced by this call. Buffers can be referenced in two ways:
            1. Directly in the execbuffer call.
@@ -291,57 +339,37 @@ int handle_execbuf_start(void *data_arg)
                 }
         });
 
-        return 0;
-}
-
-int handle_execbuf_end(void *data_arg)
-{
-        struct execbuf_end_info *info;
-        struct vm_profile *vm;
-        struct buffer_profile *gem;
-        struct bb_parser parser;
-        struct timespec parser_start, parser_end;
-
-        /* First, just print out the execbuf_end */
-        info = (struct execbuf_end_info *)data_arg;
-        if (verbose) {
-                print_execbuf_end(info);
-        }
-
         vm = acquire_vm_profile(info->vm_id);
         
         if (vm == NULL) {
                 fprintf(stderr,
-                        "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
-                        info->vm_id, info->gpu_addr);
+                        "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
+                        info->vm_id, info->bb_offset);
                 goto cleanup;
         }
                 
-        gem = get_buffer_profile(vm, info->gpu_addr);
+        gem = get_buffer_profile(vm, info->bb_offset);
 
         if (gem == NULL) {
                 fprintf(stderr,
-                        "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
-                        info->vm_id, info->gpu_addr);
+                        "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
+                        info->vm_id, info->bb_offset);
                 goto cleanup;
         }
 
 #ifndef BUFFER_COPY_METHOD_DEBUG
         /* Copy the batchbuffer that we got from the ringbuffer */
-        if (info->buff_sz == 0) {
-                goto cleanup;
-        }
         if (handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
                       info->buff_sz) != 0) {
-
                 fprintf(stderr,
                         "WARNING: handle_binary() returned non-zero\n");
                 goto cleanup;
         }
+        dump_buffer(gem->buff, gem->buff_sz, gem->handle);
 #endif
 
         if ((!gem->buff) || (!gem->buff_sz)) {
-                fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer gpu_addr=0x%llx.\n", info->gpu_addr);
+                fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer bb_offset=0x%llx.\n", info->bb_offset);
                 goto cleanup;
         }
         
@@ -483,31 +511,7 @@ int deinit_bpf_i915()
                 }
         }
         free(bpf_info.links);
-
-        bpf_program__unload(bpf_info.mmap_ioctl_prog);
-        bpf_program__unload(bpf_info.mmap_ioctl_ret_prog);
-
-        bpf_program__unload(bpf_info.vm_create_ioctl_prog);
-        bpf_program__unload(bpf_info.vm_create_ioctl_ret_prog);
-
-        bpf_program__unload(bpf_info.mmap_offset_ioctl_prog);
-        bpf_program__unload(bpf_info.mmap_offset_ioctl_ret_prog);
-        bpf_program__unload(bpf_info.mmap_prog);
-        bpf_program__unload(bpf_info.mmap_ret_prog);
-
-        bpf_program__unload(bpf_info.vm_bind_ioctl_prog);
-        bpf_program__unload(bpf_info.vm_bind_ioctl_ret_prog);
-
-        bpf_program__unload(bpf_info.vm_unbind_ioctl_prog);
-
-        bpf_program__unload(bpf_info.context_create_ioctl_prog);
-        bpf_program__unload(bpf_info.context_create_ioctl_ret_prog);
-
-        bpf_program__unload(bpf_info.do_execbuffer_prog);
-        bpf_program__unload(bpf_info.do_execbuffer_ret_prog);
-
-        bpf_program__unload(bpf_info.munmap_prog);
-
+        
         main_bpf__destroy(bpf_info.obj);
 
         return 0;
@@ -516,16 +520,10 @@ int deinit_bpf_i915()
 int init_bpf_i915()
 {
         int err;
-        struct bpf_object_open_opts opts = { 0 };
 
-        opts.sz = sizeof(struct bpf_object_open_opts);
-#if 0
-  if(pw_opts.btf_custom_path) {
-    opts.btf_custom_path = pw_opts.btf_custom_path;
-  }
-#endif
+        unmapped_buffer_copies = array_make(struct unmapped_buffer_copy);
 
-        bpf_info.obj = main_bpf__open_opts(&opts);
+        bpf_info.obj = main_bpf__open_and_load();
         if (!bpf_info.obj) {
                 fprintf(stderr, "ERROR: Failed to get BPF object.\n");
                 fprintf(stderr,
@@ -535,64 +533,12 @@ int init_bpf_i915()
                         "       2. You don't have a kernel that supports BTF type information.\n");
                 return -1;
         }
-        err = main_bpf__load(bpf_info.obj);
+        
+        err = main_bpf__attach(bpf_info.obj);
         if (err) {
-                fprintf(stderr, "Failed to load BPF object!\n");
+                fprintf(stderr, "ERROR: Failed to attach BPF programs.\n");
                 return -1;
         }
-
-        bpf_info.mmap_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.mmap_ioctl_kprobe;
-        bpf_info.mmap_ioctl_ret_prog =
-                (struct bpf_program *)bpf_info.obj->progs.mmap_ioctl_kretprobe;
-
-        bpf_info.mmap_offset_ioctl_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.mmap_offset_ioctl_kprobe;
-        bpf_info.mmap_offset_ioctl_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.mmap_offset_ioctl_kretprobe;
-        bpf_info.mmap_prog =
-                (struct bpf_program *)bpf_info.obj->progs.mmap_kprobe;
-        bpf_info.mmap_ret_prog =
-                (struct bpf_program *)bpf_info.obj->progs.mmap_kretprobe;
-
-        bpf_info.userptr_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.userptr_ioctl_kprobe;
-        bpf_info.userptr_ioctl_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.userptr_ioctl_kretprobe;
-
-        bpf_info.vm_create_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.vm_create_ioctl_kprobe;
-        bpf_info.vm_create_ioctl_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.vm_create_ioctl_kretprobe;
-
-        bpf_info.vm_bind_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.vm_bind_ioctl_kprobe;
-        bpf_info.vm_bind_ioctl_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.vm_bind_ioctl_kretprobe;
-
-        bpf_info.vm_unbind_ioctl_prog =
-                (struct bpf_program *)bpf_info.obj->progs.vm_unbind_ioctl_kprobe;
-
-        bpf_info.context_create_ioctl_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.context_create_ioctl_kprobe;
-        bpf_info.context_create_ioctl_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.context_create_ioctl_kretprobe;
-
-        bpf_info.do_execbuffer_prog =
-                (struct bpf_program *)bpf_info.obj->progs.do_execbuffer_kprobe;
-        bpf_info.do_execbuffer_ret_prog =
-                (struct bpf_program *)
-                        bpf_info.obj->progs.do_execbuffer_kretprobe;
-
-        bpf_info.munmap_prog =
-                (struct bpf_program *)bpf_info.obj->progs.munmap_tp;
 
         bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb),
                                        handle_sample, NULL, NULL);
@@ -604,138 +550,6 @@ int init_bpf_i915()
 
         bpf_info.rb_fd = bpf_map__fd(bpf_info.obj->maps.rb);
         bpf_info.epoll_fd = ring_buffer__epoll_fd(bpf_info.rb);
-
-        /* i915_gem_mmap_ioctl */
-        err = attach_kprobe("i915_gem_mmap_ioctl", bpf_info.mmap_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_mmap_ioctl", bpf_info.mmap_ioctl_ret_prog,
-                            1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_mmap_offset_ioctl and friends */
-        err = attach_kprobe("i915_gem_mmap_offset_ioctl",
-                            bpf_info.mmap_offset_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_mmap_offset_ioctl",
-                            bpf_info.mmap_offset_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_mmap", bpf_info.mmap_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_mmap", bpf_info.mmap_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_userptr_ioctl */
-        err = attach_kprobe("i915_gem_userptr_ioctl",
-                            bpf_info.userptr_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_userptr_ioctl",
-                            bpf_info.userptr_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_vm_create_ioctl */
-        err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_vm_create_ioctl",
-                            bpf_info.vm_create_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_vm_bind_ioctl */
-        err = attach_kprobe("i915_gem_vm_bind_ioctl",
-                            bpf_info.vm_bind_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_vm_bind_ioctl",
-                            bpf_info.vm_bind_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_vm_unbind_ioctl */
-        err = attach_kprobe("i915_gem_vm_unbind_ioctl",
-                            bpf_info.vm_unbind_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_context_create_ioctl */
-        err = attach_kprobe("i915_gem_context_create_ioctl",
-                            bpf_info.context_create_ioctl_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_context_create_ioctl",
-                            bpf_info.context_create_ioctl_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* i915_gem_do_execbuffer */
-        err = attach_kprobe("i915_gem_do_execbuffer",
-                            bpf_info.do_execbuffer_prog, 0);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-        err = attach_kprobe("i915_gem_do_execbuffer",
-                            bpf_info.do_execbuffer_ret_prog, 1);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a kprobe!\n");
-                return -1;
-        }
-
-        /* munmap */
-        err = attach_tracepoint("syscalls", "sys_enter_munmap",
-                                bpf_info.munmap_prog);
-        if (err != 0) {
-                fprintf(stderr, "Failed to attach a tracepoint!\n");
-                return -1;
-        }
-
-        /* XXX: Finish vm_close support in BPF and re-enable. This should
-     free up any addresses bound to the VM. */
-        /* vm_close */
-        /*   err = attach_kprobe("vm_close", bpf_info.vm_close_prog, 0); */
-        /*   if(err != 0) { */
-        /*     fprintf(stderr, "Failed to attach a kprobe!\n"); */
-        /*     return -1; */
-        /*   } */
 
         return 0;
 }

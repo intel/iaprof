@@ -118,6 +118,7 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
                 return -1;
         __builtin_memcpy(&val, lookup,
                          sizeof(struct mmap_ioctl_wait_for_ret_val));
+                         
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
@@ -149,6 +150,8 @@ int mmap_ioctl_kretprobe(struct pt_regs *ctx)
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         mmap_wait_for_unmap_insert(val.file, handle, addr);
+        
+        bpf_printk("mmap cpu_addr=0x%lx handle=%u\n", addr, handle);
 
         return 0;
 }
