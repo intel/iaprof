@@ -59,8 +59,11 @@ int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
         addr = addr_arg;
         retval =
                 bpf_map_update_elem(&mmap_wait_for_unmap, &addr, &unmap_val, 0);
-        if (retval < 0)
+        if (retval < 0) {
+                bpf_printk("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
+                           file, handle, addr);
                 return -1;
+        }
 
         return 0;
 }
@@ -174,8 +177,11 @@ int BPF_PROG(i915_gem_mmap,
 
         /* Get the handle from the previous i915_gem_mmap_offset_ioctl call. */
         lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
-        if (!lookup)
+        if (!lookup) {
+                bpf_printk("i915_gem_mmap failed to see mmap_offset on vm_pgoff=0x%lx",
+                           vm_pgoff);
                 return 0;
+        }
         __builtin_memcpy(&offset_val, lookup,
                          sizeof(struct mmap_offset_wait_for_mmap_val));
 

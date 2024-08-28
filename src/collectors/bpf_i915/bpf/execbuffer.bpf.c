@@ -33,10 +33,13 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         if ((gmapping->vm_id != ctx->vm_id) ||
             ((gmapping->addr & ctx->bits_to_match) != ctx->bits_to_match) ||
             (gmapping->addr == ctx->bb_addr)) {
+                bpf_printk("vm_callback filtering vm_id=%u gpu_addr=0x%lx",
+                           ctx->vm_id, gmapping->addr);
                 return 0;
+        } else {
+                bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
+                           ctx->vm_id, gmapping->addr);
         }
-        
-        bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
         
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
@@ -72,10 +75,6 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
                 info->buff_sz = 0;
                 bpf_ringbuf_discard(info, 0);
                 return 0;
-        } else {
-                bpf_printk(
-                        "WARNING: vm_callback SUCCESSFULLY copied %lu bytes from 0x%lx: %d",
-                        size, addr, err);
         }
 #endif
 
