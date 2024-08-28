@@ -725,11 +725,12 @@ int main(int argc, char **argv)
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
         
+        /* Print the final profile */
+        gettimeofday(&tv, NULL);
+        print_status_table((int)tv.tv_sec - startsecs);
         print_debug_profile();
-
         print_flamegraph();
 
         free_profiles();
-
         fflush(stdout);
 }
