@@ -39,6 +39,13 @@ struct {
         __type(value, struct file_handle_pair);
 } mmap_wait_for_unmap SEC(".maps");
 
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, struct file_handle_pair);
+        __type(value, u64);
+} file_handle_mapping SEC(".maps");
+
 int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
 {
         struct file_handle_pair unmap_val;
@@ -74,11 +81,17 @@ int BPF_PROG(i915_gem_mmap_ioctl,
         u32 handle;
         u64 addr;
         struct drm_i915_gem_mmap *arg;
+        struct file_handle_pair pair = {};
                          
         arg = (struct drm_i915_gem_mmap *)data;
 
         handle = BPF_CORE_READ(arg, handle);
         addr = BPF_CORE_READ(arg, addr_ptr);
+        
+        /* Add this file/handle/cpu_addr to be seen by a future vm_bind */
+        pair.handle = handle;
+        pair.file = (u64)file;
+        bpf_map_update_elem(&file_handle_mapping, &pair, &addr, 0);
 
         mmap_wait_for_unmap_insert((u64)file, handle, addr);
         
@@ -109,13 +122,6 @@ struct {
         __type(key, u64);
         __type(value, struct mmap_offset_wait_for_mmap_val);
 } mmap_offset_wait_for_mmap SEC(".maps");
-
-struct {
-        __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
-        __type(key, struct file_handle_pair);
-        __type(value, u64);
-} file_handle_mapping SEC(".maps");
 
 SEC("fexit/i915_gem_mmap_offset_ioctl")
 int BPF_PROG(i915_gem_mmap_offset_ioctl,
@@ -203,6 +209,8 @@ int BPF_PROG(i915_gem_mmap,
         info->time = bpf_ktime_get_ns();
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        
+        bpf_printk("i915_gem_mmap cpu_addr=0x%lx handle=%u", vm_start, offset_val.handle);
 
         mmap_wait_for_unmap_insert(offset_val.file, offset_val.handle,
                                    vm_start);
@@ -224,9 +232,8 @@ int BPF_PROG(i915_gem_userptr_ioctl,
              struct drm_file *file)
 {
         int err;
-        u32 cpu;
+        u32 handle;
         u64 size, status, cpu_addr;
-        unsigned handle;
         struct drm_i915_gem_userptr *arg;
         struct userptr_info *bin;
         
@@ -245,9 +252,11 @@ int BPF_PROG(i915_gem_userptr_ioctl,
         }
 
         cpu_addr = BPF_CORE_READ(arg, user_ptr);
+        handle = BPF_CORE_READ(arg, handle);
+        
         bin->type = BPF_EVENT_TYPE_USERPTR;
         bin->file = (u64)file;
-        bin->handle = BPF_CORE_READ(arg, handle);
+        bin->handle = handle;
         bin->cpu_addr = cpu_addr;
 
         bin->cpu = bpf_get_smp_processor_id();
@@ -268,6 +277,8 @@ int BPF_PROG(i915_gem_userptr_ioctl,
                 bin->buff_sz = 0;
         }
 #endif
+
+        bpf_printk("userptr cpu_addr=0x%lx handle=%u", cpu_addr, handle);
 
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
