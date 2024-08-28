@@ -35,7 +35,7 @@ void print_debug_profile()
                 print_debug_buffer_profile(gem);
         });
         
-        printf("Matched eustalls: %llu\n", eustall_info.matched);
-        printf("Unmatched eustalls: %llu\n", eustall_info.unmatched);
-        printf("Guessed eustalls: %llu\n", eustall_info.guessed);
+        printf("Matched eustalls: %lu\n", eustall_info.matched);
+        printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
+        printf("Guessed eustalls: %lu\n", eustall_info.guessed);
 }
