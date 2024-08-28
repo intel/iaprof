@@ -102,8 +102,6 @@ int handle_unmap(void *data_arg)
                 print_unmap(info);
         }
 
-        dump_buffer(info->buff, info->size, 0);
-        
         found = 0;
         FOR_BUFFER_PROFILE(vm, gem, {
                 if ((gem->file == info->file) &&
@@ -365,7 +363,6 @@ int handle_execbuf_end(void *data_arg)
                         "WARNING: handle_binary() returned non-zero\n");
                 goto cleanup;
         }
-        dump_buffer(gem->buff, gem->buff_sz, gem->handle);
 #endif
 
         if ((!gem->buff) || (!gem->buff_sz)) {

@@ -306,9 +306,6 @@ int handle_eustall_read(int fd)
                 handle_eustall_samples(eustall_info.perf_buf, len);
         }
 
-        if (debug) {
-                print_debug_profile();
-        }
         store_interval_flames();
 
         /* Reset for the next interval */
@@ -727,6 +724,8 @@ int main(int argc, char **argv)
         pthread_join(eustall_collect_thread_id, NULL);
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
+        
+        print_debug_profile();
 
         print_flamegraph();
 
