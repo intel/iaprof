@@ -30,16 +30,18 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
            1. Has the same vm_id as the batchbuffer for this execbuffer call.
            2. Has the same upper bits as the batchbuffer in this execbuffer call.
         */
-        if ((gmapping->vm_id != ctx->vm_id) ||
-            ((gmapping->addr & ctx->bits_to_match) != ctx->bits_to_match) ||
-            (gmapping->addr == ctx->bb_addr)) {
-                bpf_printk("vm_callback filtering vm_id=%u gpu_addr=0x%lx",
+        if (gmapping->vm_id != ctx->vm_id) {
+                bpf_printk("vm_callback filtering by vm_id vm_id=%u gpu_addr=0x%lx",
                            ctx->vm_id, gmapping->addr);
                 return 0;
-        } else {
-                bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
-                           ctx->vm_id, gmapping->addr);
         }
+        if (gmapping->addr == ctx->bb_addr) {
+                bpf_printk("vm_callback filtering by bb_addr vm_id=%u gpu_addr=0x%lx",
+                           ctx->vm_id, gmapping->addr);
+                return 0;
+        }
+        bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
+                   ctx->vm_id, gmapping->addr);
         
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
