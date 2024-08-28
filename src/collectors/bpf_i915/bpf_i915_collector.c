@@ -256,7 +256,7 @@ int handle_batchbuffer(void *data_arg)
         if (verbose) {
                 print_batchbuffer(info);
         }
-
+        
         vm = acquire_vm_profile(info->vm_id);
 
         /* Find the buffer that this batchbuffer is associated with */
@@ -268,7 +268,7 @@ int handle_batchbuffer(void *data_arg)
                 }
                 goto cleanup;
         }
-
+        
         handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
                       info->buff_sz);
 
@@ -281,9 +281,6 @@ cleanup:
 
 int handle_execbuf_start(void *data_arg)
 {
-/*         struct vm_profile *vm; */
-/*         struct buffer_profile *gem; */
-/*         uint32_t vm_id; */
         struct execbuf_start_info *info;
 
         info = (struct execbuf_start_info *)data_arg;

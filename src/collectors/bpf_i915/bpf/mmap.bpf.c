@@ -333,12 +333,13 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         cmapping.addr = addr;
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
         if (gmapping) {
-                if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
-                        bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!\n", addr);
-                }
                 if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
-                        bpf_printk("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!\n", gmapping->addr);
+                        bpf_printk("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
                 }
+        }
+        gmapping = NULL;
+        if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
+                bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", addr);
         }
 #endif
 
