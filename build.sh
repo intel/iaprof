@@ -82,6 +82,9 @@ ${CC} ${COMMON_FLAGS} -c \
 ${CC} ${COMMON_FLAGS} -c \
   ${BPF_HELPERS_DIR}/uprobe_helpers.c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
+${CC} ${COMMON_FLAGS} -c \
+  ${BPF_HELPERS_DIR}/bpf_map_helpers.c \
+  -o ${BPF_HELPERS_DIR}/bpf_map_helpers.o
 
 ####################
 #     STORES       #
@@ -191,6 +194,7 @@ ${CC} ${LDFLAGS} \
   \
   ${BPF_HELPERS_DIR}/trace_helpers.o \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
+  ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
   ${STORES_DIR}/buffer_profile.o \
   ${STORES_DIR}/proto_flame.o \
