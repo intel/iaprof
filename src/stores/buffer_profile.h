@@ -115,6 +115,12 @@ do {                                                           \
         pthread_rwlock_unlock(&vm_profiles_lock);              \
 } while (0)
 
+#define FOR_VM_PROFILE_CLEANUP()                               \
+do {                                                           \
+        unlock_vm_profile(*_vmp);                              \
+        pthread_rwlock_unlock(&vm_profiles_lock);              \
+} while (0)
+
 #define FOR_BUFFER_PROFILE(vm, gem, ...)                       \
 do {                                                           \
         uint32_t _vm_id;                                       \
@@ -133,3 +139,10 @@ do {                                                           \
         }                                                      \
         pthread_rwlock_unlock(&vm_profiles_lock);              \
 } while (0)
+
+#define FOR_BUFFER_PROFILE_CLEANUP()                           \
+do {                                                           \
+        unlock_vm_profile(*_vmp);                              \
+        pthread_rwlock_unlock(&vm_profiles_lock);              \
+} while (0)
+

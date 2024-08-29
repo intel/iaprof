@@ -60,6 +60,9 @@ struct bpf_info_t {
         int epoll_fd, rb_fd;
         struct bpf_map **map;
 
+        int buffer_copy_circular_array_fd;
+        uint64_t buffer_copy_read_head;
+
         /* Links to the BPF programs */
         struct bpf_link **links;
         size_t num_links;
@@ -81,7 +84,7 @@ struct bpf_info_t {
         /* i915_gem_vm_create_ioctl */
         struct bpf_program *vm_create_ioctl_prog;
         struct bpf_program *vm_create_ioctl_ret_prog;
-        
+
         /* i915_gem_vm_bind_ioctl */
         struct bpf_program *vm_bind_ioctl_prog;
         struct bpf_program *vm_bind_ioctl_ret_prog;

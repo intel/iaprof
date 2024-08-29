@@ -436,19 +436,8 @@ int userptr_ioctl_kretprobe(struct pt_regs *ctx)
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         size = BPF_CORE_READ(arg, user_size);
-        if (size > MAX_BINARY_SIZE) {
-                size = MAX_BINARY_SIZE;
-        }
-        bin->buff_sz = size;
-        err = bpf_probe_read_user(bin->buff, size, (void *)cpu_addr);
-        if (err) {
-                bpf_printk("WARNING: userptr_ioctl failed to copy %lu bytes.",
-                           size);
-                bin->buff_sz = 0;
-        }
-#endif
+        buffer_copy_circular_array_add((void*)cpu_addr, size);
 
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
@@ -477,7 +466,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         /* For sending to execbuffer */
         int zero = 0;
         struct unmap_info *bin;
-        
+
         struct cpu_mapping cmapping = {};
         struct gpu_mapping *gmapping;
 
@@ -491,8 +480,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         if (!val) {
                 return -1;
         }
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
+
         cmapping.size = size;
         cmapping.addr = addr;
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
@@ -504,7 +492,6 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
                         bpf_printk("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!\n", gmapping->addr);
                 }
         }
-#endif
 
         /* Reserve some space on the ringbuffer */
         bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
@@ -528,22 +515,8 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        if (size > MAX_BINARY_SIZE) {
-                size = MAX_BINARY_SIZE;
-        }
-        retval = bpf_probe_read_user(bin->buff, size, (void *)addr);
-        if (retval < 0) {
-                bpf_ringbuf_discard(bin, BPF_RB_FORCE_WAKEUP);
-                bpf_printk(
-                        "WARNING: munmap_tp failed to copy %lu bytes from handle=%u cpu_addr=0x%lx.",
-                        size, val->handle, addr);
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
-                return -1;
-        }
-#endif
-        
+        buffer_copy_circular_array_add((void*)addr, size);
+
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
 
         return 0;

@@ -5,7 +5,7 @@ CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
 CFLAGS="${CFLAGS} -O3 -fsanitize=address -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
-# EXTRA_CFLAGS="-DBUFFER_COPY_METHOD_DEBUG"
+EXTRA_CFLAGS=""
 LDFLAGS="-fsanitize=address -static-libsan"
 
 DEPS_DIR="${BASE_DIR}/deps"

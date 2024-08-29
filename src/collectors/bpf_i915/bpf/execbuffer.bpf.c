@@ -52,9 +52,9 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
             (gmapping->addr == ctx->bb_addr)) {
                 return 0;
         }
-        
+
         bpf_printk("vm_callback gpu_addr=0x%lx", gmapping->addr);
-        
+
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
                 bpf_printk(
@@ -74,30 +74,12 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
         info->gpu_addr = gmapping->addr;
         info->vm_id = ctx->vm_id;
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         addr = cmapping->addr;
         size = cmapping->size;
-        if (size > MAX_BINARY_SIZE) {
-                size = MAX_BINARY_SIZE;
-        }
-        info->buff_sz = size;
-        err = bpf_probe_read_user(info->buff, size, (const void *)addr);
-        if (err < 0) {
-                bpf_printk(
-                        "WARNING: vm_callback failed to copy %lu bytes from 0x%lx: %d",
-                        size, addr, err);
-                info->buff_sz = 0;
-                bpf_ringbuf_discard(info, 0);
-                return 0;
-        } else {
-                bpf_printk(
-                        "WARNING: vm_callback SUCCESSFULLY copied %lu bytes from 0x%lx: %d",
-                        size, addr, err);
-        }
-#endif
+        buffer_copy_circular_array_add((void*)addr, size);
 
         bpf_ringbuf_submit(info, 0);
-        
+
         return 0;
 }
 
@@ -158,7 +140,6 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 offset = 0xffffffffffffffff;
         }
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Find a possible CPU mapping for the primary batchbuffer.
            If we can, go ahead and grab a copy of it! */
         gmapping.vm_id = vm_id;
@@ -175,7 +156,6 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 cpu_addr = 0;
                 size = 0;
         }
-#endif
 
         /* Pass arguments to the kretprobe */
         __builtin_memset(&val, 0, sizeof(struct execbuffer_wait_for_ret_val));
@@ -189,7 +169,6 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
         cpu = bpf_get_smp_processor_id();
         bpf_map_update_elem(&execbuffer_wait_for_ret, &cpu, &val, 0);
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Now iterate over all buffers in the same VM as the batchbuffer */
         vm_callback_ctx.vm_id = vm_id;
         vm_callback_ctx.bits_to_match = offset & 0xffffffffff000000;
@@ -199,7 +178,6 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 bpf_printk("ERROR in vm_callback");
                 return -1;
         }
-#endif
 
         /* Reserve some space on the ringbuffer, into which we can copy things */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_start_info), 0);
@@ -211,26 +189,7 @@ int do_execbuffer_kprobe(struct pt_regs *ctx)
                 return -1;
         }
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        /* Grab a copy of the primary batchbuffer */
-        info->buff_sz = 0;
-        if (cpu_addr && size) {
-                if (size > MAX_BINARY_SIZE) {
-                        size = MAX_BINARY_SIZE;
-                }
-                err = bpf_probe_read_user(info->buff, size,
-                                          (void *)cpu_addr);
-                info->buff_sz = size;
-                if (err) {
-                        bpf_printk(
-                                "WARNING: execbuffer failed to copy %lu bytes.",
-                                size);
-                        info->buff_sz = 0;
-                }
-                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr,
-                           size);
-        }
-#endif
+        bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr, size);
 
         /* execbuffer-specific stuff */
         info->type = BPF_EVENT_TYPE_EXECBUF_START;
@@ -282,26 +241,9 @@ int do_execbuffer_kretprobe(struct pt_regs *ctx)
         if (!einfo)
                 return -1;
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Make a copy of the primary batchbuffer */
-        einfo->buff_sz = 0;
-        if (cpu_addr && size) {
-                if (size > MAX_BINARY_SIZE) {
-                        size = MAX_BINARY_SIZE;
-                }
-                err = bpf_probe_read_user(einfo->buff, size,
-                                          (void *)cpu_addr);
-                einfo->buff_sz = size;
-                if (err) {
-                        bpf_printk(
-                                "WARNING: execbuf_end failed to copy %lu bytes.",
-                                size);
-                        einfo->buff_sz = 0;
-                }
-                bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr,
-                                size);
-        }
-#endif
+        buffer_copy_circular_array_add((void*)cpu_addr, size);
+        bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr, size);
 
         einfo->type = BPF_EVENT_TYPE_EXECBUF_END;
         einfo->gpu_addr = gpu_addr;

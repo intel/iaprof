@@ -47,7 +47,7 @@ struct bb_parser {
 	   This is an offset from the iba,
 	   or Instruction Base Address. */
         uint64_t sip;
-        
+
         /* Kernel Start Pointer. Gets overwritten
            if multiple are found. */
         uint64_t ksp;
@@ -335,13 +335,13 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
 {
         struct buffer_profile *shader_gem;
         uint64_t tmp;
-        
+
         if (parser->in_cmd == 18) {
                 if (!iba) {
                         fprintf(stderr, "Want shader address, but IBA is not set yet!\n");
                         return BB_PARSER_STATUS_OK;
                 }
-                
+
                 parser->ksp = 0;
                 parser->ksp += iba;
                 parser->ksp |= (*ptr & 0xffffffc0);
@@ -421,7 +421,8 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                 fprintf(stderr,
                                         " supposed to chain somewhere,");
                                 fprintf(stderr,
-                                        " but we don't have a copy of it.\n");
+                                        " but we don't have a copy of it. (gpu_addr=0x%lx)\n",
+                                        parser->gem->gpu_addr);
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }

@@ -1,11 +1,11 @@
 /***************************************
 * i915 GEM Tracer
-* 
+*
 * The purpose of this eBPF program is to trace, and send to userspace,
 * all GEMs that are associated with an executing batchbuffer in the i915
 * driver.  This includes at a minimum the virtual address and size of the
 * buffer.
-* 
+*
 * This program works by tracing a set of functions on the memory management
 * side (functions which are used to create, allocate, bind, and/or write to
 * buffers). Each of these callpaths eventually culminates in a virtual
@@ -37,7 +37,7 @@
 *    - size
 *
 * For discrete devices, we also trace:
-* 
+*
 * A. i915_gem_vm_bind_ioctl
 *    - handle ID
 *    - GPU address
@@ -121,6 +121,59 @@ struct {
         __type(key, struct cpu_mapping);
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
+
+
+struct {
+        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __uint(max_entries, MAX_BUFFER_COPIES);
+        __type(key, u32);
+        __type(value, struct buffer_copy);
+} buffer_copy_circular_array SEC(".maps");
+
+__u64 buffer_copy_circular_array_write_head;
+__u8  buffer_copy_circular_array_occupancy[MAX_BUFFER_COPIES];
+
+int buffer_copy_circular_array_add(void *addr, u64 size) {
+        u32                 idx;
+        struct buffer_copy *bcopy;
+        int                 err;
+        struct buffer_copy  zbcopy;
+
+/*         bpf_printk("Copying a buffer onto the circular array"); */
+
+        idx = (u32)(__sync_fetch_and_add(&buffer_copy_circular_array_write_head, 1) % MAX_BUFFER_COPIES);
+
+        bcopy = bpf_map_lookup_elem(&buffer_copy_circular_array, &idx);
+
+        if (bcopy == NULL) {
+                bpf_printk("WARNING: lookup of circular array element failed");
+                return -1;
+        }
+
+        if (idx >= MAX_BUFFER_COPIES) {
+                return -1;
+        }
+
+        if (buffer_copy_circular_array_occupancy[idx]) {
+                bpf_printk("WARNING: buffer copy dropped!");
+                return -1;
+        }
+
+        buffer_copy_circular_array_occupancy[idx] = 1;
+
+        if (size > MAX_BINARY_SIZE) {
+                size = MAX_BINARY_SIZE;
+        }
+
+        __builtin_memset(bcopy->buff, 0, MAX_BUFFER_COPIES);
+        err = bpf_probe_read_user(bcopy->buff, size, addr);
+
+/*         bcopy->buff_sz = err ? 0 : size; */
+        bcopy->buff_sz = size;
+
+        return 0;
+}
+
 
 #include "mmap.bpf.c"
 

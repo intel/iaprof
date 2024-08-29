@@ -469,7 +469,7 @@ void read_bound_data(int debug_fd, struct buffer_profile *gem,
                      uint64_t gpu_addr, uint64_t size)
 {
         int fd;
-        
+
         fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, vmo);
 
         if (fd < 0) {
@@ -477,14 +477,14 @@ void read_bound_data(int debug_fd, struct buffer_profile *gem,
                         "Failed to get fd from vm_open_ioctl: %d\n", fd);
                 return;
         }
-        
+
         /* Decanonize the address */
         gpu_addr = gpu_addr & ((1ULL << 48) - 1);
-        
+
         debug_printf("vm_bind gpu_addr=0x%lx found a gem gpu_addr=0x%lx %p\n", gpu_addr, gem->gpu_addr, gem);
         handle_binary_from_fd(fd, &(gem->buff), size, gpu_addr);
         gem->buff_sz = size;
-        
+
         close(fd);
 }
 
@@ -496,17 +496,13 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
         uint64_t gpu_addr;
         char found;
-        
-#ifdef BUFFER_COPY_METHOD_DEBUG
-        struct prelim_drm_i915_debug_vm_open vmo = {};
-#endif
 
         vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
 
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
-        
+
         /* If any of the top 16 bits are set, it's an invalid address. We only want
            the bottom 48 bits. */
         gpu_addr = vm_bind->va_start;
@@ -514,13 +510,6 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                 vm_bind_counter++;
                 return;
         }
-        
-#ifdef BUFFER_COPY_METHOD_DEBUG
-        /* Initialize the vm_open struct of arguments */
-        vmo.client_handle = vm_bind->client_handle;
-        vmo.handle = vm_bind->vm_handle;
-        vmo.flags = PRELIM_I915_DEBUG_VM_OPEN_READ_ONLY;
-#endif
 
         debug_printf("vm_bind_debug vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
                vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
@@ -531,30 +520,24 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         found = 0;
         while (!found) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
-                
+
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
-#ifdef BUFFER_COPY_METHOD_DEBUG
-                                read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
-#endif
                                 found = 1;
                                 unlock_vm_profile(vm);
                                 pthread_rwlock_unlock(&vm_profiles_lock);
                                 goto out2;
                         }
                 });
-                
+
                 if (pthread_cond_wait(&debug_i915_vm_bind_cond, &debug_i915_vm_bind_lock) != 0) {
                         fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
                         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
                         goto cleanup;
                 }
-                
+
                 FOR_BUFFER_PROFILE(vm, gem, {
                         if (gem->vm_bind_order == vm_bind_counter) {
-#ifdef BUFFER_COPY_METHOD_DEBUG
-                                read_bound_data(debug_fd, gem, &vmo, gpu_addr, vm_bind->va_length);
-#endif
                                 found = 1;
                                 unlock_vm_profile(vm);
                                 pthread_rwlock_unlock(&vm_profiles_lock);

@@ -5,6 +5,7 @@
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 1024 * 1024
 #define RINGBUF_SIZE 512 * 1024 * 1024 /* 512 MB */
+#define MAX_BUFFER_COPIES 64
 
 /* GEN binary copying maximums */
 #define MAX_BINARY_SIZE 1024 * 1024
@@ -24,6 +25,11 @@ enum {
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_BATCHBUFFER,
     BPF_EVENT_TYPE_USERPTR,
+};
+
+struct buffer_copy {
+        __u64         buff_sz;
+        unsigned char buff[MAX_BINARY_SIZE];
 };
 
 /* Collected from an mmap */
@@ -50,10 +56,6 @@ struct __attribute__((packed)) unmap_info {
         __u32 handle;
         __u64 cpu_addr;
         __u64 size;
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        unsigned char buff[MAX_BINARY_SIZE];
-#endif
 
         __u32 pid, tid, cpu;
         __u64 time;
@@ -113,11 +115,6 @@ struct __attribute__((packed)) execbuf_start_info {
 
         /* The GPU address */
         __u64 bb_offset;
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        unsigned char buff[MAX_BINARY_SIZE];
-        __u64 buff_sz;
-#endif
 
         char name[TASK_COMM_LEN];
         __u32 cpu, pid, tid;
@@ -133,11 +130,6 @@ struct __attribute__((packed)) batchbuffer_info {
         __u64 time;
         __u64 gpu_addr;
         __u32 vm_id;
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        unsigned char buff[MAX_BINARY_SIZE];
-        __u64 buff_sz;
-#endif
 };
 
 /* Collected from the end of an execbuffer */
@@ -146,10 +138,6 @@ struct __attribute__((packed)) execbuf_end_info {
 
         __u32 cpu, pid, tid;
         __u64 time;
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        unsigned char buff[MAX_BINARY_SIZE];
-        __u64 buff_sz;
-#endif
         __u32 vm_id;
         __u64 gpu_addr;
         __u64 batch_start_offset, batch_len;
@@ -162,11 +150,6 @@ struct __attribute__((packed)) userptr_info {
         __u64 file;
         __u32 handle;
         __u64 cpu_addr;
-
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        __u64 buff_sz;
-        unsigned char buff[MAX_BINARY_SIZE];
-#endif
 
         __u32 pid, tid, cpu;
         __u64 time;

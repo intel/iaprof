@@ -78,7 +78,6 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
         gpu_addr = BPF_CORE_READ(arg, start);
         cpu_addr = 0;
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
         /* Get the CPU address from any mappings that have happened */
         pair.handle = handle;
         pair.file = val.file;
@@ -99,7 +98,6 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
                         bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
                 }
         }
-#endif
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
@@ -155,8 +153,6 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         vm_id = BPF_CORE_READ(arg, vm_id);
         gpu_addr = BPF_CORE_READ(arg, start);
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
-
         /* Find the CPU mapping for this GPU address */
         gmapping.vm_id = vm_id;
         gmapping.addr = gpu_addr;
@@ -168,7 +164,7 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         }
         __builtin_memcpy(&cmapping, lookup,
                          sizeof(struct cpu_mapping));
-                         
+
         /* Delete the element from the gpu_cpu_map and cpu_gpu_map */
         retval = bpf_map_delete_elem(&gpu_cpu_map, &gmapping);
         if (retval < 0) {
@@ -180,7 +176,6 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
                 bpf_printk(
                         "WARNING: vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
         }
-#endif
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);

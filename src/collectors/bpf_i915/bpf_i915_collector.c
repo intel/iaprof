@@ -33,6 +33,54 @@
 uint32_t global_vm_id = 0;
 static uint32_t vm_bind_bpf_counter = 0;
 
+static int consume_buffer_from_bpf(struct buffer_copy *bcopy) {
+        int status;
+
+/*         fprintf(stderr, "Consuming from the circular buffer copy array\n"); */
+
+        status = bpf_map_lookup_elem(bpf_info.buffer_copy_circular_array_fd,
+                                &bpf_info.buffer_copy_read_head, bcopy);
+
+        if (status != 0) {
+                fprintf(stderr,
+                        "WARNING: consume_buffer_from_bpf_into_gem() failed to lookup a map elem\n");
+        }
+
+        bpf_info.obj->bss->buffer_copy_circular_array_occupancy[bpf_info.buffer_copy_read_head] = 0;
+
+        bpf_info.buffer_copy_read_head += 1;
+        if (bpf_info.buffer_copy_read_head == MAX_BUFFER_COPIES) {
+                bpf_info.buffer_copy_read_head = 0;
+        }
+
+        return status;
+}
+
+static void drop_buffer_from_bpf() {
+        struct buffer_copy bcopy;
+
+        consume_buffer_from_bpf(&bcopy);
+}
+
+static void consume_buffer_from_bpf_into_gem(struct buffer_profile *gem) {
+        int status;
+        struct buffer_copy bcopy;
+
+        status = consume_buffer_from_bpf(&bcopy);
+        if (status != 0) {
+                return;
+        }
+
+        if (bcopy.buff_sz > 0) {
+                if (handle_binary(&(gem->buff), bcopy.buff, &(gem->buff_sz),
+                        bcopy.buff_sz) != 0) {
+
+                        fprintf(stderr,
+                                "WARNING: handle_binary() returned non-zero\n");
+                }
+        }
+}
+
 /***************************************
 * BPF Handlers
 ***************************************/
@@ -79,26 +127,28 @@ int handle_mapping(void *data_arg)
 
 int handle_unmap(void *data_arg)
 {
-        
-#ifndef BUFFER_COPY_METHOD_DEBUG
-
         struct unmap_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
+        int copy_consumed;
 
         info = (struct unmap_info *)data_arg;
         if (verbose) {
                 print_unmap(info);
         }
 
+        copy_consumed = 0;
         FOR_BUFFER_PROFILE(vm, gem, {
-                if ((gem->file == info->file) &&
-                    (gem->handle == info->handle)) {
-                        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz), info->size);
+                if (gem->file == info->file && gem->handle == info->handle) {
+                        consume_buffer_from_bpf_into_gem(gem);
+                        copy_consumed = 1;
+                        FOR_BUFFER_PROFILE_CLEANUP(); goto out;
                 }
         });
-        
-#endif
+out:;
+        if (!copy_consumed) {
+                drop_buffer_from_bpf();
+        }
 
         return 0;
 }
@@ -106,10 +156,26 @@ int handle_unmap(void *data_arg)
 int handle_userptr(void *data_arg)
 {
         struct userptr_info *info;
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
+        int copy_consumed;
 
         info = (struct userptr_info *)data_arg;
         if (verbose) {
                 print_userptr(info);
+        }
+
+        copy_consumed = 0;
+        FOR_BUFFER_PROFILE(vm, gem, {
+                if (gem->file == info->file && gem->handle == info->handle) {
+                        consume_buffer_from_bpf_into_gem(gem);
+                        copy_consumed = 1;
+                        FOR_BUFFER_PROFILE_CLEANUP(); goto out;
+                }
+        });
+out:;
+        if (!copy_consumed) {
+                drop_buffer_from_bpf();
         }
 
         return 0;
@@ -144,7 +210,7 @@ int handle_vm_bind(void *data_arg)
         if (verbose) {
                 print_vm_bind(info, vm_bind_bpf_counter);
         }
-        
+
         if (debug_collector) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
         }
@@ -165,9 +231,9 @@ int handle_vm_bind(void *data_arg)
         gem->vm_bind_order = vm_bind_bpf_counter;
 
         release_vm_profile(vm);
-        
+
 cleanup:
-        
+
         if (debug_collector) {
                 /* Signal the debug_i915 collector that there's a new vm_bind event */
                 pthread_cond_signal(&debug_i915_vm_bind_cond);
@@ -175,7 +241,7 @@ cleanup:
         pthread_mutex_unlock(&debug_i915_vm_bind_lock);
 
         wakeup_eustall_deferred_attrib_thread();
-        
+
         vm_bind_bpf_counter++;
 
         return 0;
@@ -214,7 +280,6 @@ cleanup:
 
 int handle_batchbuffer(void *data_arg)
 {
-#ifndef BUFFER_COPY_METHOD_DEBUG
         struct batchbuffer_info *info;
         struct vm_profile *vm;
         struct buffer_profile *gem;
@@ -234,15 +299,14 @@ int handle_batchbuffer(void *data_arg)
                         fprintf(stderr,
                                 "WARNING: couldn't find a buffer to store the batchbuffer in.\n");
                 }
+                drop_buffer_from_bpf();
                 goto cleanup;
         }
 
-        handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz);
+        consume_buffer_from_bpf_into_gem(gem);
 
 cleanup:
         release_vm_profile(vm);
-#endif
 
         return 0;
 }
@@ -309,42 +373,32 @@ int handle_execbuf_end(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->vm_id);
-        
+
         if (vm == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
                         info->vm_id, info->gpu_addr);
+                drop_buffer_from_bpf();
                 goto cleanup;
         }
-                
+
         gem = get_buffer_profile(vm, info->gpu_addr);
 
         if (gem == NULL) {
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u gpu_addr=0x%llx\n",
                         info->vm_id, info->gpu_addr);
+                drop_buffer_from_bpf();
                 goto cleanup;
         }
 
-#ifndef BUFFER_COPY_METHOD_DEBUG
-        /* Copy the batchbuffer that we got from the ringbuffer */
-        if (info->buff_sz == 0) {
-                goto cleanup;
-        }
-        if (handle_binary(&(gem->buff), info->buff, &(gem->buff_sz),
-                      info->buff_sz) != 0) {
-
-                fprintf(stderr,
-                        "WARNING: handle_binary() returned non-zero\n");
-                goto cleanup;
-        }
-#endif
+        consume_buffer_from_bpf_into_gem(gem);
 
         if ((!gem->buff) || (!gem->buff_sz)) {
                 fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer gpu_addr=0x%llx.\n", info->gpu_addr);
                 goto cleanup;
         }
-        
+
         /* Parse the batchbuffer */
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
         memset(&parser, 0, sizeof(struct bb_parser));
@@ -727,6 +781,9 @@ int init_bpf_i915()
                 fprintf(stderr, "Failed to attach a tracepoint!\n");
                 return -1;
         }
+
+
+        bpf_info.buffer_copy_circular_array_fd = bpf_map__fd(bpf_info.obj->maps.buffer_copy_circular_array);
 
         /* XXX: Finish vm_close support in BPF and re-enable. This should
      free up any addresses bound to the VM. */
