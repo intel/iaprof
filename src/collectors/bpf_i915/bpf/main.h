@@ -33,7 +33,7 @@ struct buffer_copy {
 };
 
 /* Collected from an mmap */
-struct __attribute__((packed)) mapping_info {
+struct mapping_info {
         __u8 type;
 
         __u64 file;
@@ -49,7 +49,7 @@ struct __attribute__((packed)) mapping_info {
 
 /* Collected from an munmap, possibly
    after execbuffer */
-struct __attribute__((packed)) unmap_info {
+struct unmap_info {
         __u8 type;
 
         __u64 file;
@@ -62,17 +62,16 @@ struct __attribute__((packed)) unmap_info {
 };
 
 /* Collected from a vm_create */
-struct __attribute__((packed)) vm_create_info {
+struct vm_create_info {
         __u8 type;
 
         __u32 pid, tid, cpu;
         __u64 time;
-        int stackid;
         __u32 vm_id;
 };
 
 /* Collected from a vm_bind */
-struct __attribute__((packed)) vm_bind_info {
+struct vm_bind_info {
         __u8 type;
 
         __u64 file;
@@ -89,7 +88,7 @@ struct __attribute__((packed)) vm_bind_info {
 };
 
 /* Collected from a vm_unbind */
-struct __attribute__((packed)) vm_unbind_info {
+struct vm_unbind_info {
         __u8 type;
 
         __u64 file;
@@ -104,7 +103,7 @@ struct __attribute__((packed)) vm_unbind_info {
 };
 
 /* Collected from the start of an execbuffer */
-struct __attribute__((packed)) execbuf_start_info {
+struct execbuf_start_info {
         __u8 type;
 
         __u32 ctx_id, vm_id;
@@ -123,7 +122,7 @@ struct __attribute__((packed)) execbuf_start_info {
 };
 
 /* Represents a copy of a batchbuffer */
-struct __attribute__((packed)) batchbuffer_info {
+struct batchbuffer_info {
         __u8 type;
 
         __u32 pid, tid, cpu;
@@ -133,18 +132,26 @@ struct __attribute__((packed)) batchbuffer_info {
 };
 
 /* Collected from the end of an execbuffer */
-struct __attribute__((packed)) execbuf_end_info {
+struct execbuf_end_info {
         __u8 type;
 
+        __u32 ctx_id, vm_id;
+        __u64 file;
+
+        __u64 batch_len;
+        __u32 batch_start_offset, batch_index, buffer_count;
+
+        /* The GPU address */
+        __u64 bb_offset;
+
+        char name[TASK_COMM_LEN];
         __u32 cpu, pid, tid;
         __u64 time;
-        __u32 vm_id;
-        __u64 gpu_addr;
-        __u64 batch_start_offset, batch_len;
+        int stackid;
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */
-struct __attribute__((packed)) userptr_info {
+struct userptr_info {
         __u8 type;
 
         __u64 file;

@@ -139,7 +139,7 @@ int buffer_copy_circular_array_add(void *addr, u64 size) {
         int                 err;
         struct buffer_copy  zbcopy;
 
-/*         bpf_printk("Copying a buffer onto the circular array"); */
+        bpf_printk("Copying a buffer onto the circular array");
 
         idx = (u32)(__sync_fetch_and_add(&buffer_copy_circular_array_write_head, 1) % MAX_BUFFER_COPIES);
 

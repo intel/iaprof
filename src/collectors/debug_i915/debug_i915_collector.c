@@ -22,7 +22,10 @@
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
+#ifdef SLOW_MODE
 static uint32_t vm_bind_counter = 0;
+#endif
+
 struct debug_i915_info_t debug_i915_info;
 pthread_rwlock_t debug_i915_info_lock;
 
@@ -488,6 +491,7 @@ void read_bound_data(int debug_fd, struct buffer_profile *gem,
         close(fd);
 }
 
+#ifdef SLOW_MODE
 void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
                           int pid_index)
 {
@@ -550,8 +554,10 @@ out2:;
 
 cleanup:
         vm_bind_counter++;
+
         return;
 }
+#endif
 
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
@@ -587,8 +593,10 @@ int read_debug_i915_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
+#ifdef SLOW_MODE
         } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
+#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */

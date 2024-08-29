@@ -56,12 +56,31 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         return total;
 }
 
-int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
+int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time)
 {
         struct offset_profile **found;
         struct offset_profile *profile;
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
+
+        vm = acquire_vm_profile(vm_id);
+
+        if (!vm) {
+                fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u\n",
+                        vm_id);
+                return -1;
+        }
+
+        gem = get_containing_buffer_profile(vm, gpu_addr);
+
+        if (!gem) {
+                fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
+                        vm_id, gpu_addr);
+                release_vm_profile(vm);
+                return -1;
+        }
 
         /* Make sure we're initialized */
         if (gem->stall_counts == NULL) {
@@ -94,15 +113,17 @@ int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
         (*found)->sync += sample->sync;
         (*found)->inst_fetch += sample->inst_fetch;
 
+        release_vm_profile(vm);
         return 0;
 }
 
 static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
         int found;
         uint64_t addr, start, end, offset, first_found_offset;
+        uint32_t first_found_vm_id;
         struct deferred_eustall deferred;
         struct vm_profile *vm;
-        struct buffer_profile *gem, *first_found_gem;
+        struct buffer_profile *gem;
 
         addr = (((uint64_t)sample->ip) << 3) + iba;
 
@@ -113,36 +134,32 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
         found = 0;
 
         first_found_offset = 0;
-        first_found_gem = NULL;
+        first_found_vm_id = 0;
 
         if (!iba) {
                 goto none_found;
         }
 
         FOR_VM_PROFILE(vm, {
-/*                 if (vm->active == 0) { */
-/*                         goto next; */
-/*                 } */
 
                 gem = get_containing_buffer_profile(vm, addr);
-                
+
                 if (gem == NULL) {
                         goto next;
                 }
-                
+
                 if (!(gem->pid)) {
                         goto next;
                 }
-                
+
                 if (!gem->is_shader) {
-                        debug_printf("Not a shader!\n");
                         goto next;
                 }
 
                 start = gem->gpu_addr;
                 end = start + gem->bind_size;
                 offset = addr - start;
-                
+
                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
                         addr, start, end, offset,
                         gem->handle, gem->vm_id,
@@ -164,7 +181,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
 
                 if (found == 1) {
                         first_found_offset = offset;
-                        first_found_gem = gem;
+                        first_found_vm_id = vm->vm_id;
                 }
 
 /* Jump here instead of continue so that the macro invokes the unlock functions. */
@@ -185,32 +202,26 @@ none_found:
 
                         if (verbose) {
                                 print_eustall_defer(sample, addr, info->subslice,
-                                                        time);
+                                                    time);
                         }
-                        eustall_info.unmatched += num_stalls_in_sample(sample);
-                } else {
-                        if (verbose) {
-                                print_eustall_drop(sample, addr, info->subslice, time);
-                        }
+                        eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
-                associate_sample(sample, first_found_gem,
-                                        addr,
-                                        first_found_offset, info->subslice,
-                                        time);
+                associate_sample(sample, first_found_vm_id,
+                                 addr, first_found_offset,
+                                 info->subslice, time);
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
                 /* We have to guess. Choose the last one that we've found. */
                 if (verbose) {
                         print_eustall_churn(sample, addr,
-                                                first_found_offset,
-                                                info->subslice, time);
+                                            first_found_offset,
+                                            info->subslice, time);
                 }
 
-                associate_sample(sample, first_found_gem,
-                                        addr,
-                                        first_found_offset, info->subslice,
-                                        time);
+                associate_sample(sample, first_found_vm_id,
+                                 addr, first_found_offset,
+                                 info->subslice, time);
                 eustall_info.guessed += num_stalls_in_sample(sample);
         }
 
@@ -251,7 +262,7 @@ void handle_deferred_eustalls() {
                 pthread_mutex_unlock(&eustall_waitlist_mtx);
                 return;
         }
-        
+
         /* Double buffer so that more eustalls can be added to the
          * wait list while we're working on the current set. */
         working = eustall_waitlist;
@@ -260,7 +271,7 @@ void handle_deferred_eustalls() {
                                 : &eustall_waitlist_a;
         array_clear(*eustall_waitlist);
         pthread_mutex_unlock(&eustall_waitlist_mtx);
-        
+
         n_waitlist = array_len(*working);
         if (n_waitlist) {
                 debug_printf("Working on %d deferred eustall samples.\n", n_waitlist);
@@ -285,7 +296,6 @@ void handle_deferred_eustalls() {
                 }
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);
-
 }
 
 void init_eustall_waitlist() {
@@ -373,4 +383,23 @@ void wakeup_eustall_deferred_attrib_thread() {
         pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
         pthread_cond_signal(&eustall_deferred_attrib_cond);
         pthread_mutex_unlock(&eustall_deferred_attrib_cond_mtx);
+}
+
+void handle_remaining_eustalls() {
+        struct timespec          spec;
+        unsigned long long       time;
+        struct deferred_eustall *it;
+        uint64_t                 addr;
+
+        /* Get the timestamp */
+        clock_gettime(CLOCK_MONOTONIC, &spec);
+        time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
+
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        array_traverse(*eustall_waitlist, it) {
+                addr = (((uint64_t)it->sample.ip) << 3) + iba;
+                print_eustall_drop(&it->sample, addr, it->info.subslice, time);
+                eustall_info.unmatched += num_stalls_in_sample(&it->sample);
+        }
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
 }

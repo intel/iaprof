@@ -4,83 +4,36 @@
 * Look for virtual addresses that userspace is trying to [un]bind.
 ***************************************/
 
-struct vm_bind_ioctl_wait_for_ret_val {
-        struct prelim_drm_i915_gem_vm_bind *arg;
-        u64 file;
-};
-
-struct {
-        __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-        __uint(max_entries, MAX_ENTRIES);
-        __type(key, u32);
-        __type(value, struct vm_bind_ioctl_wait_for_ret_val);
-} vm_bind_ioctl_wait_for_ret SEC(".maps");
-
-SEC("kprobe/i915_gem_vm_bind_ioctl")
-int vm_bind_ioctl_kprobe(struct pt_regs *ctx)
-{
-        u32 cpu;
-        struct vm_bind_ioctl_wait_for_ret_val val;
-        struct prelim_drm_i915_gem_vm_bind *arg;
-
-        __builtin_memset(&val, 0,
-                         sizeof(struct vm_bind_ioctl_wait_for_ret_val));
-        arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
-        val.arg = arg;
-        val.file = PT_REGS_PARM3(ctx);
-        cpu = bpf_get_smp_processor_id();
-
-        bpf_printk("vm_bind kprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start));
-
-        bpf_map_update_elem(&vm_bind_ioctl_wait_for_ret, &cpu, &val, 0);
-
-        return 0;
-}
-
-SEC("kretprobe/i915_gem_vm_bind_ioctl")
-int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
+SEC("fexit/i915_gem_vm_bind_ioctl")
+int BPF_PROG(i915_gem_vm_bind_ioctl,
+             struct drm_device *dev, void *data,
+             struct drm_file *file)
 {
         u32 cpu, handle, vm_id;
         u64 status, size;
-        struct prelim_drm_i915_gem_vm_bind *arg;
-        struct vm_bind_ioctl_wait_for_ret_val val;
         void *lookup;
         struct vm_bind_info *info;
+        struct prelim_drm_i915_gem_vm_bind *args;
         int retval = 0;
 
         /* For getting the cpu_addr */
         u64 cpu_addr, gpu_addr;
         struct file_handle_pair pair = {};
 
-        /* Bail if the bind failed */
-        if (PT_REGS_RC(ctx) != 0) {
-                bpf_printk("vm_bind failed");
-                return -1;
-        }
-
-        /* Grab the argument from the kprobe */
-        cpu = bpf_get_smp_processor_id();
-        lookup = bpf_map_lookup_elem(&vm_bind_ioctl_wait_for_ret, &cpu);
-        if (!lookup) {
-                bpf_printk("vm_bind kretprobe FAILED");
-                return -1;
-        }
-        __builtin_memcpy(&val, lookup,
-                         sizeof(struct vm_bind_ioctl_wait_for_ret_val));
-        arg = val.arg;
-
-        bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start));
+        args = (struct prelim_drm_i915_gem_vm_bind *)data;
 
         /* Read arguments onto the stack */
-        handle = BPF_CORE_READ(arg, handle);
-        vm_id = BPF_CORE_READ(arg, vm_id);
-        size = BPF_CORE_READ(arg, length);
-        gpu_addr = BPF_CORE_READ(arg, start);
+        handle = BPF_CORE_READ(args, handle);
+        vm_id = BPF_CORE_READ(args, vm_id);
+        size = BPF_CORE_READ(args, length);
+        gpu_addr = BPF_CORE_READ(args, start);
         cpu_addr = 0;
+        
+        bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", handle, gpu_addr);
 
         /* Get the CPU address from any mappings that have happened */
         pair.handle = handle;
-        pair.file = val.file;
+        pair.file = (u64)file;
         lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
         if (!lookup) {
                 bpf_printk("WARNING: vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx.", gpu_addr);
@@ -106,18 +59,18 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
                         "WARNING: vm_bind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
-                return -1;
+                return 0;
         }
 
         /* vm_bind specific values */
         info->type = BPF_EVENT_TYPE_VM_BIND;
-        info->file = val.file;
+        info->file = (u64)file;
         info->handle = handle;
         info->vm_id = vm_id;
         info->gpu_addr = gpu_addr;
         info->size = size;
-        info->offset = BPF_CORE_READ(arg, offset);
-        info->flags = BPF_CORE_READ(arg, flags);
+        info->offset = BPF_CORE_READ(args, offset);
+        info->flags = BPF_CORE_READ(args, flags);
 
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
@@ -127,27 +80,24 @@ int vm_bind_ioctl_kretprobe(struct pt_regs *ctx)
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
-        /* Execbuffer needs to know that this GPU addr relates to this vm_id/handle combination. */
-
-        /* 	bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", BPF_CORE_READ(arg, handle), BPF_CORE_READ(arg, start)); */
-
         return 0;
 }
 
-SEC("kprobe/i915_gem_vm_unbind_ioctl")
-int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
+SEC("fentry/i915_gem_vm_unbind_ioctl")
+int BPF_PROG(i915_gem_vm_unbind_ioctl,
+             struct drm_device *dev, void *data,
+             struct drm_file *file)
 {
         struct vm_unbind_info *info;
         struct prelim_drm_i915_gem_vm_bind *arg;
-        u64 file, status, gpu_addr;
+        u64 status, gpu_addr;
         u32 vm_id;
         struct gpu_mapping gmapping = {};
         struct cpu_mapping cmapping = {};
         int retval = 0;
         void *lookup;
 
-        arg = (struct prelim_drm_i915_gem_vm_bind *)PT_REGS_PARM2(ctx);
-        file = PT_REGS_PARM3(ctx);
+        arg = (struct prelim_drm_i915_gem_vm_bind *)data;
 
         /* Get the address and VM that's getting unbound */
         vm_id = BPF_CORE_READ(arg, vm_id);
@@ -160,7 +110,7 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
         if (!lookup) {
                 bpf_printk(
                         "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
-                return -1;
+                return 0;
         }
         __builtin_memcpy(&cmapping, lookup,
                          sizeof(struct cpu_mapping));
@@ -184,12 +134,12 @@ int vm_unbind_ioctl_kprobe(struct pt_regs *ctx)
                         "WARNING: vm_unbind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
-                return -1;
+                return 0;
         }
 
         /* vm_unbind specific values */
         info->type = BPF_EVENT_TYPE_VM_UNBIND;
-        info->file = file;
+        info->file = (u64)file;
         info->handle = BPF_CORE_READ(arg, handle);
         info->vm_id = vm_id;
         info->gpu_addr = gpu_addr;

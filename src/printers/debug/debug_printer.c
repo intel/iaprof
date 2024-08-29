@@ -34,4 +34,8 @@ void print_debug_profile()
         FOR_BUFFER_PROFILE(vm, gem, {
                 print_debug_buffer_profile(gem);
         });
+        
+        printf("Matched eustalls: %lu\n", eustall_info.matched);
+        printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
+        printf("Guessed eustalls: %lu\n", eustall_info.guessed);
 }

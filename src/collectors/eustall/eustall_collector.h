@@ -38,7 +38,7 @@ struct eustall_info_t {
         int perf_fd;
         uint8_t perf_buf[DEFAULT_USER_BUF_SIZE];
 
-        uint64_t matched, unmatched, guessed, churned;
+        uint64_t matched, unmatched, guessed, deferred;
 };
 extern struct eustall_info_t eustall_info;
 
@@ -56,7 +56,7 @@ enum eustall_status {
 struct eustall_sample;
 struct offset_profile;
 
-int associate_sample(struct eustall_sample *sample, struct buffer_profile *gem,
+int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time);
 int handle_eustall_samples(void *perf_buf, int len);
@@ -132,3 +132,5 @@ struct __attribute__((__packed__)) eustall_sample {
         unsigned short sync : 8;
         unsigned short inst_fetch : 8;
 };
+
+void handle_remaining_eustalls();

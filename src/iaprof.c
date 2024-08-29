@@ -306,9 +306,6 @@ int handle_eustall_read(int fd)
                 handle_eustall_samples(eustall_info.perf_buf, len);
         }
 
-        if (debug) {
-                print_debug_profile();
-        }
         store_interval_flames();
 
         /* Reset for the next interval */
@@ -375,8 +372,6 @@ void *eustall_collect_thread_main(void *a) {
                         }
                 }
 
-
-
                 if (n_ready) {
                         if (main_thread_should_stop != STOP_NOW) {
                                 main_thread_should_stop &= ~EUSTALL_DONE;
@@ -389,6 +384,8 @@ void *eustall_collect_thread_main(void *a) {
                 }
 next:;
         }
+
+        handle_remaining_eustalls();
 
 out:;
         return NULL;
@@ -728,9 +725,12 @@ int main(int argc, char **argv)
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
+        /* Print the final profile */
+        gettimeofday(&tv, NULL);
+        print_status_table((int)tv.tv_sec - startsecs);
+        print_debug_profile();
         print_flamegraph();
 
         free_profiles();
-
         fflush(stdout);
 }
