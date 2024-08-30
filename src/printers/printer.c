@@ -67,6 +67,19 @@ int print_userptr(struct userptr_info *info)
         return 0;
 }
 
+int print_debug_area(struct debug_area_info *info)
+{
+        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "debug_area");
+        printf(" %-*llu", TIME_LEN, (unsigned long long)0);
+        printf(" %-*u", CPU_LEN, 0);
+        printf(" %-*u", PID_LEN, info->pid);
+        printf(" %-*u", TID_LEN, 0);
+        printf(" vm_id=%u gpu_addr=0x%llx\n",
+               info->vm_id, info->gpu_addr);
+
+        return 0;
+}
+
 int print_vm_create(struct vm_create_info *info)
 {
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_create");

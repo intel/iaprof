@@ -152,7 +152,8 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                         goto next;
                 }
 
-                if (!gem->is_shader) {
+                if ((gem->type != BUFFER_TYPE_SHADER) &&
+                    (gem->type != BUFFER_TYPE_DEBUG_AREA)) {
                         goto next;
                 }
 

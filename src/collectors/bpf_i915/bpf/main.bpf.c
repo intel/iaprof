@@ -122,6 +122,62 @@ struct {
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
 
+/***************************************
+* Buffer Filters
+***************************************/
+
+char is_batchbuffer()
+{
+        
+        return 0;
+}
+
+#define DBGAREA_MAGIC 0x61657261676264
+#define SBAAREA_MAGIC 0x61657261616273
+#define TSSAREA_MAGIC 0x61657261737374
+
+char is_debug_area(unsigned char *buff, u64 size,
+                   struct gpu_mapping *gmapping, int stackid)
+{
+        u64 *ptr, status;
+        struct debug_area_info *info;
+        
+        if (size < 8) {
+                return 0;
+        }
+        
+        ptr = (u64 *)buff;
+        
+        if (!(*ptr == DBGAREA_MAGIC) &&
+            !(*ptr == SBAAREA_MAGIC) &&
+            !(*ptr == TSSAREA_MAGIC)) {
+                return 0;
+        }
+        
+        /* Send a debug area event to userspace */
+        info = bpf_ringbuf_reserve(&rb, sizeof(struct debug_area_info), 0);
+        if (!info) {
+                bpf_printk("WARNING: is_debug_area failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                bpf_printk("Unconsumed data: %lu", status);
+                return 1;
+        }
+        
+        info->type = BPF_EVENT_TYPE_DEBUG_AREA;
+        info->pid = bpf_get_current_pid_tgid() >> 32;
+        info->gpu_addr = gmapping->addr;
+        info->vm_id = gmapping->vm_id;
+        info->stackid = stackid;
+        bpf_get_current_comm(info->name, sizeof(info->name));
+        
+        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        
+        return 1;
+}
+
+/***************************************
+* Buffer copy circular array
+***************************************/
 
 struct {
         __uint(type, BPF_MAP_TYPE_ARRAY);

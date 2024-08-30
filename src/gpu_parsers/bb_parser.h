@@ -331,7 +331,8 @@ enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
 }
 
 enum bb_parser_status compute_walker(struct bb_parser *parser,
-                                            uint32_t *ptr)
+                                     uint32_t *ptr, int pid,
+                                     int stackid, char *procname)
 {
         struct buffer_profile *shader_gem;
         uint64_t tmp;
@@ -353,8 +354,12 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                 parser->ksp |= ((tmp & 0xffff) << 32);
                 shader_gem = get_containing_buffer_profile(parser->vm, parser->ksp);
                 if (shader_gem != NULL) {
-                        shader_gem->is_shader = 1;
-                        debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n", parser->vm->vm_id, shader_gem->gpu_addr);
+                        shader_gem->type = BUFFER_TYPE_SHADER;
+                        shader_gem->pid = pid;
+                        store_stack(pid, stackid, &(shader_gem->execbuf_stack_str));
+                        memcpy(shader_gem->name, procname, TASK_COMM_LEN);
+                        debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
+                                     parser->vm->vm_id, shader_gem->gpu_addr);
                 } else {
                         debug_printf("Did not find the shader for gpu_addr=0x%lx\n", parser->ksp);
                 }
@@ -446,7 +451,8 @@ char mi_batch_buffer_end(struct bb_parser *parser)
 enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_profile *gem,
-                                      uint32_t offset, uint64_t size)
+                                      uint32_t offset, uint64_t size,
+                                      int pid, int stackid, char *procname)
 {
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
@@ -805,7 +811,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         }
                         break;
                 case COMPUTE_WALKER:
-                        retval = compute_walker(parser, dword_ptr);
+                        retval = compute_walker(parser, dword_ptr, pid, stackid, procname);
                         if (retval != BB_PARSER_STATUS_OK) {
                                 return retval;
                         }

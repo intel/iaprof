@@ -25,6 +25,7 @@ enum {
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_BATCHBUFFER,
     BPF_EVENT_TYPE_USERPTR,
+    BPF_EVENT_TYPE_DEBUG_AREA,
 };
 
 struct buffer_copy {
@@ -160,6 +161,16 @@ struct userptr_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
+};
+
+/* Tells userspace that this vm/addr is a debug area. */
+struct debug_area_info {
+        __u8 type;
+        
+        __u32 pid, vm_id;
+        __u64 gpu_addr;
+        int stackid;
+        char name[TASK_COMM_LEN];
 };
 
 #endif

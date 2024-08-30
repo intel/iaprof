@@ -15,6 +15,7 @@
 struct vm_callback_ctx {
         u32 vm_id;
         u64 bits_to_match, bb_addr;
+        int stackid;
 };
 
 static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
@@ -24,11 +25,12 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
         int err;
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
+        unsigned char buff[8];
 
         /*
            We only care about this buffer if it:
            1. Has the same vm_id as the batchbuffer for this execbuffer call.
-           2. Has the same upper bits as the batchbuffer in this execbuffer call.
+           2. Isn't the primary batchbuffer (which we're copying elsewhere)
         */
         if (gmapping->vm_id != ctx->vm_id) {
                 bpf_printk("vm_callback filtering by vm_id vm_id=%u gpu_addr=0x%lx",
@@ -40,8 +42,21 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                            gmapping->vm_id, gmapping->addr);
                 return 0;
         }
-        bpf_printk("vm_callback reading vm_id=%u cpu_addr=0x%lx gpu_addr=0x%lx",
-                   gmapping->vm_id, cmapping->addr, gmapping->addr);
+
+        /* Look at the CPU mapping */
+        addr = cmapping->addr;
+        size = cmapping->size;
+
+        /* Make a copy of the first 8 bytes, read them to see what the buffer type is */
+        bpf_probe_read_user(buff, 8, (void *)addr);
+        if (is_debug_area(buff, 8, gmapping, ctx->stackid)) {
+                bpf_printk("vm_callback filtering debug area vm_id=%u gpu_addr=0x%lx",
+                           gmapping->vm_id, gmapping->addr);
+                return 0;
+        }
+
+        bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
+                   gmapping->vm_id, gmapping->addr);
 
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
@@ -62,11 +77,9 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
         info->gpu_addr = gmapping->addr;
         info->vm_id = ctx->vm_id;
 
-        addr = cmapping->addr;
-        size = cmapping->size;
         buffer_copy_circular_array_add((void*)addr, size);
 
-        bpf_ringbuf_submit(info, 0);
+        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         return 0;
 }
@@ -87,6 +100,8 @@ int BPF_PROG(i915_gem_do_execbuffer,
         struct cpu_mapping cmapping = {};
         struct gpu_mapping gmapping = {};
         struct vm_callback_ctx vm_callback_ctx = {};
+
+        int stackid;
 
         file_ptr = (u64)file;
 
@@ -143,6 +158,8 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 size = 0;
         }
 
+        stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+
         /* Now iterate over all buffers in the same VM as the batchbuffer */
         vm_callback_ctx.vm_id = vm_id;
         vm_callback_ctx.bits_to_match = offset & 0xffffffffff000000;
@@ -180,7 +197,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
         info->cpu = cpu;
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
-        info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
+        info->stackid = stackid;
         info->time = bpf_ktime_get_ns();
         bpf_get_current_comm(info->name, sizeof(info->name));
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
