@@ -17,9 +17,18 @@ void clear_interval_profiles();
 void clear_unbound_buffers();
 void print_buffer_profiles();
 
+enum buffer_type {
+        BUFFER_TYPE_UNKNOWN = 0,
+        BUFFER_TYPE_BATCHBUFFER,
+        BUFFER_TYPE_SHADER,
+        BUFFER_TYPE_DEBUG_AREA,
+};
+
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
 struct buffer_profile {
+        enum buffer_type type;
+        
         char name[TASK_COMM_LEN];
         uint64_t time;
         uint32_t cpu;
@@ -44,8 +53,6 @@ struct buffer_profile {
 
         /* The IBA (Instruction Base Address) associated with this buffer */
         uint64_t iba;
-
-        int is_shader;
 
         /* The stack where this buffer was execbuffer'd */
         char *execbuf_stack_str;
@@ -145,4 +152,3 @@ do {                                                           \
         unlock_vm_profile(*_vmp);                              \
         pthread_rwlock_unlock(&vm_profiles_lock);              \
 } while (0)
-

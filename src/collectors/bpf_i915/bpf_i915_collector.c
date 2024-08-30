@@ -41,7 +41,6 @@ struct unmapped_buffer_copy {
         uint64_t  size;
 };
 
-
 static int consume_buffer_from_bpf(struct buffer_copy *bcopy) {
         int status;
 
@@ -358,14 +357,40 @@ cleanup:
         return 0;
 }
 
-int handle_execbuf_start(void *data_arg)
+int handle_debug_area(void *data_arg)
 {
-        struct execbuf_start_info *info;
+        struct debug_area_info *info;
+        struct vm_profile *vm;
+        struct buffer_profile *gem;
 
-        info = (struct execbuf_start_info *)data_arg;
+        info = (struct debug_area_info *)data_arg;
+
         if (verbose) {
-                print_execbuf_start(info);
+                print_debug_area(info);
         }
+
+        vm = acquire_vm_profile(info->vm_id);
+
+        /* Find the buffer that this batchbuffer is associated with */
+        gem = get_buffer_profile(vm, info->gpu_addr);
+        if (gem == NULL) {
+                if (debug ) {
+                        fprintf(stderr,
+                                "WARNING: couldn't find a buffer to store the debug area in.\n");
+                }
+                goto cleanup;
+        }
+
+        gem->type = BUFFER_TYPE_DEBUG_AREA;
+        gem->pid = info->pid;
+        memcpy(gem->name, info->name, TASK_COMM_LEN);
+        if (gem->execbuf_stack_str) {
+                free(gem->execbuf_stack_str);
+        }
+        gem->execbuf_stack_str = strdup("L0 Debugger");
+
+cleanup:
+        release_vm_profile(vm);
 
         return 0;
 }
@@ -377,41 +402,12 @@ int handle_execbuf_end(void *data_arg)
         struct buffer_profile *gem;
         struct bb_parser parser;
         struct timespec parser_start, parser_end;
-        uint32_t vm_id;
 
         /* First, just print out the execbuf_end */
         info = (struct execbuf_end_info *)data_arg;
         if (verbose) {
                 print_execbuf_end(info);
         }
-
-        /* This execbuffer call needs to be associated with all GEMs that
-           are referenced by this call. Buffers can be referenced in two ways:
-           1. Directly in the execbuffer call.
-           2. Through the ctx_id (which has an associated vm_id).
-
-           Here, we'll iterate over all buffers in the given vm_id. */
-        vm_id = info->vm_id;
-        FOR_BUFFER_PROFILE(vm, gem, {
-                if (gem->vm_id == vm_id) {
-                        /* Store the execbuf information */
-                        memcpy(gem->name, info->name, TASK_COMM_LEN);
-                        gem->time = info->time;
-                        gem->cpu = info->cpu;
-                        gem->tid = info->tid;
-                        gem->ctx_id = info->ctx_id;
-
-                        if (verbose) {
-                                print_execbuf_gem(gem);
-                        }
-
-                        /* Store the stack */
-                        if (gem->execbuf_stack_str == NULL) {
-                                store_stack(info->pid, info->stackid,
-                                            &(gem->execbuf_stack_str));
-                        }
-                }
-        });
 
         vm = acquire_vm_profile(info->vm_id);
 
@@ -442,7 +438,7 @@ int handle_execbuf_end(void *data_arg)
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
         memset(&parser, 0, sizeof(struct bb_parser));
         bb_parser_parse(&parser, vm, gem, info->batch_start_offset,
-                        info->batch_len);
+                        info->batch_len, info->pid, info->stackid, info->name);
         clock_gettime(CLOCK_MONOTONIC, &parser_end);
         if (bb_debug) {
                 debug_printf("Parsed %zu dwords in %.5f seconds.\n",
@@ -488,10 +484,10 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
                 case BPF_EVENT_TYPE_VM_CREATE:     return handle_vm_create(data_arg);
                 case BPF_EVENT_TYPE_VM_BIND:       return handle_vm_bind(data_arg);
                 case BPF_EVENT_TYPE_VM_UNBIND:     return handle_vm_unbind(data_arg);
-                case BPF_EVENT_TYPE_EXECBUF_START: return handle_execbuf_start(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END:   return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_BATCHBUFFER:   return handle_batchbuffer(data_arg);
                 case BPF_EVENT_TYPE_USERPTR:       return handle_userptr(data_arg);
+                case BPF_EVENT_TYPE_DEBUG_AREA:       return handle_debug_area(data_arg);
         }
 
         fprintf(stderr,

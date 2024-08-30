@@ -36,7 +36,6 @@ int handle_userptr(void *data_arg);
 int handle_vm_bind(void *data_arg);
 int handle_vm_create(void *data_arg);
 int handle_vm_unbind(void *data_arg);
-int handle_execbuf_start(void *data_arg);
 int handle_execbuf_end(void *data_arg);
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz);
 
