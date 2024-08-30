@@ -17,8 +17,8 @@ struct vm_callback_ctx {
         u64 bits_to_match, bb_addr;
 };
 
-static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
-                        struct cpu_mapping *cmapping,
+static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
+                        struct gpu_mapping *gmapping,
                         struct vm_callback_ctx *ctx)
 {
         int err;
@@ -40,8 +40,8 @@ static long vm_callback(struct bpf_map *map, struct gpu_mapping *gmapping,
                            gmapping->vm_id, gmapping->addr);
                 return 0;
         }
-        bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
-                   gmapping->vm_id, gmapping->addr);
+        bpf_printk("vm_callback reading vm_id=%u cpu_addr=0x%lx gpu_addr=0x%lx",
+                   gmapping->vm_id, cmapping->addr, gmapping->addr);
 
         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
         if (!info) {
@@ -147,7 +147,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
         vm_callback_ctx.vm_id = vm_id;
         vm_callback_ctx.bits_to_match = offset & 0xffffffffff000000;
         vm_callback_ctx.bb_addr = offset;
-        if (bpf_for_each_map_elem(&gpu_cpu_map, vm_callback, &vm_callback_ctx,
+        if (bpf_for_each_map_elem(&cpu_gpu_map, vm_callback, &vm_callback_ctx,
                                   0) < 0) {
                 bpf_printk("ERROR in vm_callback");
                 return 0;

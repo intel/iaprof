@@ -165,7 +165,7 @@ int buffer_copy_circular_array_add(void *addr, u64 size) {
                 size = MAX_BINARY_SIZE;
         }
 
-        __builtin_memset(bcopy->buff, 0, MAX_BUFFER_COPIES);
+/*         __builtin_memset(bcopy->buff, 0, MAX_BINARY_SIZE); */
         err = bpf_probe_read_user(bcopy->buff, size, addr);
 
 /*         bcopy->buff_sz = err ? 0 : size; */
