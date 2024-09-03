@@ -51,7 +51,7 @@ static int consume_buffer_from_bpf(struct buffer_copy *bcopy) {
 
         if (status != 0) {
                 fprintf(stderr,
-                        "WARNING: consume_buffer_from_bpf_into_gem() failed to lookup a map elem\n");
+                        "WARNING: consume_buffer_from_bpf() failed to lookup a map elem\n");
         }
 
         bpf_info.obj->bss->buffer_copy_circular_array_occupancy[bpf_info.buffer_copy_read_head] = 0;
@@ -280,6 +280,9 @@ cleanup:
 
 #ifdef SLOW_MODE
         if (debug_collector) {
+
+                /* @TODO: Wait until bpf ring buffer is emtpy. */
+
                 /* Signal the debug_i915 collector that there's a new vm_bind event */
                 pthread_cond_signal(&debug_i915_vm_bind_cond);
         }
