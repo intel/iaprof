@@ -460,15 +460,6 @@ int handle_execbuf_end(void *data_arg)
 cleanup:
         release_vm_profile(vm);
 
-        if (iba) {
-                /* Associate the IBA with all buffers in this VM */
-                FOR_BUFFER_PROFILE(vm, gem, {
-                        if (gem->vm_id == info->vm_id) {
-                                gem->iba = iba;
-                        }
-                });
-        }
-
         return 0;
 }
 

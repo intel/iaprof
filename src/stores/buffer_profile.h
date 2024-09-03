@@ -28,7 +28,7 @@ enum buffer_type {
    these interval after interval. */
 struct buffer_profile {
         enum buffer_type type;
-        
+
         char name[TASK_COMM_LEN];
         uint64_t time;
         uint32_t cpu;
@@ -50,9 +50,6 @@ struct buffer_profile {
         uint64_t buff_sz;
         unsigned char *buff;
         char parsed;
-
-        /* The IBA (Instruction Base Address) associated with this buffer */
-        uint64_t iba;
 
         /* The stack where this buffer was execbuffer'd */
         char *execbuf_stack_str;
