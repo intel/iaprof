@@ -6,22 +6,29 @@
 #include "iaprof.h"
 #include "buffer_profile.h"
 
-static uint64_t vm_id_hash(uint64_t vm_id) { return vm_id; }
+
+_Atomic uint64_t iba = 0;
+
+tree(file_handle_pair_struct, buffer_object_struct) buffer_objects;
+pthread_rwlock_t buffer_objects_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 hash_table(uint64_t, vm_profile_ptr) vm_profiles;
 pthread_rwlock_t vm_profiles_lock = PTHREAD_RWLOCK_INITIALIZER;
 
+static uint64_t vm_id_hash(uint64_t vm_id) { return vm_id; }
+
 void init_profiles() {
+        buffer_objects = tree_make(file_handle_pair_struct, buffer_object_struct);
         vm_profiles = hash_table_make(uint64_t, vm_profile_ptr, vm_id_hash);
 }
 
-struct buffer_profile *get_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
-        tree_it(uint64_t, buffer_profile_struct) it;
+struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, buffer_binding_struct) it;
 
         assert(vm->lock_holder == pthread_self()
-                && "get_buffer_profile called, but vm->lock not held by this thread!");
+                && "get_binding called, but vm->lock not held by this thread!");
 
-        it = tree_lookup(vm->buffer_profiles, gpu_addr);
+        it = tree_lookup(vm->bindings, gpu_addr);
         if (tree_it_good(it)) {
                 return &tree_it_val(it);
         }
@@ -29,14 +36,14 @@ struct buffer_profile *get_buffer_profile(struct vm_profile *vm, uint64_t gpu_ad
         return NULL;
 }
 
-struct buffer_profile *get_or_create_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
-        tree_it(uint64_t, buffer_profile_struct) it;
-        struct buffer_profile new_profile;
+struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, buffer_binding_struct) it;
+        struct buffer_binding new_profile;
 
         assert(vm->lock_holder == pthread_self()
-                && "get_or_create_buffer_profile called, but vm->lock not held by this thread!");
+                && "get_or_create_binding called, but vm->lock not held by this thread!");
 
-        it = tree_lookup(vm->buffer_profiles, gpu_addr);
+        it = tree_lookup(vm->bindings, gpu_addr);
         if (tree_it_good(it)) {
                 goto found;
         }
@@ -44,80 +51,76 @@ struct buffer_profile *get_or_create_buffer_profile(struct vm_profile *vm, uint6
         memset(&new_profile, 0, sizeof(new_profile));
         new_profile.vm_id = vm->vm_id;
         new_profile.gpu_addr = gpu_addr;
-        it = tree_insert(vm->buffer_profiles, gpu_addr, new_profile);
+        it = tree_insert(vm->bindings, gpu_addr, new_profile);
 
 found:;
         return &tree_it_val(it);
 }
 
-struct buffer_profile *get_containing_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
-        tree_it(uint64_t, buffer_profile_struct) it;
-        struct buffer_profile *gem;
+struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, buffer_binding_struct) it;
+        struct buffer_binding *bind;
 
         assert(vm->lock_holder == pthread_self()
-                && "get_containing_buffer_profile called, but vm->lock not held by this thread!");
+                && "get_containing_binding called, but vm->lock not held by this thread!");
 
-        it = tree_gtr(vm->buffer_profiles, gpu_addr);
+        it = tree_gtr(vm->bindings, gpu_addr);
         tree_it_prev(it);
 
         if (!tree_it_good(it)) {
                 return NULL;
         }
 
-        gem = &tree_it_val(it);
+        bind = &tree_it_val(it);
 
-        if (gpu_addr <  gem->gpu_addr
-        ||  gpu_addr >= gem->gpu_addr + gem->bind_size) {
+        if (gpu_addr <  bind->gpu_addr
+        ||  gpu_addr >= bind->gpu_addr + bind->bind_size) {
 
                 return NULL;
         }
 
-        return gem;
+        return bind;
 }
 
-static void clear_stalls(struct buffer_profile *gem) {
+static void clear_stalls(struct buffer_binding *bind) {
         uint64_t offset, *tmp;
         struct offset_profile **found;
 
-        if (gem->stall_counts != NULL) {
-                hash_table_traverse(gem->stall_counts,
+        if (bind->stall_counts != NULL) {
+                hash_table_traverse(bind->stall_counts,
                                         offset, tmp)
                 {
                         (void)offset;
                         found = (struct offset_profile **)tmp;
                         free(*found);
                 }
-                hash_table_free(gem->stall_counts);
-                gem->stall_counts = NULL;
+                hash_table_free(bind->stall_counts);
+                bind->stall_counts = NULL;
         }
 }
 
-void free_buffer_profile(struct buffer_profile *gem) {
-        clear_stalls(gem);
-        if (gem->buff != NULL) {
-                free(gem->buff);
-                gem->buff = NULL;
+static void free_binding(struct buffer_binding *bind) {
+        clear_stalls(bind);
+
+        if (bind->execbuf_stack_str != NULL) {
+            free(bind->execbuf_stack_str);
+            bind->execbuf_stack_str = NULL;
         }
 
-        if (gem->execbuf_stack_str != NULL) {
-            free(gem->execbuf_stack_str);
-            gem->execbuf_stack_str = NULL;
-        }
-
-        if (gem->kv != NULL) {
-            iga_fini(gem->kv);
-            gem->kv = NULL;
+        if (bind->kv != NULL) {
+            iga_fini(bind->kv);
+            bind->kv = NULL;
         }
 }
 
-void free_buffer_profiles(tree(uint64_t, buffer_profile_struct) buffer_profiles) {
-        tree_it(uint64_t, buffer_profile_struct) it;
+static void free_bindings(tree(uint64_t, buffer_binding_struct) buffer_bindings) {
+        tree_it(uint64_t, buffer_binding_struct) it;
 
-        tree_traverse(buffer_profiles, it) {
-                free_buffer_profile(&tree_it_val(it));
+        tree_traverse(buffer_bindings, it) {
+                free_binding(&tree_it_val(it));
         }
 
-        tree_free(buffer_profiles);
+        tree_free(buffer_bindings);
 }
 
 void free_profiles() {
@@ -132,7 +135,7 @@ void free_profiles() {
 
                 vm = *vmp;
 
-                free_buffer_profiles(vm->buffer_profiles);
+                free_bindings(vm->bindings);
 
                 free(vm);
         }
@@ -143,74 +146,64 @@ void free_profiles() {
          * past this point. */
 }
 
-void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr) {
-        tree_it(uint64_t, buffer_profile_struct) it;
+void delete_binding(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, buffer_binding_struct) it;
 
         assert(vm->lock_holder == pthread_self()
-                && "delete_buffer_profile called, but vm->lock not held by this thread!");
+                && "delete_binding called, but vm->lock not held by this thread!");
 
-        it = tree_lookup(vm->buffer_profiles, gpu_addr);
+        it = tree_lookup(vm->bindings, gpu_addr);
         if (!tree_it_good(it)) {
                 return;
         }
 
-        free_buffer_profile(&tree_it_val(it));
-        tree_delete(vm->buffer_profiles, gpu_addr);
+/*         free_binding(&tree_it_val(it)); */
+        tree_delete(vm->bindings, gpu_addr);
 }
 
-_Atomic uint64_t iba = 0;
-
-void print_buffer_profiles()
+void print_bindings()
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
         if (!debug)
                 return;
 
-        printf( "==== BUFFER_PROFILE_ARR =====\n");
+        printf( "==== BINDINGS ====\n");
 
-        FOR_BUFFER_PROFILE(vm, gem, {
+        FOR_BINDING(vm, bind, {
                 printf(
-                        "vm_id=%u gpu_addr=0x%lx buff_sz=%zu\n",
-                        gem->vm_id, gem->gpu_addr, gem->buff_sz);
+                        "vm_id=%u gpu_addr=0x%lx\n",
+                        bind->vm_id, bind->gpu_addr);
         });
 }
 
 void clear_interval_profiles()
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
-        FOR_BUFFER_PROFILE(vm, gem, {
-                clear_stalls(gem);
+        FOR_BINDING(vm, bind, {
+                clear_stalls(bind);
         });
 }
 
 void clear_unbound_buffers()
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
 again:;
-        FOR_BUFFER_PROFILE(vm, gem, {
-                if (gem->unbound) {
-                        delete_buffer_profile(vm, gem->gpu_addr);
+        FOR_BINDING(vm, bind, {
+                if (bind->unbound) {
+                        delete_binding(vm, bind->gpu_addr);
 
                         /* Iterator is invalid due to deletion. Start search again. */
 
                         /* An alternative approach would be to store all to-be-deleted
-                         * buffer IDs in an array and then call delete_buffer_profile()
+                         * buffer IDs in an array and then call delete_binding()
                          * for each of those. This seems simpler. */
-
-                        /* The FOR_BUFFER_PROFILE macro locks both the vm_profiles_lock
-                         * and the vm_profile itself, but if we break like this, it won't
-                         * have a chance to release them. Do that manually. */
-
-                        unlock_vm_profile(vm);
-                        pthread_rwlock_unlock(&vm_profiles_lock);
-
-                        goto again;
+                        FOR_BINDING_CLEANUP(); goto again;
                 }
         });
 }
@@ -234,7 +227,7 @@ static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
 
         pthread_mutex_init(&vm->lock, NULL);
         vm->vm_id = vm_id;
-        vm->buffer_profiles = tree_make(uint64_t, buffer_profile_struct);
+        vm->bindings = tree_make(uint64_t, buffer_binding_struct);
 
         hash_table_insert(vm_profiles, (uint64_t)vm_id, vm);
 
@@ -283,4 +276,83 @@ struct vm_profile *acquire_vm_profile(uint32_t vm_id) {
 void release_vm_profile(struct vm_profile *vm) {
         unlock_vm_profile(vm);
         pthread_rwlock_unlock(&vm_profiles_lock);
+}
+
+
+void lock_buffer(struct buffer_object *bo) {
+        pthread_mutex_lock(&bo->lock);
+        bo->lock_holder = pthread_self();
+}
+
+void unlock_buffer(struct buffer_object *bo) {
+        assert(bo->lock_holder == pthread_self()
+                && "attempt to unlock a buffer_object by a thread that does not own the lock!");
+        bo->lock_holder = 0;
+        pthread_mutex_unlock(&bo->lock);
+}
+
+static struct buffer_object *_get_buffer(uint64_t file, uint32_t handle, int create) {
+        struct file_handle_pair pair;
+        tree_it(file_handle_pair_struct, buffer_object_struct) it;
+        struct buffer_object new_buffer;
+
+        pair.file = file;
+        pair.handle = handle;
+
+        it = tree_lookup(buffer_objects, pair);
+        if (tree_it_good(it)) {
+                goto found;
+        }
+
+        if (!create) {
+                return NULL;
+        }
+
+        memset(&new_buffer, 0, sizeof(new_buffer));
+
+        new_buffer.file = file;
+        new_buffer.handle = handle;
+        pthread_mutex_init(&new_buffer.lock, NULL);
+        it = tree_insert(buffer_objects, pair, new_buffer);
+
+found:;
+        return &tree_it_val(it);
+}
+
+struct buffer_object *create_buffer(uint64_t file, uint32_t handle) {
+        struct buffer_object *bo;
+
+        pthread_rwlock_wrlock(&buffer_objects_lock);
+        _get_buffer(file, handle, 1);
+        pthread_rwlock_unlock(&buffer_objects_lock);
+
+        pthread_rwlock_rdlock(&buffer_objects_lock);
+        bo = _get_buffer(file, handle, 0);
+
+        assert(bo != NULL && "failed to create buffer");
+
+        lock_buffer(bo);
+
+        return bo;
+}
+
+struct buffer_object *acquire_buffer(uint64_t file, uint32_t handle) {
+        struct buffer_object *bo;
+
+        pthread_rwlock_rdlock(&buffer_objects_lock);
+
+        bo = _get_buffer(file, handle, 0);
+
+        if (bo == NULL) {
+                pthread_rwlock_unlock(&buffer_objects_lock);
+        } else  {
+                lock_buffer(bo);
+        }
+
+        return bo;
+}
+
+void release_buffer(struct buffer_object *bo) {
+        unlock_buffer(bo);
+        pthread_rwlock_unlock(&buffer_objects_lock);
 }

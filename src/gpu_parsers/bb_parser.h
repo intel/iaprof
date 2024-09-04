@@ -35,7 +35,8 @@ struct bb_parser {
         uint8_t cur_num_dwords;
 
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
+        struct buffer_object *bo;
 
         /* Bookkeeping. Number of dwords that we've parsed. */
         uint64_t num_dwords;
@@ -246,17 +247,21 @@ uint32_t op_len(uint32_t *bb)
 
 char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
-        gem = get_containing_buffer_profile(parser->vm, bbsp);
-        if (gem != NULL) {
+        bind = get_containing_binding(parser->vm, bbsp);
+        if (bind != NULL) {
                 if (bb_debug) {
                         printf("Found a matching batch buffer ");
                         printf("to jump to. vm_id=%u gpu_addr=0x%lx\n",
-                                gem->vm_id,
-                                gem->gpu_addr);
+                                bind->vm_id,
+                                bind->gpu_addr);
                 }
-                parser->gem = gem;
+                if (parser->bo != NULL) {
+                        release_buffer(parser->bo);
+                }
+                parser->bind = bind;
+                parser->bo = acquire_buffer(parser->bind->file, parser->bind->handle);
                 return 1;
         }
 
@@ -334,7 +339,7 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid,
                                      int stackid, char *procname)
 {
-        struct buffer_profile *shader_gem;
+        struct buffer_binding *shader_bind;
         uint64_t tmp;
         uint64_t tmp_iba;
 
@@ -352,14 +357,14 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
         } else if (parser->in_cmd == 19) {
                 tmp = *ptr;
                 parser->ksp |= ((tmp & 0xffff) << 32);
-                shader_gem = get_containing_buffer_profile(parser->vm, parser->ksp);
-                if (shader_gem != NULL) {
-                        shader_gem->type = BUFFER_TYPE_SHADER;
-                        shader_gem->pid = pid;
-                        store_stack(pid, stackid, &(shader_gem->execbuf_stack_str));
-                        memcpy(shader_gem->name, procname, TASK_COMM_LEN);
+                shader_bind = get_containing_binding(parser->vm, parser->ksp);
+                if (shader_bind != NULL) {
+                        shader_bind->type = BUFFER_TYPE_SHADER;
+                        shader_bind->pid = pid;
+                        store_stack(pid, stackid, &(shader_bind->execbuf_stack_str));
+                        memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
-                                     parser->vm->vm_id, shader_gem->gpu_addr);
+                                     parser->vm->vm_id, shader_bind->gpu_addr);
                 } else {
                         debug_printf("Did not find the shader for gpu_addr=0x%lx\n", parser->ksp);
                 }
@@ -420,7 +425,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
 
-                if (!(parser->gem->buff)) {
+                if (!(parser->bo)) {
                         /* We know we're supposed to jump *somewhere*,
 			 * but can't. */
                         if (bb_debug) {
@@ -429,7 +434,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                         " supposed to chain somewhere,");
                                 fprintf(stderr,
                                         " but we don't have a copy of it. (gpu_addr=0x%lx)\n",
-                                        parser->gem->gpu_addr);
+                                        parser->bind->gpu_addr);
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
@@ -450,7 +455,7 @@ char mi_batch_buffer_end(struct bb_parser *parser)
 
 enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
-                                      struct buffer_profile *gem,
+                                      struct buffer_binding *bind,
                                       uint32_t offset, uint64_t size,
                                       int pid, int stackid, char *procname)
 {
@@ -459,30 +464,39 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         enum bb_parser_status retval;
         char noop_debug;
 
-        gem->parsed = 1;
-
         /* Loop over 32-bit dwords. */
         parser->pc_depth = 1;
-        parser->pc[parser->pc_depth] = gem->gpu_addr + offset;
+        parser->pc[parser->pc_depth] = bind->gpu_addr + offset;
         parser->batch_len[parser->pc_depth] = size;
         parser->vm = acquired_vm;
-        parser->gem = gem;
+        parser->bind = bind;
         parser->in_cmd = 0;
         parser->cur_cmd = 0;
         parser->num_dwords = 0;
         noops = 0; noop_debug = 0;
+
+        parser->bo = acquire_buffer(parser->bind->file, parser->bind->handle);
+        if (parser->bo == NULL) {
+                fprintf(stderr,
+                        "WARNING: can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
+                        parser->bind->vm_id, parser->bind->gpu_addr);
+                retval = BB_PARSER_STATUS_NOTFOUND;
+                goto out;
+        }
+
         while (parser->pc_depth > 0) {
                 off = parser->pc[parser->pc_depth] -
-                      parser->gem->gpu_addr;
-                dword_ptr = (uint32_t *)(parser->gem->buff + off);
+                      parser->bind->gpu_addr;
+                dword_ptr = (uint32_t *)(parser->bo->buff + off);
 
                 /* First check if we're overflowing the buffer */
-                if (off >= parser->gem->buff_sz) {
+                if (off >= parser->bo->buff_sz) {
                         if (bb_debug) {
                                 printf("Stop because of buffer size. off=0x%lx sz=0x%lx\n",
-                                       off, parser->gem->buff_sz);
+                                       off, parser->bo->buff_sz);
                         }
-                        return BB_PARSER_STATUS_BUFF_OVERFLOW;
+                        retval = BB_PARSER_STATUS_BUFF_OVERFLOW;
+                        goto out;
                 }
 
                 #if 0
@@ -492,7 +506,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                    Should we do the same...? */
                 if (parser->batch_len[parser->pc_depth]) {
                         root_off = parser->pc[parser->pc_depth] -
-                                   gem->gpu_addr - offset;
+                                   bind->gpu_addr - offset;
                         if (root_off >= parser->batch_len[parser->pc_depth]) {
                                 /* Make sure we stop once we get to the end of the
                                    first-level batchbuffer commands (which in the i915
@@ -503,7 +517,8 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                                parser->batch_len
                                                        [parser->pc_depth]);
                                 }
-                                return BB_PARSER_STATUS_OK;
+                                retval = BB_PARSER_STATUS_OK;
+                                goto out;
                         }
                 }
                 #endif
@@ -569,7 +584,8 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                                 printf("Too many NOOPs!\n");
                                         }
                                         bb_debug = noop_debug;
-                                        return BB_PARSER_STATUS_OK;
+                                        retval = BB_PARSER_STATUS_OK;
+                                        goto out;
                                 }
 
                                 parser->cur_cmd = MI_NOOP;
@@ -757,13 +773,13 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 case MI_BATCH_BUFFER_START:
                         retval = mi_batch_buffer_start(parser, dword_ptr);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 case MI_PRT_BATCH_BUFFER_START:
                         retval = mi_batch_buffer_start(parser, dword_ptr);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 case MI_BATCH_BUFFER_END:
@@ -774,18 +790,18 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 case MI_LOAD_REGISTER_IMM:
                         retval = mi_load_register_imm(parser, dword_ptr);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 case MI_PREDICATE:
                         retval = mi_predicate(parser, dword_ptr);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 case MI_SEMAPHORE_WAIT:
-                        return BB_PARSER_STATUS_OK;
-                        break;
+                        retval = BB_PARSER_STATUS_OK;
+                        goto out;
                 case STATE_BASE_ADDRESS:
                         if (parser->in_cmd == 10) {
                                 /* The eleventh dword in STATE_BASE_ADDRESS stores
@@ -813,7 +829,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 case COMPUTE_WALKER:
                         retval = compute_walker(parser, dword_ptr, pid, stackid, procname);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 }
@@ -841,8 +857,13 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 }
         }
 
+out:;
+        if (parser->bo != NULL) {
+                release_buffer(parser->bo);
+        }
+
         if (bb_debug) {
                 printf("Finished batchbuffer parsing.\n");
         }
-        return BB_PARSER_STATUS_OK;
+        return retval;
 }

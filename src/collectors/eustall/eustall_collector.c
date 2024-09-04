@@ -63,7 +63,7 @@ int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
         struct offset_profile **found;
         struct offset_profile *profile;
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
         vm = acquire_vm_profile(vm_id);
 
@@ -73,9 +73,9 @@ int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
                 return -1;
         }
 
-        gem = get_containing_buffer_profile(vm, gpu_addr);
+        bind = get_containing_binding(vm, gpu_addr);
 
-        if (!gem) {
+        if (!bind) {
                 fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
                         vm_id, gpu_addr);
                 release_vm_profile(vm);
@@ -83,23 +83,23 @@ int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
         }
 
         /* Make sure we're initialized */
-        if (gem->stall_counts == NULL) {
-                gem->stall_counts =
+        if (bind->stall_counts == NULL) {
+                bind->stall_counts =
                         hash_table_make(uint64_t, uint64_t, uint64_t_hash);
         }
 
         if (verbose) {
-                print_eustall(sample, gpu_addr, offset, gem->handle, subslice,
+                print_eustall(sample, gpu_addr, offset, bind->handle, subslice,
                               time);
         }
 
         /* Check if this offset has been seen yet */
         found = (struct offset_profile **)hash_table_get_val(
-                gem->stall_counts, offset);
+                bind->stall_counts, offset);
         if (!found) {
                 /* We have to allocate a struct of counts */
                 profile = calloc(1, sizeof(struct offset_profile));
-                hash_table_insert(gem->stall_counts, offset,
+                hash_table_insert(bind->stall_counts, offset,
                                   (uint64_t)profile);
                 found = &profile;
         }
@@ -123,7 +123,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
         uint32_t first_found_vm_id;
         struct deferred_eustall deferred;
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
         addr = (((uint64_t)sample->ip) << 3) + iba;
 
@@ -140,31 +140,31 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                 goto none_found;
         }
 
-        FOR_VM_PROFILE(vm, {
+        FOR_VM(vm, {
 
-                gem = get_containing_buffer_profile(vm, addr);
+                bind = get_containing_binding(vm, addr);
 
-                if (gem == NULL) {
+                if (bind == NULL) {
                         goto next;
                 }
 
-                if (!(gem->pid)) {
+                if (!(bind->pid)) {
                         goto next;
                 }
 
-                if ((gem->type != BUFFER_TYPE_SHADER) &&
-                    (gem->type != BUFFER_TYPE_DEBUG_AREA)) {
+                if ((bind->type != BUFFER_TYPE_SHADER) &&
+                    (bind->type != BUFFER_TYPE_DEBUG_AREA)) {
                         goto next;
                 }
 
-                start = gem->gpu_addr;
-                end = start + gem->bind_size;
+                start = bind->gpu_addr;
+                end = start + bind->bind_size;
                 offset = addr - start;
 
                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
                         addr, start, end, offset,
-                        gem->handle, gem->vm_id,
-                        gem->gpu_addr, iba);
+                        bind->handle, bind->vm_id,
+                        bind->gpu_addr, iba);
 
                 if ((addr - start) > MAX_BINARY_SIZE) {
                         if (debug) {
@@ -172,7 +172,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                                         "WARNING: eustall gpu_addr=0x%lx",
                                         addr);
                                 fprintf(stderr, " lands in handle=%u,",
-                                        gem->handle);
+                                        bind->handle);
                                 fprintf(stderr,
                                         " which is bigger than MAX_BINARY_SIZE.\n");
                         }

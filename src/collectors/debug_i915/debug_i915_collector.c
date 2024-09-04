@@ -467,36 +467,13 @@ cleanup:
         return;
 }
 
-void read_bound_data(int debug_fd, struct buffer_profile *gem,
-                     struct prelim_drm_i915_debug_vm_open *vmo,
-                     uint64_t gpu_addr, uint64_t size)
-{
-        int fd;
-
-        fd = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_VM_OPEN, vmo);
-
-        if (fd < 0) {
-                fprintf(stderr,
-                        "Failed to get fd from vm_open_ioctl: %d\n", fd);
-                return;
-        }
-
-        /* Decanonize the address */
-        gpu_addr = gpu_addr & ((1ULL << 48) - 1);
-
-        debug_printf("vm_bind gpu_addr=0x%lx found a gem gpu_addr=0x%lx %p\n", gpu_addr, gem->gpu_addr, gem);
-        handle_binary_from_fd(fd, &(gem->buff), size, gpu_addr);
-        gem->buff_sz = size;
-
-        close(fd);
-}
 
 #ifdef SLOW_MODE
 void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
                           int pid_index)
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
         struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
         uint64_t gpu_addr;
         char found;
@@ -525,12 +502,10 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
         while (!found) {
                 pthread_mutex_lock(&debug_i915_vm_bind_lock);
 
-                FOR_BUFFER_PROFILE(vm, gem, {
-                        if (gem->vm_bind_order == vm_bind_counter) {
+                FOR_BINDING(vm, bind, {
+                        if (bind->vm_bind_order == vm_bind_counter) {
                                 found = 1;
-                                unlock_vm_profile(vm);
-                                pthread_rwlock_unlock(&vm_profiles_lock);
-                                goto out2;
+                                FOR_BINDING_CLEANUP(); goto out;
                         }
                 });
 
@@ -540,15 +515,13 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                         goto cleanup;
                 }
 
-                FOR_BUFFER_PROFILE(vm, gem, {
-                        if (gem->vm_bind_order == vm_bind_counter) {
+                FOR_BINDING(vm, bind, {
+                        if (bind->vm_bind_order == vm_bind_counter) {
                                 found = 1;
-                                unlock_vm_profile(vm);
-                                pthread_rwlock_unlock(&vm_profiles_lock);
-                                goto out2;
+                                FOR_BINDING_CLEANUP(); goto out;
                         }
                 });
-out2:;
+out:;
                 pthread_mutex_unlock(&debug_i915_vm_bind_lock);
         }
 

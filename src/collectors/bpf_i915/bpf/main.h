@@ -14,6 +14,12 @@
 #define I915_EXEC_BATCH_FIRST (1 << 18)
 #endif
 
+struct file_handle_pair {
+        __u64 file;
+        __u32 handle;
+};
+
+
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
     BPF_EVENT_TYPE_MAPPING,
@@ -166,7 +172,7 @@ struct userptr_info {
 /* Tells userspace that this vm/addr is a debug area. */
 struct debug_area_info {
         __u8 type;
-        
+
         __u32 pid, vm_id;
         __u64 gpu_addr;
         int stackid;

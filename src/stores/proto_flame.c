@@ -36,69 +36,80 @@ uint64_t grow_proto_flames()
         proto_flame_used++;
         return proto_flame_used - 1;
 }
-void store_cpu_side(uint64_t index, struct buffer_profile *gem)
+void store_cpu_side(uint64_t index, struct buffer_binding *bind)
 {
-        proto_flame_arr[index].proc_name = strdup(gem->name);
-        proto_flame_arr[index].pid = gem->pid;
-        if (gem->execbuf_stack_str) {
+        proto_flame_arr[index].proc_name = strdup(bind->name);
+        proto_flame_arr[index].pid = bind->pid;
+        if (bind->execbuf_stack_str) {
                 proto_flame_arr[index].cpu_stack =
-                        strdup(gem->execbuf_stack_str);
+                        strdup(bind->execbuf_stack_str);
         } else {
                 proto_flame_arr[index].cpu_stack = NULL;
         }
 }
 
 /* Returns 0 on success, -1 for failure */
-char get_insn_text(struct buffer_profile *gem, uint64_t offset,
+char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
+        struct buffer_object *bo;
+
+        retval = 0;
+
+        bo = acquire_buffer(bind->file, bind->handle);
 
         /* If we don't have a copy, can't disassemble it! */
-        if (!(gem->buff_sz)) {
+        if (!(bo->buff_sz)) {
                 if (debug) {
                         fprintf(stderr,
-                                "WARNING: Don't have a copy of vm_id=%u, gpu_addr=0x%lx so can't decode.\n",
-                                gem->vm_id, gem->gpu_addr);
+                                "WARNING: Don't have a copy of vm_id=%u gpu_addr=0x%lx so can't decode.\n",
+                                bind->vm_id, bind->gpu_addr);
                 }
-                return -1;
+                retval = -1;
+                goto out;
         }
 
         /* Paranoid check */
-        if (offset >= gem->buff_sz) {
+        if (offset >= bo->buff_sz) {
                 if (debug) {
                         fprintf(stderr,
                                 "WARNING: Got an EU stall past the end of a buffer. ");
                         fprintf(stderr,
-                                "vm_id=%u gpu_addr=0x%lx offset=0x%lx buff_sz=%lu\n",
-                                gem->vm_id, gem->gpu_addr, offset, gem->buff_sz);
+                                "file=0x%lx handle=%u offset=0x%lx buff_sz=%lu\n",
+                                bo->file, bo->handle, offset, bo->buff_sz);
                 }
-                return -1;
+                retval = -1;
+                goto out;
         }
 
         /* Initialize the kernel view */
-        if (!gem->kv) {
-                gem->kv = iga_init(gem->buff, gem->buff_sz);
-                if (!gem->kv) {
+        if (!bind->kv) {
+                bind->kv = iga_init(bo->buff, bo->buff_sz);
+                if (!bind->kv) {
                         if (debug) {
                                 fprintf(stderr,
                                         "WARNING: Failed to initialize IGA.\n");
                         }
-                        return -1;
+                        retval = -1;
+                        goto out;
                 }
         }
 
         /* Disassemble */
-        retval = iga_disassemble_insn(gem->kv, offset, insn_text,
+        retval = iga_disassemble_insn(bind->kv, offset, insn_text,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        fprintf(stderr, "WARNING: Disassembly failed on vm_id=%u, gpu_addr=0x%lx\n", gem->vm_id, gem->gpu_addr);
+                        fprintf(stderr, "WARNING: Disassembly failed on file=0x%lx handle=%u\n", bo->file, bo->handle);
                 }
-                return -1;
+                goto out;
         }
 
-        return 0;
+out:;
+        release_buffer(bo);
+
+        return retval;
 }
 
 void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,
@@ -113,7 +124,7 @@ void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,
 }
 
 /* Prints the flamegraph for a single kernel */
-void store_kernel_flames(struct buffer_profile *gem)
+void store_kernel_flames(struct buffer_binding *bind)
 {
         uint64_t offset, *tmp, addr, index;
         struct offset_profile **found;
@@ -123,76 +134,76 @@ void store_kernel_flames(struct buffer_profile *gem)
         size_t insn_text_len;
 
         if (debug) {
-                debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", gem->vm_id, gem->gpu_addr,
-                       gem->pid);
+                debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", bind->vm_id, bind->gpu_addr,
+                       bind->pid);
         }
 
         /* Iterate over the offsets that we have EU stalls for */
-        hash_table_traverse(gem->stall_counts, offset, tmp)
+        hash_table_traverse(bind->stall_counts, offset, tmp)
         {
                 found = (struct offset_profile **)tmp;
 
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
                 insn_text_len = 0;
-                retval = get_insn_text(gem, offset, &insn_text, &insn_text_len);
+                retval = get_insn_text(bind, offset, &insn_text, &insn_text_len);
                 if (retval != 0) {
                         insn_text = failed_decode;
                 }
 
-                addr = gem->gpu_addr + offset;
+                addr = bind->gpu_addr + offset;
 
                 if ((*found)->active) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "active", (*found)->active, addr,
                                        offset, insn_text);
                 }
                 if ((*found)->other) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "other", (*found)->other, addr,
                                        offset, insn_text);
                 }
                 if ((*found)->control) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "control", (*found)->control,
                                        addr, offset, insn_text);
                 }
                 if ((*found)->pipestall) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "pipestall", (*found)->pipestall,
                                        addr, offset, insn_text);
                 }
                 if ((*found)->send) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "send", (*found)->send, addr,
                                        offset, insn_text);
                 }
                 if ((*found)->dist_acc) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "dist_acc", (*found)->dist_acc,
                                        addr, offset, insn_text);
                 }
                 if ((*found)->sbid) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "sbid", (*found)->sbid, addr,
                                        offset, insn_text);
                 }
                 if ((*found)->sync) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "sync", (*found)->sync, addr,
                                        offset, insn_text);
                 }
                 if ((*found)->inst_fetch) {
                         index = grow_proto_flames();
-                        store_cpu_side(index, gem);
+                        store_cpu_side(index, bind);
                         store_gpu_side(index, "inst_fetch",
                                        (*found)->inst_fetch, addr, offset,
                                        insn_text);
@@ -207,16 +218,16 @@ void store_kernel_flames(struct buffer_profile *gem)
 void store_interval_flames()
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
-        FOR_BUFFER_PROFILE(vm, gem, {
+        FOR_BINDING(vm, bind, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
-                if (gem->stall_counts == NULL) {
+                if (bind->stall_counts == NULL) {
                         goto next;
                 }
 
-                store_kernel_flames(gem);
+                store_kernel_flames(bind);
 
 /* Jump here so that the macro releases locks. */
 next:;

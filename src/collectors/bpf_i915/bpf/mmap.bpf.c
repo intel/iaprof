@@ -27,11 +27,6 @@
 * once executed, further down in this program.
 ***************************************/
 
-struct file_handle_pair {
-        u64 file;
-        u32 handle;
-};
-
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
         __uint(max_entries, MAX_ENTRIES);

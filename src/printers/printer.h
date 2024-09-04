@@ -20,7 +20,7 @@ int print_vm_create(struct vm_create_info *info);
 int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter);
 int print_vm_unbind(struct vm_unbind_info *info);
 int print_batchbuffer(struct batchbuffer_info *info);
-int print_execbuf_gem(struct buffer_profile *gem);
+int print_execbuf_buffer(struct buffer_binding *bind);
 int print_execbuf_end(struct execbuf_end_info *einfo);
 
 int print_total_eustall(uint64_t num, unsigned long long time);

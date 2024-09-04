@@ -11,30 +11,30 @@
 
 #include "utils/utils.h"
 
-void print_debug_buffer_profile(struct buffer_profile *gem)
+void print_debug_binding(struct buffer_binding *bind)
 {
         printf("buffer handle=%u gpu_addr=0x%lx vm_id=%u has_stalls=%u\n",
-               gem->handle, gem->gpu_addr, gem->vm_id,
-               gem->stall_counts != NULL);
+               bind->handle, bind->gpu_addr, bind->vm_id,
+               bind->stall_counts != NULL);
 }
 
 /* Prints all GPU kernels that we found */
 void print_debug_profile()
 {
         struct vm_profile *vm;
-        struct buffer_profile *gem;
+        struct buffer_binding *bind;
 
         if (!debug) {
                 return;
         }
 
-        debug_printf("buffer_profiles\n");
+        debug_printf("buffer_bindings\n");
 
         /* Iterate over each buffer */
-        FOR_BUFFER_PROFILE(vm, gem, {
-                print_debug_buffer_profile(gem);
+        FOR_BINDING(vm, bind, {
+                print_debug_binding(bind);
         });
-        
+
         printf("Matched eustalls: %lu\n", eustall_info.matched);
         printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
         printf("Guessed eustalls: %lu\n", eustall_info.guessed);

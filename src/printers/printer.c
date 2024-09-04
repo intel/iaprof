@@ -157,17 +157,17 @@ int print_execbuf_start(struct execbuf_start_info *info)
 }
 
 /* Prints buffers that an execbuffer referenced through its vm_id */
-int print_execbuf_gem(struct buffer_profile *gem)
+int print_execbuf_buffer(struct buffer_binding *bind)
 {
-        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_gem");
-        printf(" %-*lu", TIME_LEN, gem->time);
-        printf(" %-*u", CPU_LEN, gem->cpu);
-        printf(" %-*u", PID_LEN, gem->pid);
-        printf(" %-*u", TID_LEN, gem->tid);
-        printf(" ctx_id=%u", gem->ctx_id);
+        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_bind");
+        printf(" %-*lu", TIME_LEN, bind->time);
+        printf(" %-*u", CPU_LEN, bind->cpu);
+        printf(" %-*u", PID_LEN, bind->pid);
+        printf(" %-*u", TID_LEN, bind->tid);
+        printf(" ctx_id=%u", bind->ctx_id);
         printf(" file=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx size=%lu\n",
-               gem->file, gem->handle, gem->vm_id, gem->gpu_addr,
-               gem->bind_size);
+               bind->file, bind->handle, bind->vm_id, bind->gpu_addr,
+               bind->bind_size);
 
         return 0;
 }

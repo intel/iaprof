@@ -26,30 +26,62 @@ enum buffer_type {
 
 /* Stores information about a single buffer. We overwrite and accumulate
    these interval after interval. */
-struct buffer_profile {
-        enum buffer_type type;
+struct buffer_object {
+        uint64_t file;
+        uint32_t handle;
 
-        char name[TASK_COMM_LEN];
-        uint64_t time;
-        uint32_t cpu;
-        uint32_t tid;
-        uint32_t ctx_id;
+        uint64_t buff_sz;
+        unsigned char *buff;
+
+        pthread_mutex_t lock;
+        _Atomic pthread_t lock_holder;
+};
+
+typedef struct buffer_object buffer_object_struct;
+typedef struct file_handle_pair file_handle_pair_struct;
+
+static inline int file_handle_pair_cmp(file_handle_pair_struct a, file_handle_pair_struct b) {
+        if (a.file < b.file) {
+                return -1;
+        }
+        if (a.file > b.file) {
+                return 1;
+        }
+        if (a.handle < b.handle) {
+                return -1;
+        }
+        if (a.handle > b.handle) {
+                return 1;
+        }
+
+        return 0;
+}
+
+
+use_tree_c(file_handle_pair_struct, buffer_object_struct, file_handle_pair_cmp);
+
+extern tree(file_handle_pair_struct, buffer_object_struct) buffer_objects;
+extern pthread_rwlock_t buffer_objects_lock;
+
+struct buffer_binding {
+        enum buffer_type type;
 
         uint64_t file;
         uint32_t handle;
 
-        /* Binding info */
+        char name[TASK_COMM_LEN];
+        uint64_t time;
+        uint32_t cpu;
         uint32_t pid;
+        uint32_t tid;
+        uint32_t ctx_id;
+
+        /* Binding info */
         uint32_t vm_id;
         uint64_t gpu_addr;
         uint64_t bind_size;
         uint32_t vm_bind_order;
         int      unbound;
-
-        /* A copy of the buffer bytes itself */
-        uint64_t buff_sz;
-        unsigned char *buff;
-        char parsed;
 
         /* The stack where this buffer was execbuffer'd */
         char *execbuf_stack_str;
@@ -62,9 +94,9 @@ struct buffer_profile {
         hash_table(uint64_t, uint64_t) stall_counts;
 };
 
-typedef struct buffer_profile buffer_profile_struct;
+typedef struct buffer_binding buffer_binding_struct;
 
-use_tree(uint64_t, buffer_profile_struct);
+use_tree(uint64_t, buffer_binding_struct);
 
 
 struct vm_profile {
@@ -74,7 +106,7 @@ struct vm_profile {
         pthread_mutex_t lock;
         _Atomic pthread_t lock_holder;
         char active;
-        tree(uint64_t, buffer_profile_struct) buffer_profiles;
+        tree(uint64_t, buffer_binding_struct) bindings;
 };
 
 
@@ -85,11 +117,11 @@ extern hash_table(uint64_t, vm_profile_ptr) vm_profiles;
 extern pthread_rwlock_t vm_profiles_lock;
 
 void init_profiles();
-struct buffer_profile *get_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
-struct buffer_profile *get_ordered_buffer_profile(uint32_t vm_bind_order);
-struct buffer_profile *get_or_create_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
-struct buffer_profile *get_containing_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
-void delete_buffer_profile(struct vm_profile *vm, uint64_t gpu_addr);
+struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct buffer_binding *get_ordered_binding(uint32_t vm_bind_order);
+struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr);
+void delete_binding(struct vm_profile *vm, uint64_t gpu_addr);
 void free_profiles();
 
 void create_vm_profile(uint32_t vm_id);
@@ -104,48 +136,76 @@ struct vm_profile *acquire_vm_profile(uint32_t vm_id);
 struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order);
 void release_vm_profile(struct vm_profile *vm);
 
-#define FOR_VM_PROFILE(vm, ...)                                \
-do {                                                           \
-        uint32_t _vm_id;                                       \
-        struct vm_profile **_vmp;                              \
-        pthread_rwlock_rdlock(&vm_profiles_lock);              \
-        hash_table_traverse(vm_profiles, _vm_id, _vmp) {       \
-                (void)_vmp;                                    \
-                (vm) = get_vm_profile(_vm_id);                 \
-                lock_vm_profile((vm));                         \
-                __VA_ARGS__                                    \
-                unlock_vm_profile((vm));                       \
-        }                                                      \
-        pthread_rwlock_unlock(&vm_profiles_lock);              \
+
+void lock_buffer(struct buffer_object *bo);
+void unlock_buffer(struct buffer_object *bo);
+struct buffer_object *create_buffer(uint64_t file, uint32_t handle);
+struct buffer_object *acquire_buffer(uint64_t file, uint32_t handle);
+struct buffer_object *acquire_or_create_buffer(uint64_t file, uint32_t handle);
+void release_buffer(struct buffer_object *bo);
+
+
+
+
+#define FOR_VM(vm, ...)                                             \
+do {                                                                \
+        uint32_t _vm_id;                                            \
+        struct vm_profile **_vmp;                                   \
+        pthread_rwlock_rdlock(&vm_profiles_lock);                   \
+        hash_table_traverse(vm_profiles, _vm_id, _vmp) {            \
+                (void)_vmp;                                         \
+                (vm) = get_vm_profile(_vm_id);                      \
+                lock_vm_profile((vm));                              \
+                __VA_ARGS__                                         \
+                unlock_vm_profile((vm));                            \
+        }                                                           \
+        pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
 
-#define FOR_VM_PROFILE_CLEANUP()                               \
-do {                                                           \
-        unlock_vm_profile(*_vmp);                              \
-        pthread_rwlock_unlock(&vm_profiles_lock);              \
+#define FOR_VM_CLEANUP()                                            \
+do {                                                                \
+        unlock_vm_profile(*_vmp);                                   \
+        pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
 
-#define FOR_BUFFER_PROFILE(vm, gem, ...)                       \
-do {                                                           \
-        uint32_t _vm_id;                                       \
-        struct vm_profile **_vmp;                              \
-        tree_it(uint64_t, buffer_profile_struct) _it;          \
-        pthread_rwlock_rdlock(&vm_profiles_lock);              \
-        hash_table_traverse(vm_profiles, _vm_id, _vmp) {       \
-                (void)_vmp;                                    \
-                (vm) = get_vm_profile(_vm_id);                 \
-                lock_vm_profile((vm));                         \
-                tree_traverse((*_vmp)->buffer_profiles, _it) { \
-                        (gem) = &tree_it_val(_it);             \
-                        __VA_ARGS__                            \
-                }                                              \
-                unlock_vm_profile((vm));                       \
-        }                                                      \
-        pthread_rwlock_unlock(&vm_profiles_lock);              \
+#define FOR_BINDING(vm, bind, ...)                                  \
+do {                                                                \
+        uint32_t _vm_id;                                            \
+        struct vm_profile **_vmp;                                   \
+        tree_it(uint64_t, buffer_binding_struct) _it;               \
+        pthread_rwlock_rdlock(&vm_profiles_lock);                   \
+        hash_table_traverse(vm_profiles, _vm_id, _vmp) {            \
+                (void)_vmp;                                         \
+                (vm) = get_vm_profile(_vm_id);                      \
+                lock_vm_profile((vm));                              \
+                tree_traverse((*_vmp)->bindings, _it) {             \
+                        (bind) = &tree_it_val(_it);                 \
+                        __VA_ARGS__                                 \
+                }                                                   \
+                unlock_vm_profile((vm));                            \
+        }                                                           \
+        pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
 
-#define FOR_BUFFER_PROFILE_CLEANUP()                           \
-do {                                                           \
-        unlock_vm_profile(*_vmp);                              \
-        pthread_rwlock_unlock(&vm_profiles_lock);              \
+#define FOR_BINDING_CLEANUP()                                       \
+do {                                                                \
+        unlock_vm_profile(*_vmp);                                   \
+        pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
+
+#define FOR_BUFFER(bo, ...)                                         \
+do {                                                                \
+        tree_it(file_handle_pair_struct, buffer_object_struct) _it; \
+        pthread_rwlock_rdlock(&buffer_objects_lock);                \
+        tree_traverse(buffer_objects, _it) {                        \
+                (bo) = &tree_it_val(_it);                           \
+                __VA_ARGS__                                         \
+        }                                                           \
+        pthread_rwlock_unlock(&buffer_objects_lock);                \
+} while (0)
+
+#define FOR_BUFFER_CLEANUP()                                        \
+do {                                                                \
+        pthread_rwlock_unlock(&buffer_objects_lock);                \
+} while (0)
+
