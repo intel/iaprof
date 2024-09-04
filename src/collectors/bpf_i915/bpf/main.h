@@ -5,7 +5,7 @@
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 1024 * 1024
 #define RINGBUF_SIZE 512 * 1024 * 1024 /* 512 MB */
-#define MAX_BUFFER_COPIES 64
+#define MAX_BUFFER_COPIES 256
 
 /* GEN binary copying maximums */
 #define MAX_BINARY_SIZE 1024 * 1024

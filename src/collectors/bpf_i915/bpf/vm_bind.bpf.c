@@ -28,7 +28,7 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
         size = BPF_CORE_READ(args, length);
         gpu_addr = BPF_CORE_READ(args, start);
         cpu_addr = 0;
-        
+
         bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", handle, gpu_addr);
 
         /* Get the CPU address from any mappings that have happened */
@@ -59,6 +59,7 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
                         "WARNING: vm_bind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 
@@ -134,6 +135,7 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
                         "WARNING: vm_unbind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 

@@ -62,6 +62,9 @@ struct bpf_info_t {
         /* Links to the BPF programs */
         struct bpf_link **links;
         size_t num_links;
+
+
+        int *dropped_event;
 };
 extern struct bpf_info_t bpf_info;
 

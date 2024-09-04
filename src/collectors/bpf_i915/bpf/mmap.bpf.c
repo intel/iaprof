@@ -192,6 +192,7 @@ int BPF_PROG(i915_gem_mmap,
                         "WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 
@@ -249,6 +250,7 @@ int BPF_PROG(i915_gem_userptr_ioctl,
                         handle);
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 
@@ -333,6 +335,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
                         val->handle);
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return -1;
         }
 

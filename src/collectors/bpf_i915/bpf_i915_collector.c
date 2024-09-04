@@ -509,6 +509,7 @@ int init_bpf_i915()
         bpf_info.rb_fd = bpf_map__fd(bpf_info.obj->maps.rb);
         bpf_info.epoll_fd = ring_buffer__epoll_fd(bpf_info.rb);
         bpf_info.buffer_copy_circular_array_fd = bpf_map__fd(bpf_info.obj->maps.buffer_copy_circular_array);
+        bpf_info.dropped_event = &(bpf_info.obj->bss->dropped_event);
 
         return 0;
 }

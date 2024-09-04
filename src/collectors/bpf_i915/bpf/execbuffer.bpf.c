@@ -64,6 +64,7 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                         "WARNING: vm_callback failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 1;
         }
 
@@ -177,6 +178,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
                         "WARNING: execbuffer failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 

@@ -81,7 +81,7 @@ int BPF_PROG(i915_gem_vm_create_ioctl, struct drm_device *dev, void *data,
         u32 cpu, vm_id;
         void *lookup;
         struct drm_i915_gem_vm_control *args;
-        
+
         args = (struct drm_i915_gem_vm_control *)data;
         vm_id = BPF_CORE_READ(args, vm_id);
         bpf_printk("vm_create(ret): vm_id=%u", vm_id);
@@ -93,6 +93,7 @@ int BPF_PROG(i915_gem_vm_create_ioctl, struct drm_device *dev, void *data,
                         "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
+                dropped_event = 1;
                 return 0;
         }
 

@@ -708,6 +708,11 @@ int main(int argc, char **argv)
                         if (!main_thread_should_stop) {
                                 print_status_table((int)tv.tv_sec - startsecs);
                         }
+
+                        if (*bpf_info.dropped_event) {
+                                fprintf(stderr, "Dropped information in BPF... aborting.\n");
+                                exit(1);
+                        }
                 }
         }
         if (collect_threads_profiling) {
