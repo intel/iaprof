@@ -9,6 +9,9 @@
 /* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
 /* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */
 
+use_tree(uint64_t, char);
+
+
 /******************************************************************************
 * Status
 * *********
@@ -19,6 +22,8 @@ enum bb_parser_status {
         BB_PARSER_STATUS_BUFF_OVERFLOW,
         BB_PARSER_STATUS_NOTFOUND,
 };
+
+uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr);
 
 /******************************************************************************
 * Parser Context
@@ -43,6 +48,9 @@ struct bb_parser {
 
         /* Instruction Base Address */
         uint64_t iba;
+        
+        /* Dynamics Base Address */
+        uint64_t dba;
 
         /* SIP, or System Instruction Pointer.
 	   This is an offset from the iba,
@@ -73,6 +81,9 @@ struct bb_parser {
                 uint64_t gpr64[16];
                 uint32_t gpr32[16 * 2];
         };
+        
+        /* Infinite loop detection */
+        tree(uint64_t, char) visited_addresses;
 };
 
 /******************************************************************************
@@ -138,24 +149,32 @@ uint32_t op_len(uint32_t *bb)
 {
         switch (CMD_TYPE(*bb)) {
         case CMD_MI:
+#if 0
                 if (bb_debug) {
                         printf("cmd_type=CMD_MI\n");
                 }
+#endif
                 return OP_LEN_MI;
         case GFXPIPE:
+#if 0
                 if (bb_debug) {
                         printf("cmd_type=GFXPIPE\n");
                 }
+#endif
                 return OP_LEN_GFXPIPE;
         case CMD_2D:
+#if 0
                 if (bb_debug) {
                         printf("cmd_type=CMD_2D\n");
                 }
+#endif
                 return OP_LEN_2D;
         default:
+#if 0
                 if (bb_debug) {
                         printf("cmd_type=UNKNOWN (0x%x)\n", CMD_TYPE(*bb));
                 }
+#endif
                 break;
         }
         return 0;
@@ -335,6 +354,28 @@ enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
         return BB_PARSER_STATUS_OK;
 }
 
+enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr)
+{
+        uint64_t tmp;
+        
+        if (parser->in_cmd == 10) {
+                /* The eleventh dword in STATE_BASE_ADDRESS stores
+                        * 20 of the iba bits. */
+                parser->iba = (*ptr & 0xFFFFF000);
+        } else if (parser->in_cmd == 11) {
+                /* The twelfth dword in STATE_BASE_ADDRESS
+                        * stores the majority of the iba */
+                tmp = *ptr;
+                parser->iba |= tmp << 32;
+                if (bb_debug) {
+                        printf("Found an IBA: 0x%lx\n",
+                                parser->iba);
+                }
+        }
+        
+        return BB_PARSER_STATUS_OK;
+}
+
 enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid,
                                      int stackid, char *procname)
@@ -361,6 +402,10 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                 if (shader_bind != NULL) {
                         shader_bind->type = BUFFER_TYPE_SHADER;
                         shader_bind->pid = pid;
+                        if (shader_bind->execbuf_stack_str) {
+                                free(shader_bind->execbuf_stack_str);
+                                shader_bind->execbuf_stack_str = NULL;
+                        }
                         store_stack(pid, stackid, &(shader_bind->execbuf_stack_str));
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
@@ -372,10 +417,64 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
         return BB_PARSER_STATUS_OK;
 }
 
+void compute_walker_simple(uint32_t *ptr, uint64_t *ksp, unsigned char in_cmd, uint64_t pc, uint64_t addr)
+{
+        uint64_t tmp;
+        uint64_t tmp_iba;
+
+        if (in_cmd == 18) {
+                tmp_iba = iba;
+                if (!tmp_iba) {
+                        fprintf(stderr, "compute_walker_simple: Want shader address, but IBA is not set yet!\n");
+                        return;
+                }
+                tmp = ((*ptr & 0xffffffc0) + tmp_iba);
+                *ksp = tmp;
+                printf("iba: 0x%lx\n", iba);
+                printf("ksp: 0x%lx\n", *ksp);
+                printf("Found ksp: 0x%lx\n", *ksp & 0xffffffff0000);
+                if ((*ksp & 0xffffffff0000) == addr) {
+                        printf("KSP matches addr=0x%lx at pc=0x%lx!\n", addr, pc);
+                }
+        }
+        return;
+}
+
+void gpgpu_walker_simple(uint32_t *ptr, uint64_t *ksp, unsigned char in_cmd, uint64_t iba, uint64_t addr)
+{
+#if 0
+        uint64_t tmp;
+        uint64_t tmp_iba;
+
+        if (in_cmd == 18) {
+                tmp_iba = iba;
+                if (iba) {
+                        tmp_iba = iba;
+                }
+                if (!tmp_iba) {
+                        fprintf(stderr, "Want shader address, but IBA is not set yet!\n");
+                        return;
+                }
+                tmp = ((*ptr & 0xffffffc0) + tmp_iba);
+                *ksp = tmp;
+                printf("iba is: 0x%lx\n", iba);
+        } else if (in_cmd == 19) {
+                tmp = *ptr;
+                *ksp |= ((tmp & 0xffff) << 32);
+                printf("Found ksp: 0x%lx\n", *ksp);
+                if ((*ksp & 0xffffffff) == addr) {
+                        printf("KSP matches addr 0x%lx!\n", addr);
+                }
+        }
+#endif
+        return;
+}
+
 enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
         uint64_t tmp;
+        tree_it(uint64_t, char) it;
 
         if (parser->in_cmd == 0) {
                 parser->enable_predication = *ptr & 0x8000;
@@ -391,18 +490,30 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 parser->bbsp = 0;
                 parser->bbsp |= *ptr;
         } else if (parser->in_cmd == 2) {
+                
+                /* Collect the BBSP (Batch Buffer Start Pointer) */
                 tmp = *ptr;
                 parser->bbsp |= tmp << 32;
                 if (bb_debug) {
                         printf("bbsp=0x%lx\n", parser->bbsp);
                 }
+                
+                /* Try to detect recursion and stop */
                 if (parser->bbsp == (parser->pc[parser->pc_depth] - 8)) {
-                        /* Recursion! Just keep going. */
                         if (bb_debug) {
-                                printf("recursion\n");
+                                printf("Recursion!\n");
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
+                it = tree_lookup(parser->visited_addresses, parser->bbsp);
+                if (tree_it_good(it)) {
+                        if (bb_debug) {
+                                printf("Recursion!\n");
+                        }
+                        return BB_PARSER_STATUS_NOTFOUND;
+                }
+                tree_insert(parser->visited_addresses, parser->bbsp, 1);
+
 
                 if (parser->bb2l && (parser->pc_depth == 1)) {
                         /* Advance the program counter by the number of dwords in
@@ -453,6 +564,13 @@ char mi_batch_buffer_end(struct bb_parser *parser)
         return 0;
 }
 
+void bb_parser_init(struct bb_parser *parser)
+{
+        memset(parser, 0, sizeof(struct bb_parser));
+        parser->visited_addresses = tree_make(uint64_t, char);
+}
+
+
 enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_binding *bind,
@@ -462,8 +580,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
         enum bb_parser_status retval;
-        char noop_debug;
-
+        
         /* Loop over 32-bit dwords. */
         parser->pc_depth = 1;
         parser->pc[parser->pc_depth] = bind->gpu_addr + offset;
@@ -473,7 +590,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         parser->in_cmd = 0;
         parser->cur_cmd = 0;
         parser->num_dwords = 0;
-        noops = 0; noop_debug = 0;
+        noops = 0;
 
         parser->bo = acquire_buffer(parser->bind->file, parser->bind->handle);
         if (parser->bo == NULL) {
@@ -499,30 +616,6 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         goto out;
                 }
 
-                #if 0
-                /* XXX: The experimental mi_runner tool, an uncommitted PR to mesa,
-                   does not actually check the batch_len at all; it relies on seeing
-                   the proper MI_BATCH_BUFFER_END commands to stop the parsing.
-                   Should we do the same...? */
-                if (parser->batch_len[parser->pc_depth]) {
-                        root_off = parser->pc[parser->pc_depth] -
-                                   bind->gpu_addr - offset;
-                        if (root_off >= parser->batch_len[parser->pc_depth]) {
-                                /* Make sure we stop once we get to the end of the
-                                   first-level batchbuffer commands (which in the i915
-                                   kernel, is batch_len bytes long) */
-                                if (bb_debug) {
-                                        printf("Stop because of batch_len. off=0x%lx sz=0x%lx.\n",
-                                               root_off,
-                                               parser->batch_len
-                                                       [parser->pc_depth]);
-                                }
-                                retval = BB_PARSER_STATUS_OK;
-                                goto out;
-                        }
-                }
-                #endif
-
                 if (bb_debug) {
                         printf("size=0x%lx dword=0x%x offset=0x%lx\n", size,
                                *dword_ptr, off);
@@ -540,15 +633,6 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 op = op & 0x7F;
                         } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
                                 op = op & OP_3D;
-                        }
-
-                        if ((op != MI_NOOP) && noops) {
-                                bb_debug = noop_debug;
-                                if (bb_debug) {
-                                        printf("op=MI_NOOP %lu\n", noops);
-                                }
-                                noop_debug = 0;
-                                noops = 0;
                         }
 
                         /* Decode which op this is */
@@ -572,18 +656,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         case MI_NOOP:
                                 noops++;
 
-                                /* Save bb_debug, clear it */
                                 if (bb_debug) {
-                                        noop_debug = bb_debug;
-                                        bb_debug = 0;
                                         printf("op=MI_NOOP %lu\n", noops);
                                 }
 
                                 if (noops == 32) {
-                                        if (noop_debug) {
+                                        if (bb_debug) {
                                                 printf("Too many NOOPs!\n");
                                         }
-                                        bb_debug = noop_debug;
                                         retval = BB_PARSER_STATUS_OK;
                                         goto out;
                                 }
@@ -800,22 +880,11 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         }
                         break;
                 case MI_SEMAPHORE_WAIT:
-                        retval = BB_PARSER_STATUS_OK;
-                        goto out;
+                        break;
                 case STATE_BASE_ADDRESS:
-                        if (parser->in_cmd == 10) {
-                                /* The eleventh dword in STATE_BASE_ADDRESS stores
-                                 * 20 of the iba bits. */
-                                parser->iba |= (*dword_ptr & 0xFFFFF000);
-                        } else if (parser->in_cmd == 11) {
-                                /* The twelfth dword in STATE_BASE_ADDRESS
-                                 * stores the majority of the iba */
-                                tmp = *dword_ptr;
-                                parser->iba |= tmp << 32;
-                                if (bb_debug) {
-                                        printf("Found an IBA: 0x%lx\n",
-                                               parser->iba);
-                                }
+                        retval = state_base_address(parser, dword_ptr);
+                        if (retval != BB_PARSER_STATUS_OK) {
+                                return retval;
                         }
                         break;
                 case STATE_SIP:
@@ -860,6 +929,134 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 out:;
         if (parser->bo != NULL) {
                 release_buffer(parser->bo);
+        }
+
+        if (bb_debug) {
+                printf("Finished batchbuffer parsing.\n");
+        }
+        return retval;
+}
+
+uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
+{
+        uint8_t cur_num_dwords;
+        uint32_t *dword_ptr, op;
+        uint64_t pc, off, cur_cmd, ksp;
+        unsigned char in_cmd;
+        struct buffer_object *bo;
+        enum bb_parser_status retval;
+        
+        if (bb_debug) {
+                printf("Looking for addr=0x%lx\n", addr);
+        }
+        
+        bo = acquire_buffer(bind->file, bind->handle);
+        if (bo == NULL) {
+                fprintf(stderr,
+                        "WARNING: can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
+                        bind->vm_id, bind->gpu_addr);
+                retval = BB_PARSER_STATUS_NOTFOUND;
+                goto out;
+        }
+
+        /* Loop over 32-bit dwords. */
+        pc = bind->gpu_addr;
+        in_cmd = 0;
+        cur_cmd = 0;
+        while (1) {
+                off = pc - bind->gpu_addr;
+                dword_ptr = (uint32_t *)(bo->buff + off);
+
+                /* First check if we're overflowing the buffer */
+                if (off >= bo->buff_sz) {
+                        if (bb_debug) {
+                                printf("Stop because of buffer size. off=0x%lx sz=0x%lx\n",
+                                       off, bo->buff_sz);
+                        }
+                        retval = BB_PARSER_STATUS_BUFF_OVERFLOW;
+                        goto out;
+                }
+
+                if (!cur_cmd) {
+                        op = (*dword_ptr) >> (32 - op_len(dword_ptr));
+                        if (CMD_TYPE(*dword_ptr) == CMD_2D) {
+                                op = op & 0x7F;
+                        } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
+                                op = op & OP_3D;
+                        }
+
+                        /* Decode which op this is */
+                        switch (op) {
+                        case COMPUTE_WALKER:
+                                if (bb_debug) {
+                                        printf("op=COMPUTE_WALKER\n");
+                                }
+                                cur_cmd = COMPUTE_WALKER;
+                                cur_num_dwords = COMPUTE_WALKER_DWORDS;
+                                break;
+                        case GPGPU_WALKER:
+                                if (bb_debug) {
+                                        printf("op=GPGPU_WALKER\n");
+                                }
+                                cur_cmd = GPGPU_WALKER;
+                                cur_num_dwords = GPGPU_WALKER_DWORDS;
+                                break;
+                        case MI_SEMAPHORE_WAIT:
+                                if (bb_debug) {
+                                        printf("op=MI_SEMAPHORE_WAIT\n");
+                                }
+                                cur_cmd = MI_SEMAPHORE_WAIT;
+                                cur_num_dwords = MI_SEMAPHORE_WAIT_DWORDS;
+                                break;
+                        default:
+                                break;
+                        }
+                }
+
+                /* Consume this command's dwords */
+                switch (cur_cmd) {
+                case COMPUTE_WALKER:
+                        if (bb_debug) {
+                                printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
+                                *dword_ptr, off);
+                                printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
+                                in_cmd, cur_cmd, cur_num_dwords);
+                        }
+                        compute_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
+                        break;
+                case GPGPU_WALKER:
+                        if (bb_debug) {
+                                printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
+                                *dword_ptr, off);
+                                printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
+                                in_cmd, cur_cmd, cur_num_dwords);
+                        }
+                        gpgpu_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
+                        break;
+                }
+
+                if (cur_cmd) {
+                        /* If we're in a command already, advance to the next dword within it */
+
+                        if (in_cmd == cur_num_dwords - 1) {
+                                /* We've consumed all of this command's dwords,
+				 * so go back to looking for new commands. */
+                                in_cmd = 0;
+                                cur_cmd = 0;
+                                cur_num_dwords = 0;
+                        } else {
+                                /* Keep looking for dwords that this command needs */
+                                in_cmd++;
+                        }
+                }
+
+                /* Next dword in the buffer */
+                pc += 4;
+        }
+
+out:;
+        if (bo != NULL) {
+                release_buffer(bo);
         }
 
         if (bb_debug) {

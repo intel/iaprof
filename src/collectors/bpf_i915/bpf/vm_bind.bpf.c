@@ -28,8 +28,8 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
         size = BPF_CORE_READ(args, length);
         gpu_addr = BPF_CORE_READ(args, start);
         cpu_addr = 0;
-
-        bpf_printk("vm_bind kretprobe handle=%u gpu_addr=0x%lx", handle, gpu_addr);
+        
+        bpf_printk("vm_bind kretprobe handle=%u vm_id=%u gpu_addr=0x%lx", handle, vm_id, gpu_addr);
 
         /* Get the CPU address from any mappings that have happened */
         pair.handle = handle;
@@ -49,6 +49,8 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
                         gmapping.vm_id = vm_id;
                         bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
                         bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
+                } else {
+                        bpf_printk("WARNING: vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", gpu_addr, size);
                 }
         }
 

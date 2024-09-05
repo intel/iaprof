@@ -13,6 +13,8 @@
 #include <bpf/bpf_core_read.h>
 #include "main.h"
 
+#define PAGE_SHIFT 12
+
 /***************************************
 * mmap_wait_for_unmap
 *
@@ -27,10 +29,15 @@
 * once executed, further down in this program.
 ***************************************/
 
+struct fake_offset_pointer {
+        u64 cpu_addr;
+        u64 fake_offset;
+};
+
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
         __uint(max_entries, MAX_ENTRIES);
-        __type(key, u64);
+        __type(key, struct fake_offset_pointer);
         __type(value, struct file_handle_pair);
 } mmap_wait_for_unmap SEC(".maps");
 
@@ -41,19 +48,20 @@ struct {
         __type(value, u64);
 } file_handle_mapping SEC(".maps");
 
-int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
+int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg, u64 vm_pgoff)
 {
-        struct file_handle_pair unmap_val;
+        struct file_handle_pair unmap_val = {};
+        struct fake_offset_pointer foffset = {};
         int retval;
         u64 addr;
 
         /* We also want to let munmap calls do a lookup with the address */
-        __builtin_memset(&unmap_val, 0, sizeof(struct file_handle_pair));
         unmap_val.file = file;
         unmap_val.handle = handle;
-        addr = addr_arg;
+        foffset.cpu_addr = addr_arg;
+        foffset.fake_offset = vm_pgoff;
         retval =
-                bpf_map_update_elem(&mmap_wait_for_unmap, &addr, &unmap_val, 0);
+                bpf_map_update_elem(&mmap_wait_for_unmap, &foffset, &unmap_val, 0);
         if (retval < 0) {
                 bpf_printk("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
                            file, handle, addr);
@@ -71,6 +79,7 @@ int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg)
 * `struct mapping_info` in the ringbuffer.
 ***************************************/
 
+#if 0
 SEC("fexit/i915_gem_mmap_ioctl")
 int BPF_PROG(i915_gem_mmap_ioctl,
              struct drm_device *dev, void *data,
@@ -97,6 +106,7 @@ int BPF_PROG(i915_gem_mmap_ioctl,
 
         return 0;
 }
+#endif
 
 /***************************************
 * i915_gem_mmap_offset_ioctl and i915_gem_mmap
@@ -157,18 +167,17 @@ int BPF_PROG(i915_gem_mmap,
              struct vm_area_struct *vma)
 {
         int retval;
-        u32 cpu, page_shift;
+        u32 cpu;
         u64 vm_pgoff, vm_start, vm_end, status;
         void *lookup;
         struct mmap_offset_wait_for_mmap_val offset_val;
         struct mapping_info *info;
         struct file_handle_pair pair = {};
 
-        page_shift = 12;
         vm_pgoff = BPF_CORE_READ(vma, vm_pgoff);
         vm_start = BPF_CORE_READ(vma, vm_start);
         vm_end = BPF_CORE_READ(vma, vm_end);
-        vm_pgoff = vm_pgoff << page_shift;
+        vm_pgoff = vm_pgoff << PAGE_SHIFT;
 
         /* Get the handle from the previous i915_gem_mmap_offset_ioctl call. */
         lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
@@ -215,7 +224,7 @@ int BPF_PROG(i915_gem_mmap,
         bpf_printk("i915_gem_mmap cpu_addr=0x%lx handle=%u", vm_start, offset_val.handle);
 
         mmap_wait_for_unmap_insert(offset_val.file, offset_val.handle,
-                                   vm_start);
+                                   vm_start, vm_pgoff);
 
         return 0;
 }
@@ -285,37 +294,44 @@ int BPF_PROG(i915_gem_userptr_ioctl,
 * synchronously with the kernel driver.
 ***************************************/
 
-SEC("tracepoint/syscalls/sys_enter_munmap")
-int munmap_tp(struct trace_event_raw_sys_enter *ctx)
+SEC("fentry/unmap_region")
+int BPF_PROG(unmap_region,
+             struct mm_struct *mm,
+             struct vm_area_struct *vma, struct vm_area_struct *prev,
+             unsigned long start, unsigned long end)
 {
         long retval;
-        u64 size;
-        struct vm_area_struct *vma;
-
-        /* For checking */
+        struct i915_mmap_offset *mmo;
+        struct fake_offset_pointer foffset = {};
         struct file_handle_pair *val;
-        u64 addr, status;
-
-        /* For sending to execbuffer */
-        int zero = 0;
         struct unmap_info *bin;
-
         struct cpu_mapping cmapping = {};
         struct gpu_mapping *gmapping;
-
-        /* First, make sure this is an i915 buffer */
-        addr = ctx->args[0];
-        size = ctx->args[1];
-        if (!addr) {
-                return -1;
+        u64 fake_offset, size, cpu_addr, status;
+        
+        mmo = (struct i915_mmap_offset *)BPF_CORE_READ(vma, vm_private_data);
+        cpu_addr = BPF_CORE_READ(vma, vm_start);
+        size = BPF_CORE_READ(vma, vm_end) - cpu_addr;
+        fake_offset = BPF_CORE_READ(mmo, vma_node).vm_node.start << PAGE_SHIFT;
+        
+        if (!fake_offset) {
+                return 0;
         }
-        val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &addr);
+        
+        if (!cpu_addr) {
+                return 0;
+        }
+        foffset.cpu_addr = cpu_addr;
+        foffset.fake_offset = fake_offset;
+        val = bpf_map_lookup_elem(&mmap_wait_for_unmap, &foffset);
         if (!val) {
-                return -1;
+                return 0;
         }
-
+        
+        bpf_printk("unmap_region cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
+        
         cmapping.size = size;
-        cmapping.addr = addr;
+        cmapping.addr = cpu_addr;
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
         if (gmapping) {
                 if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
@@ -324,7 +340,7 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         }
         gmapping = NULL;
         if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
-                bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", addr);
+                bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
         }
 
         /* Reserve some space on the ringbuffer */
@@ -336,13 +352,13 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 bpf_printk("Unconsumed data: %lu", status);
                 dropped_event = 1;
-                return -1;
+                return 0;
         }
 
         bin->type = BPF_EVENT_TYPE_UNMAP;
         bin->file = val->file;
         bin->handle = val->handle;
-        bin->cpu_addr = addr;
+        bin->cpu_addr = cpu_addr;
         bin->size = size;
 
         bin->cpu = bpf_get_smp_processor_id();
@@ -350,9 +366,9 @@ int munmap_tp(struct trace_event_raw_sys_enter *ctx)
         bin->tid = bpf_get_current_pid_tgid();
         bin->time = bpf_ktime_get_ns();
 
-        buffer_copy_circular_array_add((void*)addr, size);
+        buffer_copy_circular_array_add((void*)cpu_addr, size);
 
         bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
-
+        
         return 0;
 }

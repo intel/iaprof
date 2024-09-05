@@ -58,6 +58,15 @@ char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         retval = 0;
 
         bo = acquire_buffer(bind->file, bind->handle);
+        
+        if (!bo) {
+                if (debug) {
+                        fprintf(stderr, "WARNING: Can't find a BO for file=0x%lx handle=%u\n",
+                                bind->file, bind->handle);
+                }
+                retval = -1;
+                goto out;
+        }
 
         /* If we don't have a copy, can't disassemble it! */
         if (!(bo->buff_sz)) {
@@ -107,7 +116,9 @@ char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
 out:;
-        release_buffer(bo);
+        if (bo) {
+                release_buffer(bo);
+        }
 
         return retval;
 }

@@ -26,6 +26,24 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
         unsigned char buff[8];
+        
+        /* Look at the CPU mapping */
+        addr = cmapping->addr;
+        size = cmapping->size;
+        
+        if (gmapping->addr == ctx->bb_addr) {
+                bpf_printk("vm_callback filtering by bb_addr vm_id=%u gpu_addr=0x%lx",
+                           gmapping->vm_id, gmapping->addr);
+                return 0;
+        }
+
+        /* Make a copy of the first 8 bytes, read them to see what the buffer type is */
+        bpf_probe_read_user(buff, 8, (void *)addr);
+        if (is_debug_area(buff, 8, gmapping, ctx->stackid)) {
+                bpf_printk("vm_callback filtering debug area vm_id=%u gpu_addr=0x%lx",
+                           gmapping->vm_id, gmapping->addr);
+                return 0;
+        }
 
         /*
            We only care about this buffer if it:
@@ -37,24 +55,6 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                            gmapping->vm_id, gmapping->addr);
                 return 0;
         }
-        if (gmapping->addr == ctx->bb_addr) {
-                bpf_printk("vm_callback filtering by bb_addr vm_id=%u gpu_addr=0x%lx",
-                           gmapping->vm_id, gmapping->addr);
-                return 0;
-        }
-
-        /* Look at the CPU mapping */
-        addr = cmapping->addr;
-        size = cmapping->size;
-
-        /* Make a copy of the first 8 bytes, read them to see what the buffer type is */
-        bpf_probe_read_user(buff, 8, (void *)addr);
-        if (is_debug_area(buff, 8, gmapping, ctx->stackid)) {
-                bpf_printk("vm_callback filtering debug area vm_id=%u gpu_addr=0x%lx",
-                           gmapping->vm_id, gmapping->addr);
-                return 0;
-        }
-
         bpf_printk("vm_callback reading vm_id=%u gpu_addr=0x%lx",
                    gmapping->vm_id, gmapping->addr);
 
@@ -182,7 +182,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 return 0;
         }
 
-        bpf_printk("execbuffer batchbuffer 0x%lx %lu", cpu_addr, size);
+        bpf_printk("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
 
         buffer_copy_circular_array_add((void*)cpu_addr, size);
 

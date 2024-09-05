@@ -179,7 +179,7 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
         printf(" %-*u", CPU_LEN, einfo->cpu);
         printf(" %-*u", PID_LEN, einfo->pid);
         printf(" %-*u", TID_LEN, einfo->tid);
-        printf(" N/A\n");
+        printf(" ctx_id=%u gpu_addr=0x%llx buffer_count=%u\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count);
 
         return 0;
 }

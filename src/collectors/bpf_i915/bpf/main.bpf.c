@@ -227,6 +227,10 @@ int buffer_copy_circular_array_add(void *addr, u64 size) {
 
 /*         __builtin_memset(bcopy->buff, 0, MAX_BINARY_SIZE); */
         err = bpf_probe_read_user(bcopy->buff, size, addr);
+        if (err) {
+                bpf_printk("WARNING: Failed to copy from cpu_addr=0x%lx", addr);
+        }
+        bpf_printk("Copied idx=%lu", idx);
 
 /*         bcopy->buff_sz = err ? 0 : size; */
         bcopy->buff_sz = size;

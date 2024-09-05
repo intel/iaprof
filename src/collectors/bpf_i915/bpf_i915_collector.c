@@ -36,8 +36,6 @@ static uint32_t vm_bind_bpf_counter = 0;
 static int consume_buffer_from_bpf(struct buffer_copy *bcopy) {
         int status;
 
-        fprintf(stderr, "Consuming from the circular buffer copy array\n");
-
         status = bpf_map_lookup_elem(bpf_info.buffer_copy_circular_array_fd,
                                 &bpf_info.buffer_copy_read_head, bcopy);
 
@@ -79,6 +77,7 @@ static void consume_buffer_from_bpf_into_bo(struct buffer_object *bo) {
                                 "WARNING: handle_binary() returned non-zero\n");
                 }
         }
+        
 }
 
 /***************************************
@@ -319,6 +318,7 @@ int handle_execbuf_end(void *data_arg)
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
                         info->vm_id, info->bb_offset);
+                drop_buffer_from_bpf();
                 goto cleanup;
         }
 
@@ -328,6 +328,7 @@ int handle_execbuf_end(void *data_arg)
                 fprintf(stderr,
                         "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
                         info->vm_id, info->bb_offset);
+                drop_buffer_from_bpf();
                 goto cleanup;
         }
 
@@ -344,7 +345,7 @@ int handle_execbuf_end(void *data_arg)
 
         /* Parse the batchbuffer */
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
-        memset(&parser, 0, sizeof(struct bb_parser));
+        bb_parser_init(&parser);
         bb_parser_parse(&parser, vm, bind, info->batch_start_offset,
                         info->batch_len, info->pid, info->stackid, info->name);
         clock_gettime(CLOCK_MONOTONIC, &parser_end);
@@ -357,9 +358,11 @@ int handle_execbuf_end(void *data_arg)
                                 1.0e-9 * parser_start.tv_nsec));
         }
         if (parser.iba) {
-                assert(iba == 0 && "iba is already set");
-                iba = parser.iba;
-                wakeup_eustall_deferred_attrib_thread();
+/*                 assert(iba == 0 && "iba is already set"); */
+                if (!iba) {
+                        iba = parser.iba;
+                        wakeup_eustall_deferred_attrib_thread();
+                }
         }
 
 cleanup:
