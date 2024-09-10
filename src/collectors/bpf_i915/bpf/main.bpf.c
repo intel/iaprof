@@ -57,7 +57,7 @@
 #include "gpu_parsers/bb_parser_defs.h"
 
 #ifdef DEBUG
-#define DEBUG_PRINK(...) bpf_printk(__VA_ARGS__)
+#define DEBUG_PRINTK(...) bpf_printk(__VA_ARGS__)
 #else
 #define DEBUG_PRINTK(...) ;
 #endif
