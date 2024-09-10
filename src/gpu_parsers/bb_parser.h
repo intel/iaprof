@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include "gpu_parsers/bb_parser_defs.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "utils/utils.h"
 
 /* STATE_BASE_ADDRESS::InstructionBaseAddress + ((INTERFACE_DESCRIPTOR_DATA */
 /* *)(STATE_BASE_ADDRESS::DynamicBaseAddress + InterfaceDescriptorDataStartAddress))->KernelStartPointer */
@@ -48,7 +50,7 @@ struct bb_parser {
 
         /* Instruction Base Address */
         uint64_t iba;
-        
+
         /* Dynamics Base Address */
         uint64_t dba;
 
@@ -81,24 +83,17 @@ struct bb_parser {
                 uint64_t gpr64[16];
                 uint32_t gpr32[16 * 2];
         };
-        
+
         /* Infinite loop detection */
         tree(uint64_t, char) visited_addresses;
 };
+
 
 /******************************************************************************
 * Registers
 * *********
 * Helpers for dealing with registers.
 ******************************************************************************/
-/* General-purpose registers */
-#define GPR_OFFSET 0x2600
-#define GPR_REG(i) (GPR_OFFSET + (i)*8)
-
-/* Predicate constants */
-#define PREDICATE_SRC0 0x2400
-#define PREDICATE_SRC1 0x2408
-#define PREDICATE_RESULT 0x2418
 
 /* Register constants */
 static uint32_t null_reg;
@@ -132,137 +127,7 @@ static uint32_t *reg_ptr(struct bb_parser *parser, uint32_t offset, bool write)
 /******************************************************************************
 * Commands
 * *********
-* These are constants that represent batch buffer commands.
 ******************************************************************************/
-#define CMD_TYPE(cmd) (((cmd) >> 29) & 7)
-#define CMD_MI 0
-#define CMD_2D 2
-#define GFXPIPE 3
-
-#define OP_LEN_MI 9
-#define OP_LEN_2D 10
-#define OP_LEN_GFXPIPE 16
-#define OP_LEN_MFX_VC 16
-#define OP_LEN_VEBOX 16
-
-uint32_t op_len(uint32_t *bb)
-{
-        switch (CMD_TYPE(*bb)) {
-        case CMD_MI:
-#if 0
-                if (bb_debug) {
-                        printf("cmd_type=CMD_MI\n");
-                }
-#endif
-                return OP_LEN_MI;
-        case GFXPIPE:
-#if 0
-                if (bb_debug) {
-                        printf("cmd_type=GFXPIPE\n");
-                }
-#endif
-                return OP_LEN_GFXPIPE;
-        case CMD_2D:
-#if 0
-                if (bb_debug) {
-                        printf("cmd_type=CMD_2D\n");
-                }
-#endif
-                return OP_LEN_2D;
-        default:
-#if 0
-                if (bb_debug) {
-                        printf("cmd_type=UNKNOWN (0x%x)\n", CMD_TYPE(*bb));
-                }
-#endif
-                break;
-        }
-        return 0;
-}
-
-/* MI Commands */
-#define MI_BATCH_BUFFER_START 0x31
-#define MI_BATCH_BUFFER_START_DWORDS 3
-#define MI_BATCH_BUFFER_START_2ND_LEVEL(x) ((x) >> 22 & 1U)
-
-#define MI_PRT_BATCH_BUFFER_START 0x39
-#define MI_PRT_BATCH_BUFFER_START_DWORDS 3
-
-#define MI_CONDITIONAL_BATCH_BUFFER_END 0x36
-#define MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS 4
-
-#define MI_BATCH_BUFFER_END 0x0a
-#define MI_BATCH_BUFFER_END_DWORDS 1
-
-#define MI_SEMAPHORE_WAIT 0x1c
-#define MI_SEMAPHORE_WAIT_DWORDS 5
-
-#define MI_PREDICATE 0x0c
-#define MI_PREDICATE_DWORDS 1
-
-#define MI_STORE_REGISTER_MEM 0x24
-#define MI_STORE_REGISTER_MEM_DWORDS 4
-
-#define MI_STORE_DATA_IMM 0x20
-#define MI_STORE_DATA_IMM_DWORDS 5
-
-#define MI_LOAD_REGISTER_IMM 0x22
-#define MI_LOAD_REGISTER_IMM_DWORDS 3
-
-#define MI_LOAD_REGISTER_MEM 0x29
-#define MI_LOAD_REGISTER_MEM_DWORDS 4
-
-#define MI_LOAD_REGISTER_REG 0x2a
-#define MI_LOAD_REGISTER_REG_DWORDS 3
-
-#define MI_FLUSH_DW 0x26
-#define MI_FLUSH_DW_DWORDS 5
-
-#define MI_ARB_CHECK 0x05
-#define MI_ARB_CHECK_DWORDS 1
-
-#define MI_ARB_ON_OFF 0x08
-#define MI_ARB_ON_OFF_DWORDS 1
-
-#define MI_URB_ATOMIC_ALLOC 0x09
-#define MI_URB_ATOMIC_ALLOC_DWORDS 1
-
-#define MI_NOOP 0x00
-#define MI_NOOP_DWORDS 1
-
-/* 2D/XY Commands */
-
-#define MEM_COPY 0x5a
-#define MEM_COPY_DWORDS 10
-
-/* GFXPIPE Commands: Pipeline Type(28:27) Opcode(26:24) Sub Opcode(23:16) */
-#define OP_GFXPIPE(sub_type, opcode, sub_opcode) \
-        ((3 << 13) | ((sub_type) << 11) | ((opcode) << 8) | (sub_opcode))
-#define OP_3D ((3 << 13) | (0xF << 11) | (0xF << 8) | (0xFF))
-
-#define PIPE_CONTROL OP_GFXPIPE(0x3, 0x2, 0x0)
-#define PIPE_CONTROL_DWORDS 6
-
-#define PIPELINE_SELECT OP_GFXPIPE(0x1, 0x1, 0x04)
-#define PIPELINE_SELECT_DWORDS 1
-
-#define COMPUTE_WALKER OP_GFXPIPE(0x2, 0x2, 0x8)
-#define COMPUTE_WALKER_DWORDS 39
-
-#define GPGPU_WALKER OP_GFXPIPE(0x2, 0x1, 0x05)
-#define GPGPU_WALKER_DWORDS 15
-
-#define STATE_BASE_ADDRESS OP_GFXPIPE(0x0, 0x1, 0x01)
-#define STATE_BASE_ADDRESS_DWORDS 22
-
-#define STATE_SIP OP_GFXPIPE(0x0, 0x1, 0x02)
-#define STATE_SIP_DWORDS 3
-
-#define STATE_SYSTEM_MEM_FENCE_ADDRESS OP_GFXPIPE(0x0, 0x1, 0x9)
-#define STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS 3
-
-#define CFE_STATE OP_GFXPIPE(0x2, 0x2, 0x0)
-#define CFE_STATE_DWORDS 5
 
 char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
 {
@@ -281,6 +146,7 @@ char find_jump_buffer(struct bb_parser *parser, uint64_t bbsp)
                 }
                 parser->bind = bind;
                 parser->bo = acquire_buffer(parser->bind->file, parser->bind->handle);
+                parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
                 return 1;
         }
 
@@ -357,7 +223,7 @@ enum bb_parser_status mi_predicate(struct bb_parser *parser, uint32_t *ptr)
 enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr)
 {
         uint64_t tmp;
-        
+
         if (parser->in_cmd == 10) {
                 /* The eleventh dword in STATE_BASE_ADDRESS stores
                         * 20 of the iba bits. */
@@ -372,7 +238,7 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
                                 parser->iba);
                 }
         }
-        
+
         return BB_PARSER_STATUS_OK;
 }
 
@@ -490,14 +356,14 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 parser->bbsp = 0;
                 parser->bbsp |= *ptr;
         } else if (parser->in_cmd == 2) {
-                
+
                 /* Collect the BBSP (Batch Buffer Start Pointer) */
                 tmp = *ptr;
                 parser->bbsp |= tmp << 32;
                 if (bb_debug) {
                         printf("bbsp=0x%lx\n", parser->bbsp);
                 }
-                
+
                 /* Try to detect recursion and stop */
                 if (parser->bbsp == (parser->pc[parser->pc_depth] - 8)) {
                         if (bb_debug) {
@@ -544,8 +410,8 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                 fprintf(stderr,
                                         " supposed to chain somewhere,");
                                 fprintf(stderr,
-                                        " but we don't have a copy of it. (gpu_addr=0x%lx)\n",
-                                        parser->bind->gpu_addr);
+                                        " but we don't have a copy of it. (vm_id=%u gpu_addr=0x%lx)\n",
+                                        parser->bind->vm_id, parser->bind->gpu_addr);
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
@@ -577,10 +443,10 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       uint32_t offset, uint64_t size,
                                       int pid, int stackid, char *procname)
 {
-        uint32_t *dword_ptr, op;
+        uint32_t *dword_ptr, type, op;
         uint64_t off, tmp, noops;
         enum bb_parser_status retval;
-        
+
         /* Loop over 32-bit dwords. */
         parser->pc_depth = 1;
         parser->pc[parser->pc_depth] = bind->gpu_addr + offset;
@@ -600,6 +466,8 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 retval = BB_PARSER_STATUS_NOTFOUND;
                 goto out;
         }
+
+        parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
 
         while (parser->pc_depth > 0) {
                 off = parser->pc[parser->pc_depth] -
@@ -628,10 +496,11 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 parser->num_dwords++;
 
                 if (!parser->cur_cmd) {
-                        op = (*dword_ptr) >> (32 - op_len(dword_ptr));
-                        if (CMD_TYPE(*dword_ptr) == CMD_2D) {
+                        type = CMD_TYPE(*dword_ptr);
+                        op = (*dword_ptr) >> (32 - CMD_TYPE_LEN(type));
+                        if (type == CMD_2D) {
                                 op = op & 0x7F;
-                        } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
+                        } else if (type == GFXPIPE) {
                                 op = op & OP_3D;
                         }
 
@@ -840,6 +709,13 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 parser->cur_cmd = MEM_COPY;
                                 parser->cur_num_dwords = MEM_COPY_DWORDS;
                                 break;
+                        case MEM_SET:
+                                if (bb_debug) {
+                                        printf("op=MEM_SET\n");
+                                }
+                                parser->cur_cmd = MEM_SET;
+                                parser->cur_num_dwords = MEM_SET_DWORDS;
+                                break;
                         default:
                                 if (bb_debug) {
                                         printf("op=UNKNOWN (0x%x)\n", op);
@@ -864,7 +740,8 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         break;
                 case MI_BATCH_BUFFER_END:
                         if (mi_batch_buffer_end(parser)) {
-                                return BB_PARSER_STATUS_OK;
+                                retval = BB_PARSER_STATUS_OK;
+                                goto out;
                         }
                         break;
                 case MI_LOAD_REGISTER_IMM:
@@ -884,7 +761,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 case STATE_BASE_ADDRESS:
                         retval = state_base_address(parser, dword_ptr);
                         if (retval != BB_PARSER_STATUS_OK) {
-                                return retval;
+                                goto out;
                         }
                         break;
                 case STATE_SIP:
@@ -927,12 +804,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         }
 
 out:;
+        tree_free(parser->visited_addresses);
+
         if (parser->bo != NULL) {
                 release_buffer(parser->bo);
         }
 
         if (bb_debug) {
-                printf("Finished batchbuffer parsing.\n");
+                debug_printf("Finished batchbuffer parsing.\n");
         }
         return retval;
 }
@@ -940,16 +819,16 @@ out:;
 uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
 {
         uint8_t cur_num_dwords;
-        uint32_t *dword_ptr, op;
+        uint32_t *dword_ptr, type, op;
         uint64_t pc, off, cur_cmd, ksp;
         unsigned char in_cmd;
         struct buffer_object *bo;
         enum bb_parser_status retval;
-        
+
         if (bb_debug) {
                 printf("Looking for addr=0x%lx\n", addr);
         }
-        
+
         bo = acquire_buffer(bind->file, bind->handle);
         if (bo == NULL) {
                 fprintf(stderr,
@@ -978,10 +857,11 @@ uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
                 }
 
                 if (!cur_cmd) {
-                        op = (*dword_ptr) >> (32 - op_len(dword_ptr));
-                        if (CMD_TYPE(*dword_ptr) == CMD_2D) {
+                        type = CMD_TYPE(*dword_ptr);
+                        op = (*dword_ptr) >> (32 - CMD_TYPE_LEN(type));
+                        if (type == CMD_2D) {
                                 op = op & 0x7F;
-                        } else if (CMD_TYPE(*dword_ptr) == GFXPIPE) {
+                        } else if (type == GFXPIPE) {
                                 op = op & OP_3D;
                         }
 

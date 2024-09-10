@@ -51,7 +51,7 @@ int BPF_PROG(i915_gem_context_create_ioctl,
                                         /* Someone is trying to set the VM for this context, let's store it */
                                         vm_id = BPF_CORE_READ_USER(setparam_ext,
                                                                    param).value;
-                                        bpf_printk("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id);
+                                        DEBUG_PRINTK("context_create_ioctl ctx_id=%u vm_id=%u", ctx_id, vm_id);
                                         bpf_map_update_elem(
                                                 &context_create_wait_for_exec,
                                                 &ctx_id, &vm_id, 0);
@@ -84,15 +84,15 @@ int BPF_PROG(i915_gem_vm_create_ioctl, struct drm_device *dev, void *data,
 
         args = (struct drm_i915_gem_vm_control *)data;
         vm_id = BPF_CORE_READ(args, vm_id);
-        bpf_printk("vm_create(ret): vm_id=%u", vm_id);
+        DEBUG_PRINTK("vm_create(ret): vm_id=%u", vm_id);
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
         if (!info) {
-                bpf_printk(
+                DEBUG_PRINTK(
                         "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
+                DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
                 return 0;
         }

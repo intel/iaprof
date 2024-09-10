@@ -53,11 +53,9 @@ int init_bpf_i915();
 struct bpf_info_t {
         struct main_bpf *obj;
         struct ring_buffer *rb;
-        int epoll_fd, rb_fd;
+        struct ring_buffer *buffer_copy_rb;
+        int epoll_fd, rb_fd, buffer_copy_rb_fd;
         struct bpf_map **map;
-
-        int buffer_copy_circular_array_fd;
-        uint64_t buffer_copy_read_head;
 
         /* Links to the BPF programs */
         struct bpf_link **links;

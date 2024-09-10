@@ -141,7 +141,6 @@ void lock_buffer(struct buffer_object *bo);
 void unlock_buffer(struct buffer_object *bo);
 struct buffer_object *create_buffer(uint64_t file, uint32_t handle);
 struct buffer_object *acquire_buffer(uint64_t file, uint32_t handle);
-struct buffer_object *acquire_or_create_buffer(uint64_t file, uint32_t handle);
 void release_buffer(struct buffer_object *bo);
 
 
@@ -208,4 +207,3 @@ do {                                                                \
 do {                                                                \
         pthread_rwlock_unlock(&buffer_objects_lock);                \
 } while (0)
-

@@ -8,7 +8,7 @@
 #define MAX_BUFFER_COPIES 256
 
 /* GEN binary copying maximums */
-#define MAX_BINARY_SIZE 1024 * 1024
+#define MAX_BINARY_SIZE (512 * 1024)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
@@ -19,6 +19,10 @@ struct file_handle_pair {
         __u32 handle;
 };
 
+struct buffer_copy {
+        uint64_t      size;
+        unsigned char bytes[MAX_BINARY_SIZE];
+};
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
@@ -32,11 +36,6 @@ enum {
     BPF_EVENT_TYPE_BATCHBUFFER,
     BPF_EVENT_TYPE_USERPTR,
     BPF_EVENT_TYPE_DEBUG_AREA,
-};
-
-struct buffer_copy {
-        __u64         buff_sz;
-        unsigned char buff[MAX_BINARY_SIZE];
 };
 
 /* Collected from an mmap */

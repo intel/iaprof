@@ -104,7 +104,7 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
         *dst_sz = src_sz;
 
         if (debug) {
-                printf("handle_binary\n");
+                debug_printf("handle_binary\n");
         }
 
         return 0;
@@ -116,17 +116,17 @@ int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu
         size_t should_read, retry_size;
         uint8_t max_retries, retry;
         unsigned char *ptr;
-        
+
         /* Allocate */
         *buf = realloc(*buf, size);
         if (!(*buf))  {
                 fprintf(stderr, "WARNING: Failed to allocate %zu bytes.\n", size);
                 return -1;
         }
-        
+
         /* Sync */
         fsync(fd);
-        
+
         /* Read */
         should_read = size;
         retry_size = size;
@@ -136,11 +136,11 @@ int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu
         do {
                 debug_printf("Reading from gpu_addr=0x%lx\n", gpu_addr);
                 bytes_read = pread(fd, ptr, should_read, gpu_addr);
-                
+
                 gpu_addr += bytes_read;
                 ptr += bytes_read;
                 should_read -= bytes_read;
-                
+
                 if (bytes_read == 0) {
                         if (should_read < retry_size) {
                                 retry = 0;
@@ -149,7 +149,7 @@ int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu
                         retry_size = should_read;
                 }
         } while (((bytes_read == 0) && (retry < max_retries)) || ((bytes_read > 0) && (should_read > 0)));
-        
+
         /* Sync again */
         fsync(fd);
 

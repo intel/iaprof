@@ -54,6 +54,13 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include "main.h"
+#include "gpu_parsers/bb_parser_defs.h"
+
+#ifdef DEBUG
+#define DEBUG_PRINK(...) bpf_printk(__VA_ARGS__)
+#else
+#define DEBUG_PRINTK(...) ;
+#endif
 
 /***************************************
 * HACKY DECLARATIONS
@@ -83,6 +90,11 @@ struct {
         __uint(type, BPF_MAP_TYPE_RINGBUF);
         __uint(max_entries, RINGBUF_SIZE);
 } rb SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_RINGBUF);
+        __uint(max_entries, RINGBUF_SIZE);
+} buffer_copy_rb SEC(".maps");
 
 /***************************************
 * STACKMAP
@@ -124,44 +136,54 @@ struct {
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
 
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, u64);
+        __type(value, char);
+} unmapped_and_copied SEC(".maps");
+
 /***************************************
 * Buffer Filters
 ***************************************/
-
-char is_batchbuffer()
-{
-
-        return 0;
-}
 
 #define DBGAREA_MAGIC 0x61657261676264
 #define SBAAREA_MAGIC 0x61657261616273
 #define TSSAREA_MAGIC 0x61657261737374
 
-char is_debug_area(unsigned char *buff, u64 size,
-                   struct gpu_mapping *gmapping, int stackid)
+char is_debug_area(void *addr, u64 size)
 {
-        u64 *ptr, status;
+        u64 val;
         struct debug_area_info *info;
 
         if (size < 8) {
                 return 0;
         }
 
-        ptr = (u64 *)buff;
+        /* Make a copy of the first 8 bytes, read them to see what the buffer type is */
+        bpf_probe_read_user(&val, sizeof(val), addr);
 
-        if (!(*ptr == DBGAREA_MAGIC) &&
-            !(*ptr == SBAAREA_MAGIC) &&
-            !(*ptr == TSSAREA_MAGIC)) {
-                return 0;
+        if (val == DBGAREA_MAGIC ||
+            val == SBAAREA_MAGIC ||
+            val == TSSAREA_MAGIC) {
+
+                return 1;
         }
+
+        return 0;
+}
+
+char send_debug_area_info(struct gpu_mapping *gmapping, int stackid)
+{
+        u64 status;
+        struct debug_area_info *info;
 
         /* Send a debug area event to userspace */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct debug_area_info), 0);
         if (!info) {
-                bpf_printk("WARNING: is_debug_area failed to reserve in the ringbuffer.");
+                DEBUG_PRINTK("WARNING: send_debug_area failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
+                DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
                 return 1;
         }
@@ -178,64 +200,144 @@ char is_debug_area(unsigned char *buff, u64 size,
         return 1;
 }
 
-/***************************************
-* Buffer copy circular array
-***************************************/
-
-struct {
-        __uint(type, BPF_MAP_TYPE_ARRAY);
-        __uint(max_entries, MAX_BUFFER_COPIES);
-        __type(key, u32);
-        __type(value, struct buffer_copy);
-} buffer_copy_circular_array SEC(".maps");
-
-__u64 buffer_copy_circular_array_write_head;
-__u8  buffer_copy_circular_array_occupancy[MAX_BUFFER_COPIES];
-
-int buffer_copy_circular_array_add(void *addr, u64 size) {
-        u32                 idx;
+int buffer_copy_add(void *addr, u64 size) {
         struct buffer_copy *bcopy;
+        void               *buff;
+        u64                 status;
         int                 err;
-        struct buffer_copy  zbcopy;
 
-        bpf_printk("Copying a buffer onto the circular array");
-
-        idx = (u32)(__sync_fetch_and_add(&buffer_copy_circular_array_write_head, 1) % MAX_BUFFER_COPIES);
-
-        bcopy = bpf_map_lookup_elem(&buffer_copy_circular_array, &idx);
-
-        if (bcopy == NULL) {
-                bpf_printk("WARNING: lookup of circular array element failed");
-                return -1;
-        }
-
-        if (idx >= MAX_BUFFER_COPIES) {
-                return -1;
-        }
-
-        if (buffer_copy_circular_array_occupancy[idx]) {
-                dropped_event = 1;
-                bpf_printk("WARNING: buffer copy dropped!");
-                return -1;
-        }
-
-        buffer_copy_circular_array_occupancy[idx] = 1;
+        DEBUG_PRINTK("!!! SIZE %llu", size);
 
         if (size > MAX_BINARY_SIZE) {
                 size = MAX_BINARY_SIZE;
         }
 
-/*         __builtin_memset(bcopy->buff, 0, MAX_BINARY_SIZE); */
-        err = bpf_probe_read_user(bcopy->buff, size, addr);
-        if (err) {
-                bpf_printk("WARNING: Failed to copy from cpu_addr=0x%lx", addr);
+        bcopy = bpf_ringbuf_reserve(&buffer_copy_rb, sizeof(*bcopy), 0);
+        if (!bcopy) {
+                DEBUG_PRINTK("WARNING: buffer_copy_add failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&buffer_copy_rb, BPF_RB_AVAIL_DATA);
+                DEBUG_PRINTK("Unconsumed data: %lu", status);
+                dropped_event = 1;
+                return 0;
         }
-        bpf_printk("Copied idx=%lu", idx);
 
-/*         bcopy->buff_sz = err ? 0 : size; */
-        bcopy->buff_sz = size;
+        bcopy->size = size;
 
-        return 0;
+        err = bpf_probe_read_user(bcopy->bytes, size, addr);
+        if (err) {
+                DEBUG_PRINTK("WARNING: Failed to copy from cpu_addr=0x%lx, err=%d", addr, err);
+        }
+
+        bpf_ringbuf_submit(bcopy, BPF_RB_FORCE_WAKEUP);
+
+        return 1;
+}
+
+unsigned char _mi_cmd_lookup[1<<8] = {
+        [MI_BATCH_BUFFER_START]           = MI_BATCH_BUFFER_START_DWORDS,
+        [MI_CONDITIONAL_BATCH_BUFFER_END] = MI_CONDITIONAL_BATCH_BUFFER_END,
+        [MI_BATCH_BUFFER_END]             = MI_BATCH_BUFFER_END,
+        [MI_SEMAPHORE_WAIT]               = MI_SEMAPHORE_WAIT,
+        [MI_PREDICATE]                    = MI_PREDICATE,
+        [MI_STORE_REGISTER_MEM]           = MI_STORE_REGISTER_MEM,
+        [MI_STORE_DATA_IMM]               = MI_STORE_DATA_IMM,
+        [MI_LOAD_REGISTER_IMM]            = MI_LOAD_REGISTER_IMM,
+        [MI_LOAD_REGISTER_MEM]            = MI_LOAD_REGISTER_MEM,
+        [MI_LOAD_REGISTER_REG]            = MI_LOAD_REGISTER_REG,
+        [MI_FLUSH_DW]                     = MI_FLUSH_DW,
+        [MI_ARB_CHECK]                    = MI_ARB_CHECK,
+        [MI_ARB_ON_OFF]                   = MI_ARB_ON_OFF,
+        [MI_URB_ATOMIC_ALLOC]             = MI_URB_ATOMIC_ALLOC,
+};
+
+unsigned char _2d_cmd_lookup[1<<8] = {
+        [MEM_COPY] = MEM_COPY_DWORDS,
+        [MEM_SET]  = MEM_SET_DWORDS,
+};
+
+unsigned char _gfxpipe_cmd_lookup[1<<15] = {
+        [PIPE_CONTROL]                   = PIPE_CONTROL_DWORDS,
+        [PIPELINE_SELECT]                = PIPELINE_SELECT_DWORDS,
+        [COMPUTE_WALKER]                 = COMPUTE_WALKER_DWORDS,
+        [GPGPU_WALKER]                   = GPGPU_WALKER_DWORDS,
+        [STATE_BASE_ADDRESS]             = STATE_BASE_ADDRESS_DWORDS,
+        [STATE_SIP]                      = STATE_SIP_DWORDS,
+        [STATE_SYSTEM_MEM_FENCE_ADDRESS] = STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS,
+        [CFE_STATE]                      = CFE_STATE_DWORDS,
+};
+
+#define BB_SCAN_MAX_DWORDS (16)
+#define BB_SCAN_MAX_MISSES (4)
+
+int looks_like_batch_buffer(void *user_addr, u64 size) {
+        u32  dwords[BB_SCAN_MAX_DWORDS];
+        u32  hit;
+        u32  miss;
+        u32  lookup;
+        u64  i;
+        u32  type;
+        u32  op;
+
+        if (user_addr == NULL) {
+                return 0;
+        }
+
+        if (size < (BB_SCAN_MAX_DWORDS * sizeof(u32))) {
+                return 0;
+        }
+
+        if (size % 4 != 0) {
+                return 0;
+        }
+
+        bpf_probe_read_user(dwords, sizeof(dwords), user_addr);
+
+        miss = 0;
+        lookup = 0;
+        for (i = 0; i < BB_SCAN_MAX_DWORDS; i += 1) {
+                if (lookup) {
+                        lookup -= 1;
+                        continue;
+                }
+
+                type  = CMD_TYPE(dwords[i]);
+                op = dwords[i] >> (32 - CMD_TYPE_LEN(type));
+
+                if (type == CMD_MI) {
+                        if (op == MI_BATCH_BUFFER_START) {
+                                /* If this buffer is jumping somewhere else, there's
+                                 * likely nothing else to parse. Just accept it. */
+                                return 1;
+                        }
+
+                        if (op < sizeof(_mi_cmd_lookup)) {
+                                lookup = _mi_cmd_lookup[op];
+                        }
+                } else if (type == CMD_2D) {
+                        op = op & 0x7F;
+                        if (op < sizeof(_2d_cmd_lookup)) {
+                                lookup = _2d_cmd_lookup[op];
+                        }
+                } else if (type == GFXPIPE) {
+                        op = op & OP_3D;
+                        if (op < sizeof(_gfxpipe_cmd_lookup)) {
+                                lookup = _gfxpipe_cmd_lookup[op];
+                        }
+                }
+
+/*                 DEBUG_PRINTK("dword=%x lookup=%x", dwords[i], lookup); */
+
+                if (lookup == 0) {
+                        miss += 1;
+                        if (miss > BB_SCAN_MAX_MISSES) {
+                                return 0;
+                        }
+                } else {
+                        lookup -= 1;
+                }
+        }
+
+        return 1;
 }
 
 

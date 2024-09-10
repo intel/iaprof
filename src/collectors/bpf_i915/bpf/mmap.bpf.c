@@ -63,7 +63,7 @@ int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg, u64 vm_pgoff)
         retval =
                 bpf_map_update_elem(&mmap_wait_for_unmap, &foffset, &unmap_val, 0);
         if (retval < 0) {
-                bpf_printk("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
+                DEBUG_PRINTK("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
                            file, handle, addr);
                 return -1;
         }
@@ -102,7 +102,7 @@ int BPF_PROG(i915_gem_mmap_ioctl,
 
         mmap_wait_for_unmap_insert((u64)file, handle, addr);
 
-        bpf_printk("mmap cpu_addr=0x%lx handle=%u\n", addr, handle);
+        DEBUG_PRINTK("mmap cpu_addr=0x%lx handle=%u\n", addr, handle);
 
         return 0;
 }
@@ -156,7 +156,7 @@ int BPF_PROG(i915_gem_mmap_offset_ioctl,
         bpf_map_update_elem(&mmap_offset_wait_for_mmap, &fake_offset, &mmap_val,
                             0);
 
-        bpf_printk("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle);
+        DEBUG_PRINTK("mmap_offset_ioctl_kretprobe fake_offset=0x%lx file=0x%lx handle=%u", fake_offset, file, handle);
 
         return 0;
 }
@@ -182,7 +182,7 @@ int BPF_PROG(i915_gem_mmap,
         /* Get the handle from the previous i915_gem_mmap_offset_ioctl call. */
         lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
         if (!lookup) {
-                bpf_printk("i915_gem_mmap failed to see mmap_offset on vm_pgoff=0x%lx",
+                DEBUG_PRINTK("i915_gem_mmap failed to see mmap_offset on vm_pgoff=0x%lx",
                            vm_pgoff);
                 return 0;
         }
@@ -194,13 +194,16 @@ int BPF_PROG(i915_gem_mmap,
         pair.file = offset_val.file;
         bpf_map_update_elem(&file_handle_mapping, &pair, &vm_start, 0);
 
+        /* If it's been remapped, we may need to copy again. */
+        bpf_map_delete_elem(&unmapped_and_copied, &vm_start);
+
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
         if (!info) {
-                bpf_printk(
+                DEBUG_PRINTK(
                         "WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
+                DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
                 return 0;
         }
@@ -221,7 +224,7 @@ int BPF_PROG(i915_gem_mmap,
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
-        bpf_printk("i915_gem_mmap cpu_addr=0x%lx handle=%u", vm_start, offset_val.handle);
+        DEBUG_PRINTK("i915_gem_mmap cpu_addr=0x%lx handle=%u", vm_start, offset_val.handle);
 
         mmap_wait_for_unmap_insert(offset_val.file, offset_val.handle,
                                    vm_start, vm_pgoff);
@@ -250,38 +253,44 @@ int BPF_PROG(i915_gem_userptr_ioctl,
 
         arg = (struct drm_i915_gem_userptr *)data;
 
-        /* Reserve some space on the ringbuffer */
-        bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
-        if (!bin) {
-                handle = BPF_CORE_READ(arg, handle);
-                bpf_printk(
-                        "WARNING: userptr_ioctl failed to reserve in the ringbuffer for handle %u.",
-                        handle);
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
         cpu_addr = BPF_CORE_READ(arg, user_ptr);
+        size = BPF_CORE_READ(arg, user_size);
         handle = BPF_CORE_READ(arg, handle);
 
-        bin->type = BPF_EVENT_TYPE_USERPTR;
-        bin->file = (u64)file;
-        bin->handle = handle;
-        bin->cpu_addr = cpu_addr;
+        if (!is_debug_area((void*)cpu_addr, size)
+        &&  looks_like_batch_buffer((void*)cpu_addr, size)) {
 
-        bin->cpu = bpf_get_smp_processor_id();
-        bin->pid = bpf_get_current_pid_tgid() >> 32;
-        bin->tid = bpf_get_current_pid_tgid();
-        bin->time = bpf_ktime_get_ns();
+                if (buffer_copy_add((void*)cpu_addr, size)) {
+                        /* Reserve some space on the ringbuffer */
+                        bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
+                        if (!bin) {
+                                handle = BPF_CORE_READ(arg, handle);
+                                DEBUG_PRINTK(
+                                        "WARNING: userptr_ioctl failed to reserve in the ringbuffer for handle %u.",
+                                        handle);
+                                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                                DEBUG_PRINTK("Unconsumed data: %lu", status);
+                                dropped_event = 1;
+                                return 0;
+                        }
 
-        size = BPF_CORE_READ(arg, user_size);
-        buffer_copy_circular_array_add((void*)cpu_addr, size);
 
-        bpf_printk("userptr cpu_addr=0x%lx handle=%u", cpu_addr, handle);
+                        bin->type = BPF_EVENT_TYPE_USERPTR;
+                        bin->file = (u64)file;
+                        bin->handle = handle;
+                        bin->cpu_addr = cpu_addr;
 
-        bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
+                        bin->cpu = bpf_get_smp_processor_id();
+                        bin->pid = bpf_get_current_pid_tgid() >> 32;
+                        bin->tid = bpf_get_current_pid_tgid();
+                        bin->time = bpf_ktime_get_ns();
+
+
+                        DEBUG_PRINTK("userptr cpu_addr=0x%lx handle=%u", cpu_addr, handle);
+
+                        bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
+                }
+        }
 
         return 0;
 }
@@ -308,16 +317,17 @@ int BPF_PROG(unmap_region,
         struct cpu_mapping cmapping = {};
         struct gpu_mapping *gmapping;
         u64 fake_offset, size, cpu_addr, status;
-        
+        char one = 1;
+
         mmo = (struct i915_mmap_offset *)BPF_CORE_READ(vma, vm_private_data);
         cpu_addr = BPF_CORE_READ(vma, vm_start);
         size = BPF_CORE_READ(vma, vm_end) - cpu_addr;
         fake_offset = BPF_CORE_READ(mmo, vma_node).vm_node.start << PAGE_SHIFT;
-        
+
         if (!fake_offset) {
                 return 0;
         }
-        
+
         if (!cpu_addr) {
                 return 0;
         }
@@ -327,48 +337,55 @@ int BPF_PROG(unmap_region,
         if (!val) {
                 return 0;
         }
-        
-        bpf_printk("unmap_region cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
-        
+
+        DEBUG_PRINTK("unmap_region cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
+
         cmapping.size = size;
         cmapping.addr = cpu_addr;
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
         if (gmapping) {
                 if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
-                        bpf_printk("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
+                        DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
                 }
         }
         gmapping = NULL;
         if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
-                bpf_printk("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
+                DEBUG_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
         }
 
-        /* Reserve some space on the ringbuffer */
-        bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
-        if (!bin) {
-                bpf_printk(
-                        "WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.",
-                        val->handle);
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                bpf_printk("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
+        if (!is_debug_area((void*)cpu_addr, size)
+        &&  looks_like_batch_buffer((void*)cpu_addr, size)) {
+
+                if (buffer_copy_add((void*)cpu_addr, size)) {
+                        bpf_map_update_elem(&unmapped_and_copied, &cpu_addr, &one, 0);
+
+
+                        /* Reserve some space on the ringbuffer */
+                        bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
+                        if (!bin) {
+                                DEBUG_PRINTK(
+                                        "WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.",
+                                        val->handle);
+                                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+/*                                 DEBUG_PRINTK("Unconsumed data: %lu", status); */
+                                dropped_event = 1;
+                                return 0;
+                        }
+
+                        bin->type = BPF_EVENT_TYPE_UNMAP;
+                        bin->file = val->file;
+                        bin->handle = val->handle;
+                        bin->cpu_addr = cpu_addr;
+                        bin->size = size;
+
+                        bin->cpu = bpf_get_smp_processor_id();
+                        bin->pid = bpf_get_current_pid_tgid() >> 32;
+                        bin->tid = bpf_get_current_pid_tgid();
+                        bin->time = bpf_ktime_get_ns();
+
+                        bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
+                }
         }
 
-        bin->type = BPF_EVENT_TYPE_UNMAP;
-        bin->file = val->file;
-        bin->handle = val->handle;
-        bin->cpu_addr = cpu_addr;
-        bin->size = size;
-
-        bin->cpu = bpf_get_smp_processor_id();
-        bin->pid = bpf_get_current_pid_tgid() >> 32;
-        bin->tid = bpf_get_current_pid_tgid();
-        bin->time = bpf_ktime_get_ns();
-
-        buffer_copy_circular_array_add((void*)cpu_addr, size);
-
-        bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
-        
         return 0;
 }

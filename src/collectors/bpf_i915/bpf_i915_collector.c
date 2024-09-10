@@ -33,51 +33,48 @@
 uint32_t global_vm_id = 0;
 static uint32_t vm_bind_bpf_counter = 0;
 
-static int consume_buffer_from_bpf(struct buffer_copy *bcopy) {
-        int status;
+struct buffer_copy_dst {
+        unsigned char **addrp;
+        uint64_t *sizep;
+};
+static struct buffer_copy_dst bcopy_dst;
 
-        status = bpf_map_lookup_elem(bpf_info.buffer_copy_circular_array_fd,
-                                &bpf_info.buffer_copy_read_head, bcopy);
+static int handle_buffer_copy(void *ctx, void *data_arg, size_t data_sz) {
+        struct buffer_copy *bcopy;
 
-        if (status != 0) {
+        if (bcopy_dst.addrp == NULL) {
+                /* drop this copy */
+                goto out;
+        }
+
+        bcopy = data_arg;
+
+        if (handle_binary(bcopy_dst.addrp, bcopy->bytes, bcopy_dst.sizep, bcopy->size) != 0) {
                 fprintf(stderr,
-                        "WARNING: consume_buffer_from_bpf() failed to lookup a map elem\n");
+                        "WARNING: handle_binary() returned non-zero\n");
         }
 
-        bpf_info.obj->bss->buffer_copy_circular_array_occupancy[bpf_info.buffer_copy_read_head] = 0;
+out:;
+        bcopy_dst.addrp = NULL;
+        bcopy_dst.sizep = NULL;
+        return 0;
+}
 
-        bpf_info.buffer_copy_read_head += 1;
-        if (bpf_info.buffer_copy_read_head == MAX_BUFFER_COPIES) {
-                bpf_info.buffer_copy_read_head = 0;
-        }
+static int consume_buffer_from_bpf(unsigned char **addrp, uint64_t *sizep) {
+        bcopy_dst.addrp = addrp;
+        bcopy_dst.sizep = sizep;
 
-        return status;
+        ring_buffer__consume_n(bpf_info.buffer_copy_rb, 1);
+
+        return 0;
 }
 
 static void drop_buffer_from_bpf() {
-        struct buffer_copy bcopy;
-
-        consume_buffer_from_bpf(&bcopy);
+        consume_buffer_from_bpf(NULL, NULL);
 }
 
 static void consume_buffer_from_bpf_into_bo(struct buffer_object *bo) {
-        int status;
-        struct buffer_copy bcopy;
-
-        status = consume_buffer_from_bpf(&bcopy);
-        if (status != 0) {
-                return;
-        }
-
-        if (bcopy.buff_sz > 0) {
-                if (handle_binary(&(bo->buff), bcopy.buff, &(bo->buff_sz),
-                        bcopy.buff_sz) != 0) {
-
-                        fprintf(stderr,
-                                "WARNING: handle_binary() returned non-zero\n");
-                }
-        }
-        
+        consume_buffer_from_bpf(&(bo->buff), &(bo->buff_sz));
 }
 
 /***************************************
@@ -337,6 +334,7 @@ int handle_execbuf_end(void *data_arg)
         consume_buffer_from_bpf_into_bo(bo);
 
         if ((!bo->buff) || (!bo->buff_sz)) {
+                release_buffer(bo);
                 fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer bb_offset=0x%llx.\n", info->bb_offset);
                 goto cleanup;
         }
@@ -509,9 +507,17 @@ int init_bpf_i915()
                 return -1;
         }
 
+        bpf_info.buffer_copy_rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.buffer_copy_rb),
+                                       handle_buffer_copy, NULL, NULL);
+        if (!(bpf_info.buffer_copy_rb)) {
+                fprintf(stderr,
+                        "Failed to create a new ring buffer. You're most likely not root.\n");
+                return -1;
+        }
+
         bpf_info.rb_fd = bpf_map__fd(bpf_info.obj->maps.rb);
+        bpf_info.buffer_copy_rb_fd = bpf_map__fd(bpf_info.obj->maps.buffer_copy_rb);
         bpf_info.epoll_fd = ring_buffer__epoll_fd(bpf_info.rb);
-        bpf_info.buffer_copy_circular_array_fd = bpf_map__fd(bpf_info.obj->maps.buffer_copy_circular_array);
         bpf_info.dropped_event = &(bpf_info.obj->bss->dropped_event);
 
         return 0;
