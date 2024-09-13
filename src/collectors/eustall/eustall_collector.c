@@ -119,7 +119,11 @@ int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
 
 static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
         int found;
-        uint64_t addr, start, end, offset, first_found_offset;
+        uint64_t addr;
+        uint64_t start;
+/*         uint64_t end;  */
+        uint64_t offset;
+        uint64_t first_found_offset;
         uint32_t first_found_vm_id;
         struct deferred_eustall deferred;
         struct vm_profile *vm;
@@ -158,13 +162,13 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                 }
 
                 start = bind->gpu_addr;
-                end = start + bind->bind_size;
+/*                 end = start + bind->bind_size; */
                 offset = addr - start;
 
-                debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n",
-                        addr, start, end, offset,
-                        bind->handle, bind->vm_id,
-                        bind->gpu_addr, iba);
+/*                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n", */
+/*                         addr, start, end, offset, */
+/*                         bind->handle, bind->vm_id, */
+/*                         bind->gpu_addr, iba); */
 
                 if ((addr - start) > MAX_BINARY_SIZE) {
                         if (debug) {

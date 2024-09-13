@@ -194,9 +194,6 @@ int BPF_PROG(i915_gem_mmap,
         pair.file = offset_val.file;
         bpf_map_update_elem(&file_handle_mapping, &pair, &vm_start, 0);
 
-        /* If it's been remapped, we may need to copy again. */
-        bpf_map_delete_elem(&unmapped_and_copied, &vm_start);
-
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
         if (!info) {
@@ -250,6 +247,7 @@ int BPF_PROG(i915_gem_userptr_ioctl,
         u64 size, status, cpu_addr;
         struct drm_i915_gem_userptr *arg;
         struct userptr_info *bin;
+        char one = 1;
 
         arg = (struct drm_i915_gem_userptr *)data;
 
@@ -257,10 +255,10 @@ int BPF_PROG(i915_gem_userptr_ioctl,
         size = BPF_CORE_READ(arg, user_size);
         handle = BPF_CORE_READ(arg, handle);
 
-        if (!is_debug_area((void*)cpu_addr, size)
-        &&  looks_like_batch_buffer((void*)cpu_addr, size)) {
-
+        if (looks_like_batch_buffer((void*)cpu_addr, size)) {
                 if (buffer_copy_add((void*)cpu_addr, size)) {
+/*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", (u64)file, handle); */
+
                         /* Reserve some space on the ringbuffer */
                         bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
                         if (!bin) {
@@ -316,6 +314,7 @@ int BPF_PROG(unmap_region,
         struct unmap_info *bin;
         struct cpu_mapping cmapping = {};
         struct gpu_mapping *gmapping;
+        struct gpu_mapping save_gmapping = {};
         u64 fake_offset, size, cpu_addr, status;
         char one = 1;
 
@@ -342,8 +341,13 @@ int BPF_PROG(unmap_region,
 
         cmapping.size = size;
         cmapping.addr = cpu_addr;
+
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
+        save_gmapping.addr = 0;
+        save_gmapping.vm_id = 0;
         if (gmapping) {
+                save_gmapping.addr = gmapping->addr;
+                save_gmapping.vm_id = gmapping->vm_id;
                 if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
                         DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
                 }
@@ -353,12 +357,9 @@ int BPF_PROG(unmap_region,
                 DEBUG_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
         }
 
-        if (!is_debug_area((void*)cpu_addr, size)
-        &&  looks_like_batch_buffer((void*)cpu_addr, size)) {
-
+        if (looks_like_batch_buffer((void*)cpu_addr, size)) {
                 if (buffer_copy_add((void*)cpu_addr, size)) {
-                        bpf_map_update_elem(&unmapped_and_copied, &cpu_addr, &one, 0);
-
+/*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", val->file, val->handle); */
 
                         /* Reserve some space on the ringbuffer */
                         bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
@@ -367,7 +368,7 @@ int BPF_PROG(unmap_region,
                                         "WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.",
                                         val->handle);
                                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-/*                                 DEBUG_PRINTK("Unconsumed data: %lu", status); */
+                                DEBUG_PRINTK("Unconsumed data: %lu", status);
                                 dropped_event = 1;
                                 return 0;
                         }

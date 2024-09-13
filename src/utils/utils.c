@@ -179,7 +179,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
                 }
         }
 
-        printf("Writing ID %lu to %s\n", id, filename);
+        debug_printf("Writing ID %lu to %s\n", id, filename);
         tmpfile = fopen(filename, "w");
         if (!tmpfile) {
                 fprintf(stderr, "WARNING: Failed to open %s\n", filename);

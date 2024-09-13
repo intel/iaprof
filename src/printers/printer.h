@@ -24,7 +24,6 @@ int print_execbuf_buffer(struct buffer_binding *bind);
 int print_execbuf_end(struct execbuf_end_info *einfo);
 
 int print_total_eustall(uint64_t num, unsigned long long time);
-int print_eustall_reason(struct eustall_sample *sample);
 int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
                   uint64_t offset, uint32_t handle, uint16_t subslice,
                   unsigned long long time);

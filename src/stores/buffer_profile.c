@@ -38,7 +38,7 @@ struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr) {
 
 struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_binding_struct) it;
-        struct buffer_binding new_profile;
+        struct buffer_binding new_bind;
 
         assert(vm->lock_holder == pthread_self()
                 && "get_or_create_binding called, but vm->lock not held by this thread!");
@@ -48,10 +48,10 @@ struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu
                 goto found;
         }
 
-        memset(&new_profile, 0, sizeof(new_profile));
-        new_profile.vm_id = vm->vm_id;
-        new_profile.gpu_addr = gpu_addr;
-        it = tree_insert(vm->bindings, gpu_addr, new_profile);
+        memset(&new_bind, 0, sizeof(new_bind));
+        new_bind.vm_id = vm->vm_id;
+        new_bind.gpu_addr = gpu_addr;
+        it = tree_insert(vm->bindings, gpu_addr, new_bind);
 
 found:;
         return &tree_it_val(it);
@@ -157,7 +157,7 @@ void delete_binding(struct vm_profile *vm, uint64_t gpu_addr) {
                 return;
         }
 
-/*         free_binding(&tree_it_val(it)); */
+        free_binding(&tree_it_val(it));
         tree_delete(vm->bindings, gpu_addr);
 }
 
@@ -172,7 +172,7 @@ void print_bindings()
         printf( "==== BINDINGS ====\n");
 
         FOR_BINDING(vm, bind, {
-                printf(
+                debug_printf(
                         "vm_id=%u gpu_addr=0x%lx\n",
                         bind->vm_id, bind->gpu_addr);
         });

@@ -18,7 +18,7 @@
 ***************************************/
 
 uint64_t grow_proto_flames();
-void store_interval_flames();
+void store_flames();
 
 /* Stores a single "frame" of a flamegraph. */
 struct proto_flame {

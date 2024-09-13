@@ -25,6 +25,11 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
         int err;
         struct batchbuffer_info *info = NULL;
         u64 status, size, addr;
+        char one = 1;
+
+        if (bpf_map_lookup_elem(&known_not_batch_buffers, gmapping)) {
+                return 0;
+        }
 
         /* Look at the CPU mapping */
         addr = cmapping->addr;
@@ -40,12 +45,7 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                 send_debug_area_info(gmapping, ctx->stackid);
                 DEBUG_PRINTK("vm_callback filtering debug area vm_id=%u gpu_addr=0x%lx",
                            gmapping->vm_id, gmapping->addr);
-                return 0;
-        }
-
-        if (bpf_map_lookup_elem(&unmapped_and_copied, &addr)) {
-                DEBUG_PRINTK("vm_callback filtering already copied cpu_addr=0x%lx",
-                           addr);
+                bpf_map_update_elem(&known_not_batch_buffers, gmapping, &one, BPF_ANY);
                 return 0;
         }
 
@@ -59,11 +59,15 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                            gmapping->vm_id, gmapping->addr);
                 return 0;
         }
-        DEBUG_PRINTK("vm_callback reading vm_id=%u gpu_addr=0x%lx",
-                   gmapping->vm_id, gmapping->addr);
 
         if (looks_like_batch_buffer((void*)addr, size)) {
+                DEBUG_PRINTK("vm_callback copying vm_id=%u gpu_addr=0x%lx",
+                             gmapping->vm_id, gmapping->addr);
+
                 if (buffer_copy_add((void*)addr, size)) {
+/*                         DEBUG_PRINTK("!!! BB %u 0x%lx 0 0", */
+/*                                      gmapping->vm_id, gmapping->addr); */
+
                         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
                         if (!info) {
                                 DEBUG_PRINTK(
@@ -86,8 +90,9 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
 
                         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
                 }
+        } else {
+                bpf_map_update_elem(&known_not_batch_buffers, gmapping, &one, BPF_ANY);
         }
-
 
         return 0;
 }
@@ -178,39 +183,40 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 return 0;
         }
 
-        if (looks_like_batch_buffer((void*)cpu_addr, size)) {
-                if (buffer_copy_add((void*)cpu_addr, size)) {
-                        /* Reserve some space on the ringbuffer, into which we can copy things */
-                        info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
-                        if (!info) {
-                                DEBUG_PRINTK(
-                                        "WARNING: execbuffer failed to reserve in the ringbuffer.");
-                                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                                dropped_event = 1;
-                                return 0;
-                        }
+        if (buffer_copy_add((void*)cpu_addr, size)) {
+/*                 DEBUG_PRINTK("!!! BB %u 0x%lx 0 0", */
+/*                                 gmapping.vm_id, gmapping.addr); */
 
-                        DEBUG_PRINTK("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
-
-                        /* execbuffer-specific stuff */
-                        info->type = BPF_EVENT_TYPE_EXECBUF_END;
-                        info->file = file_ptr;
-                        info->vm_id = vm_id;
-                        info->ctx_id = ctx_id;
-                        info->buffer_count = buffer_count;
-                        info->batch_start_offset = batch_start_offset;
-                        info->batch_len = args->batch_len;
-                        info->bb_offset = offset;
-
-                        info->cpu = cpu;
-                        info->pid = bpf_get_current_pid_tgid() >> 32;
-                        info->tid = bpf_get_current_pid_tgid();
-                        info->stackid = stackid;
-                        info->time = bpf_ktime_get_ns();
-                        bpf_get_current_comm(info->name, sizeof(info->name));
-                        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+                /* Reserve some space on the ringbuffer, into which we can copy things */
+                info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
+                if (!info) {
+                        DEBUG_PRINTK(
+                                "WARNING: execbuffer failed to reserve in the ringbuffer.");
+                        status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                        DEBUG_PRINTK("Unconsumed data: %lu", status);
+                        dropped_event = 1;
+                        return 0;
                 }
+
+                DEBUG_PRINTK("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
+
+                /* execbuffer-specific stuff */
+                info->type = BPF_EVENT_TYPE_EXECBUF_END;
+                info->file = file_ptr;
+                info->vm_id = vm_id;
+                info->ctx_id = ctx_id;
+                info->buffer_count = buffer_count;
+                info->batch_start_offset = batch_start_offset;
+                info->batch_len = args->batch_len;
+                info->bb_offset = offset;
+
+                info->cpu = cpu;
+                info->pid = bpf_get_current_pid_tgid() >> 32;
+                info->tid = bpf_get_current_pid_tgid();
+                info->stackid = stackid;
+                info->time = bpf_ktime_get_ns();
+                bpf_get_current_comm(info->name, sizeof(info->name));
+                bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
         }
 
         return 0;

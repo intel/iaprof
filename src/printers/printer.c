@@ -10,12 +10,14 @@
 
 int print_header()
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "EVENT");
         printf(" %-*.*s", TIME_LEN, TIME_LEN, "TIMESTAMP");
         printf(" %-*.*s", CPU_LEN, CPU_LEN, "CPU");
         printf(" %-*.*s", PID_LEN, PID_LEN, "PID");
         printf(" %-*.*s", TID_LEN, TID_LEN, "TID");
         printf(" %s\n", "ARGS");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -24,6 +26,7 @@ int print_mapping(struct mapping_info *info)
 {
 /*         char *stack_str = NULL; */
 
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "mmap");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -37,12 +40,14 @@ int print_mapping(struct mapping_info *info)
         /* 	store_stack(info->pid, info->stackid, &stack_str); */
         /* 	printf("%s", stack_str); */
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_unmap(struct unmap_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "unmap");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -50,12 +55,14 @@ int print_unmap(struct unmap_info *info)
         printf(" %-*u", TID_LEN, info->tid);
         printf(" file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n", info->file,
                info->handle, info->cpu_addr, info->size);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_userptr(struct userptr_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "userptr");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -63,12 +70,14 @@ int print_userptr(struct userptr_info *info)
         printf(" %-*u", TID_LEN, info->tid);
         printf(" file=0x%llx handle=%u cpu_addr=0x%llx\n", info->file,
                info->handle, info->cpu_addr);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_debug_area(struct debug_area_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "debug_area");
         printf(" %-*llu", TIME_LEN, (unsigned long long)0);
         printf(" %-*u", CPU_LEN, 0);
@@ -76,24 +85,28 @@ int print_debug_area(struct debug_area_info *info)
         printf(" %-*u", TID_LEN, 0);
         printf(" vm_id=%u gpu_addr=0x%llx\n",
                info->vm_id, info->gpu_addr);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_vm_create(struct vm_create_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_create");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
         printf(" %-*u", PID_LEN, info->pid);
         printf(" %-*u", TID_LEN, info->tid);
         printf(" vm_id=%u\n", info->vm_id);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_bind");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -102,12 +115,14 @@ int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter)
         printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx vm_bind_counter=%u size=%llu flags=0x%llx%s\n",
                info->file, info->handle, info->vm_id, info->gpu_addr, vm_bind_counter,
                info->size, info->flags, (info->flags & PRELIM_I915_GEM_VM_BIND_MAKE_RESIDENT) ? " (MAKE_RESIDENT)" : "");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_vm_unbind(struct vm_unbind_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "vm_unbind");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -116,12 +131,14 @@ int print_vm_unbind(struct vm_unbind_info *info)
         printf(" file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx size=%llu\n",
                info->file, info->handle, info->vm_id, info->gpu_addr,
                info->size);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_batchbuffer(struct batchbuffer_info *info)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "batchbuffer");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -129,6 +146,7 @@ int print_batchbuffer(struct batchbuffer_info *info)
         printf(" %-*u", TID_LEN, info->tid);
         printf(" vm_id=%u gpu_addr=0x%llx\n", info->vm_id,
                info->gpu_addr);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -137,6 +155,7 @@ int print_execbuf_start(struct execbuf_start_info *info)
 {
         char *stack_str = NULL;
 
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_start");
         printf(" %-*llu", TIME_LEN, info->time);
         printf(" %-*u", CPU_LEN, info->cpu);
@@ -152,6 +171,7 @@ int print_execbuf_start(struct execbuf_start_info *info)
         printf("\n");
 
         free(stack_str);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -159,6 +179,7 @@ int print_execbuf_start(struct execbuf_start_info *info)
 /* Prints buffers that an execbuffer referenced through its vm_id */
 int print_execbuf_buffer(struct buffer_binding *bind)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_bind");
         printf(" %-*lu", TIME_LEN, bind->time);
         printf(" %-*u", CPU_LEN, bind->cpu);
@@ -168,35 +189,40 @@ int print_execbuf_buffer(struct buffer_binding *bind)
         printf(" file=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx size=%lu\n",
                bind->file, bind->handle, bind->vm_id, bind->gpu_addr,
                bind->bind_size);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_execbuf_end(struct execbuf_end_info *einfo)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_end");
         printf(" %-*llu", TIME_LEN, einfo->time);
         printf(" %-*u", CPU_LEN, einfo->cpu);
         printf(" %-*u", PID_LEN, einfo->pid);
         printf(" %-*u", TID_LEN, einfo->tid);
         printf(" ctx_id=%u gpu_addr=0x%llx buffer_count=%u\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
 int print_total_eustall(uint64_t num, unsigned long long time)
 {
-        debug_printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");
-        debug_printf(" %-*llu", TIME_LEN, time);
-        debug_printf(" %-*u", CPU_LEN, 0);
-        debug_printf(" %-*u", PID_LEN, 0);
-        debug_printf(" %-*u", TID_LEN, 0);
-        debug_printf(" num=%" PRIu64 " \n", num);
+        pthread_mutex_lock(&debug_print_lock);;
+        printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");
+        printf(" %-*llu", TIME_LEN, time);
+        printf(" %-*u", CPU_LEN, 0);
+        printf(" %-*u", PID_LEN, 0);
+        printf(" %-*u", TID_LEN, 0);
+        printf(" num=%" PRIu64 " \n", num);
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
 
-int print_eustall_reason(struct eustall_sample *sample)
+static int print_eustall_reason(struct eustall_sample *sample)
 {
         if (sample->active) {
                 printf("active=%u ", sample->active);
@@ -233,6 +259,7 @@ int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
                   uint64_t offset, uint32_t handle, uint16_t subslice,
                   unsigned long long time)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall");
         printf(" %-*llu", TIME_LEN, time);
         printf(" %-*u", CPU_LEN, 0);
@@ -242,6 +269,7 @@ int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
                handle, gpu_addr, offset, subslice);
         print_eustall_reason(sample);
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -250,6 +278,7 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
                         uint64_t offset, uint16_t subslice,
                         unsigned long long time)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_churn");
         printf(" %-*llu", TIME_LEN, time);
         printf(" %-*u", CPU_LEN, 0);
@@ -259,6 +288,7 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
                offset, subslice);
         print_eustall_reason(sample);
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -266,6 +296,7 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
 int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
                        uint16_t subslice, unsigned long long time)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_drop");
         printf(" %-*llu", TIME_LEN, time);
         printf(" %-*u", CPU_LEN, 0);
@@ -274,6 +305,7 @@ int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
         printf(" gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
         print_eustall_reason(sample);
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -281,6 +313,7 @@ int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
 int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
                         uint16_t subslice, unsigned long long time)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_defer");
         printf(" %-*llu", TIME_LEN, time);
         printf(" %-*u", CPU_LEN, 0);
@@ -289,6 +322,7 @@ int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
         printf(" gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
         print_eustall_reason(sample);
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }
@@ -296,6 +330,7 @@ int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
 int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
                              uint16_t subslice, unsigned long long time)
 {
+        pthread_mutex_lock(&debug_print_lock);;
         printf("%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_multichurn");
         printf(" %-*llu", TIME_LEN, time);
         printf(" %-*u", CPU_LEN, 0);
@@ -304,6 +339,7 @@ int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
         printf(" gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
         print_eustall_reason(sample);
         printf("\n");
+        pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
 }

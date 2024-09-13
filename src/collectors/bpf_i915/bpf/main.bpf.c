@@ -139,9 +139,9 @@ struct {
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
         __uint(max_entries, MAX_ENTRIES);
-        __type(key, u64);
+        __type(key, struct gpu_mapping);
         __type(value, char);
-} unmapped_and_copied SEC(".maps");
+} known_not_batch_buffers SEC(".maps");
 
 /***************************************
 * Buffer Filters
@@ -205,8 +205,7 @@ int buffer_copy_add(void *addr, u64 size) {
         void               *buff;
         u64                 status;
         int                 err;
-
-        DEBUG_PRINTK("!!! SIZE %llu", size);
+        char                one = 1;
 
         if (size > MAX_BINARY_SIZE) {
                 size = MAX_BINARY_SIZE;
@@ -256,23 +255,25 @@ unsigned char _2d_cmd_lookup[1<<8] = {
 };
 
 unsigned char _gfxpipe_cmd_lookup[1<<15] = {
-        [PIPE_CONTROL]                   = PIPE_CONTROL_DWORDS,
-        [PIPELINE_SELECT]                = PIPELINE_SELECT_DWORDS,
-        [COMPUTE_WALKER]                 = COMPUTE_WALKER_DWORDS,
-        [GPGPU_WALKER]                   = GPGPU_WALKER_DWORDS,
-        [STATE_BASE_ADDRESS]             = STATE_BASE_ADDRESS_DWORDS,
-        [STATE_SIP]                      = STATE_SIP_DWORDS,
-        [STATE_SYSTEM_MEM_FENCE_ADDRESS] = STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS,
-        [CFE_STATE]                      = CFE_STATE_DWORDS,
+        [PIPE_CONTROL]                      = PIPE_CONTROL_DWORDS,
+        [PIPELINE_SELECT]                   = PIPELINE_SELECT_DWORDS,
+        [COMPUTE_WALKER]                    = COMPUTE_WALKER_DWORDS,
+        [GPGPU_WALKER]                      = GPGPU_WALKER_DWORDS,
+        [STATE_BASE_ADDRESS]                = STATE_BASE_ADDRESS_DWORDS,
+        [STATE_COMPUTE_MODE]                = STATE_COMPUTE_MODE_DWORDS,
+        [STATE_SIP]                         = STATE_SIP_DWORDS,
+        [STATE_SYSTEM_MEM_FENCE_ADDRESS]    = STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS,
+        [CFE_STATE]                         = CFE_STATE_DWORDS,
+        [_3DSTATE_BINDING_TABLE_POOL_ALLOC] = _3DSTATE_BINDING_TABLE_POOL_ALLOC_DWORDS,
 };
 
 #define BB_SCAN_MAX_DWORDS (16)
-#define BB_SCAN_MAX_MISSES (4)
+/* #define BB_SCAN_MAX_MISSES (4) */
 
 int looks_like_batch_buffer(void *user_addr, u64 size) {
         u32  dwords[BB_SCAN_MAX_DWORDS];
         u32  hit;
-        u32  miss;
+/*         u32  miss; */
         u32  lookup;
         u64  i;
         u32  type;
@@ -292,7 +293,7 @@ int looks_like_batch_buffer(void *user_addr, u64 size) {
 
         bpf_probe_read_user(dwords, sizeof(dwords), user_addr);
 
-        miss = 0;
+/*         miss = 0; */
         lookup = 0;
         for (i = 0; i < BB_SCAN_MAX_DWORDS; i += 1) {
                 if (lookup) {
@@ -328,10 +329,10 @@ int looks_like_batch_buffer(void *user_addr, u64 size) {
 /*                 DEBUG_PRINTK("dword=%x lookup=%x", dwords[i], lookup); */
 
                 if (lookup == 0) {
-                        miss += 1;
-                        if (miss > BB_SCAN_MAX_MISSES) {
+/*                         miss += 1; */
+/*                         if (miss > BB_SCAN_MAX_MISSES) { */
                                 return 0;
-                        }
+/*                         } */
                 } else {
                         lookup -= 1;
                 }
@@ -339,7 +340,6 @@ int looks_like_batch_buffer(void *user_addr, u64 size) {
 
         return 1;
 }
-
 
 #include "mmap.bpf.c"
 
