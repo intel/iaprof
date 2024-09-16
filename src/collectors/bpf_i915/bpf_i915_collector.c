@@ -364,7 +364,9 @@ int handle_execbuf_end(void *data_arg)
         }
 
 cleanup:
-        release_vm_profile(vm);
+        if (vm != NULL) {
+                release_vm_profile(vm);
+        }
 
         return 0;
 }
