@@ -256,6 +256,8 @@ int BPF_PROG(i915_gem_userptr_ioctl,
         handle = BPF_CORE_READ(arg, handle);
 
         if (looks_like_batch_buffer((void*)cpu_addr, size)) {
+                DEBUG_PRINTK("userptr_ioctl copying cpu_addr=0x%lx handle=%u", cpu_addr, handle);
+
                 if (buffer_copy_add((void*)cpu_addr, size)) {
 /*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", (u64)file, handle); */
 
@@ -358,6 +360,8 @@ int BPF_PROG(unmap_region,
         }
 
         if (looks_like_batch_buffer((void*)cpu_addr, size)) {
+                DEBUG_PRINTK("unmap_region copying cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
+
                 if (buffer_copy_add((void*)cpu_addr, size)) {
 /*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", val->file, val->handle); */
 
