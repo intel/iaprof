@@ -25,6 +25,12 @@ enum bb_parser_status {
         BB_PARSER_STATUS_NOTFOUND,
 };
 
+uint32_t cmd_lengths[] = {
+        #define L(name, type, opcode, num_dwords) [name] = num_dwords,
+        LIST_COMMANDS(L)
+        #undef L
+};
+
 uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr);
 
 /******************************************************************************
@@ -390,7 +396,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                            an MI_BATCH_BUFFER_START command, minus one (since we're
                            going to increment this by one in the parser loop) */
                         parser->pc[parser->pc_depth] +=
-                                (4 * (MI_BATCH_BUFFER_START_DWORDS - 1));
+                                (4 * (cmd_lengths[BATCH_BUFFER_START] - 1));
                         parser->pc_depth++;
                 }
                 parser->pc[parser->pc_depth] = parser->bbsp - 4;
@@ -447,7 +453,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       uint32_t offset, uint64_t size,
                                       int pid, int stackid, char *procname)
 {
-        uint32_t *dword_ptr, type, op;
+        uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
         enum bb_parser_status retval;
 
@@ -503,303 +509,91 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 parser->num_dwords++;
 
                 if (!parser->cur_cmd) {
-                        type = CMD_TYPE(*dword_ptr);
-                        op = (*dword_ptr) >> (32 - CMD_TYPE_LEN(type));
-                        if (type == CMD_2D) {
-                                op = op & 0x7F;
-                        } else if (type == GFXPIPE) {
-                                op = op & OP_3D;
-                        }
+                        op = GET_OPCODE(*dword_ptr);
 
                         /* Decode which op this is */
                         switch (op) {
-                        case MI_BATCH_BUFFER_START:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_BATCH_BUFFER_START\n");
-                                }
-                                parser->cur_cmd = MI_BATCH_BUFFER_START;
-                                parser->cur_num_dwords =
-                                        MI_BATCH_BUFFER_START_DWORDS;
-                                break;
-                        case MI_PRT_BATCH_BUFFER_START:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_PRT_BATCH_BUFFER_START\n");
-                                }
-                                parser->cur_cmd = MI_PRT_BATCH_BUFFER_START;
-                                parser->cur_num_dwords =
-                                        MI_PRT_BATCH_BUFFER_START_DWORDS;
-                                break;
-                        case MI_NOOP:
-                                noops++;
+                                #define X(name, type, opcode, num_dwords)                  \
+                                case name:                                                 \
+                                        noops += name == NOOP;                             \
+                                        if (bb_debug) {                                    \
+                                                debug_printf("op=" #name "\n");            \
+                                        }                                                  \
+                                        if (noops == 32) {                                 \
+                                                if (bb_debug) {                            \
+                                                        debug_printf("Too many NOOPs!\n"); \
+                                                }                                          \
+                                                retval = BB_PARSER_STATUS_OK;              \
+                                                goto out;                                  \
+                                        }                                                  \
+                                        parser->cur_cmd = name;                            \
+                                        parser->cur_num_dwords = num_dwords;               \
+                                        break;
+                                LIST_COMMANDS(X);
+                                #undef X
 
-                                if (bb_debug) {
-                                        debug_printf("op=MI_NOOP %lu\n", noops);
-                                }
-
-                                if (noops == 32) {
+                                default:
                                         if (bb_debug) {
-                                                debug_printf("Too many NOOPs!\n");
+                                                debug_printf("op=UNKNOWN (0x%x)\n", op);
                                         }
-                                        retval = BB_PARSER_STATUS_OK;
-                                        goto out;
-                                }
-
-                                parser->cur_cmd = MI_NOOP;
-                                parser->cur_num_dwords = MI_NOOP_DWORDS;
-                                break;
-                        case MI_FLUSH_DW:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_FLUSH_DW\n");
-                                }
-                                parser->cur_cmd = MI_FLUSH_DW;
-                                parser->cur_num_dwords = MI_FLUSH_DW_DWORDS;
-                                break;
-                        case STATE_BASE_ADDRESS:
-                                if (bb_debug) {
-                                        debug_printf("op=STATE_BASE_ADDRESS\n");
-                                }
-                                parser->cur_cmd = STATE_BASE_ADDRESS;
-                                parser->cur_num_dwords =
-                                        STATE_BASE_ADDRESS_DWORDS;
-                                break;
-                        case STATE_COMPUTE_MODE:
-                                if (bb_debug) {
-                                        debug_printf("op=STATE_COMPUTE_MODE\n");
-                                }
-                                parser->cur_cmd = STATE_COMPUTE_MODE;
-                                parser->cur_num_dwords =
-                                        STATE_COMPUTE_MODE_DWORDS;
-                                break;
-                        case STATE_SIP:
-                                if (bb_debug) {
-                                        debug_printf("op=STATE_SIP\n");
-                                }
-                                parser->cur_cmd = STATE_SIP;
-                                parser->cur_num_dwords = STATE_SIP_DWORDS;
-                                break;
-                        case STATE_SYSTEM_MEM_FENCE_ADDRESS:
-                                if (bb_debug) {
-                                        debug_printf("op=STATE_SYSTEM_MEM_FENCE_ADDRESS\n");
-                                }
-                                parser->cur_cmd =
-                                        STATE_SYSTEM_MEM_FENCE_ADDRESS;
-                                parser->cur_num_dwords =
-                                        STATE_SYSTEM_MEM_FENCE_ADDRESS_DWORDS;
-                                break;
-                        case COMPUTE_WALKER:
-                                if (bb_debug) {
-                                        debug_printf("op=COMPUTE_WALKER\n");
-                                }
-                                parser->cur_cmd = COMPUTE_WALKER;
-                                parser->cur_num_dwords = COMPUTE_WALKER_DWORDS;
-                                break;
-                        case CFE_STATE:
-                                if (bb_debug) {
-                                        debug_printf("op=CFE_STATE\n");
-                                }
-                                parser->cur_cmd = CFE_STATE;
-                                parser->cur_num_dwords = CFE_STATE_DWORDS;
-                                break;
-                        case _3DSTATE_BINDING_TABLE_POOL_ALLOC:
-                                if (bb_debug) {
-                                        debug_printf("op=3DSTATE_BINDING_TABLE_POOL_ALLOC\n");
-                                }
-                                parser->cur_cmd = _3DSTATE_BINDING_TABLE_POOL_ALLOC;
-                                parser->cur_num_dwords = _3DSTATE_BINDING_TABLE_POOL_ALLOC_DWORDS;
-                                break;
-                        case GPGPU_WALKER:
-                                if (bb_debug) {
-                                        debug_printf("op=GPGPU_WALKER\n");
-                                }
-                                parser->cur_cmd = GPGPU_WALKER;
-                                parser->cur_num_dwords = GPGPU_WALKER_DWORDS;
-                                break;
-                        case MI_BATCH_BUFFER_END:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_BATCH_BUFFER_END\n");
-                                }
-                                parser->cur_cmd = MI_BATCH_BUFFER_END;
-                                parser->cur_num_dwords =
-                                        MI_BATCH_BUFFER_END_DWORDS;
-                                break;
-                        case MI_CONDITIONAL_BATCH_BUFFER_END:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_CONDITIONAL_BATCH_BUFFER_END\n");
-                                }
-                                parser->cur_cmd =
-                                        MI_CONDITIONAL_BATCH_BUFFER_END;
-                                parser->cur_num_dwords =
-                                        MI_CONDITIONAL_BATCH_BUFFER_END_DWORDS;
-                                break;
-                        case MI_PREDICATE:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_PREDICATE\n");
-                                }
-                                parser->cur_cmd = MI_PREDICATE;
-                                parser->cur_num_dwords = MI_PREDICATE_DWORDS;
-                                break;
-                        case MI_STORE_REGISTER_MEM:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_STORE_REGISTER_MEM\n");
-                                }
-                                parser->cur_cmd = MI_STORE_REGISTER_MEM;
-                                parser->cur_num_dwords =
-                                        MI_STORE_REGISTER_MEM_DWORDS;
-                                break;
-                        case MI_STORE_DATA_IMM:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_STORE_DATA_IMM\n");
-                                }
-                                parser->cur_cmd = MI_STORE_DATA_IMM;
-                                parser->cur_num_dwords =
-                                        MI_STORE_DATA_IMM_DWORDS;
-                                break;
-                        case MI_ARB_CHECK:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_ARB_CHECK\n");
-                                }
-                                parser->cur_cmd = MI_ARB_CHECK;
-                                parser->cur_num_dwords =
-                                        MI_ARB_CHECK_DWORDS;
-                                break;
-                        case MI_ARB_ON_OFF:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_ARB_ON_OFF\n");
-                                }
-                                parser->cur_cmd = MI_ARB_ON_OFF;
-                                parser->cur_num_dwords =
-                                        MI_ARB_ON_OFF_DWORDS;
-                                break;
-                        case MI_URB_ATOMIC_ALLOC:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_URB_ATOMIC_ALLOC\n");
-                                }
-                                parser->cur_cmd = MI_URB_ATOMIC_ALLOC;
-                                parser->cur_num_dwords =
-                                        MI_URB_ATOMIC_ALLOC_DWORDS;
-                                break;
-                        case MI_LOAD_REGISTER_IMM:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_LOAD_REGISTER_IMM\n");
-                                }
-                                parser->cur_cmd = MI_LOAD_REGISTER_IMM;
-                                parser->cur_num_dwords =
-                                        MI_LOAD_REGISTER_IMM_DWORDS;
-                                break;
-                        case MI_LOAD_REGISTER_REG:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_LOAD_REGISTER_REG\n");
-                                }
-                                parser->cur_cmd = MI_LOAD_REGISTER_REG;
-                                parser->cur_num_dwords =
-                                        MI_LOAD_REGISTER_REG_DWORDS;
-                                break;
-                        case MI_LOAD_REGISTER_MEM:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_LOAD_REGISTER_MEM\n");
-                                }
-                                parser->cur_cmd = MI_LOAD_REGISTER_MEM;
-                                parser->cur_num_dwords =
-                                        MI_LOAD_REGISTER_MEM_DWORDS;
-                                break;
-                        case PIPE_CONTROL:
-                                if (bb_debug) {
-                                        debug_printf("op=PIPE_CONTROL\n");
-                                }
-                                parser->cur_cmd = PIPE_CONTROL;
-                                parser->cur_num_dwords = PIPE_CONTROL_DWORDS;
-                                break;
-                        case PIPELINE_SELECT:
-                                if (bb_debug) {
-                                        debug_printf("op=PIPELINE_SELECT\n");
-                                }
-                                parser->cur_cmd = PIPELINE_SELECT;
-                                parser->cur_num_dwords = PIPELINE_SELECT_DWORDS;
-                                break;
-                        case MI_SEMAPHORE_WAIT:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_SEMAPHORE_WAIT\n");
-                                }
-                                parser->cur_cmd = MI_SEMAPHORE_WAIT;
-                                parser->cur_num_dwords =
-                                        MI_SEMAPHORE_WAIT_DWORDS;
-                                break;
-                        case MEM_COPY:
-                                if (bb_debug) {
-                                        debug_printf("op=MEM_COPY\n");
-                                }
-                                parser->cur_cmd = MEM_COPY;
-                                parser->cur_num_dwords = MEM_COPY_DWORDS;
-                                break;
-                        case MEM_SET:
-                                if (bb_debug) {
-                                        debug_printf("op=MEM_SET\n");
-                                }
-                                parser->cur_cmd = MEM_SET;
-                                parser->cur_num_dwords = MEM_SET_DWORDS;
-                                break;
-                        default:
-                                if (bb_debug) {
-                                        debug_printf("op=UNKNOWN (0x%x)\n", op);
-                                }
-                                break;
+                                        break;
                         }
                 }
 
                 /* Consume this command's dwords */
                 switch (parser->cur_cmd) {
-                case MI_BATCH_BUFFER_START:
-                        retval = mi_batch_buffer_start(parser, dword_ptr);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
-                case MI_PRT_BATCH_BUFFER_START:
-                        retval = mi_batch_buffer_start(parser, dword_ptr);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
-                case MI_BATCH_BUFFER_END:
-                        if (mi_batch_buffer_end(parser)) {
-                                retval = BB_PARSER_STATUS_OK;
-                                goto out;
-                        }
-                        break;
-                case MI_LOAD_REGISTER_IMM:
-                        retval = mi_load_register_imm(parser, dword_ptr);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
-                case MI_PREDICATE:
-                        retval = mi_predicate(parser, dword_ptr);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
-                case MI_SEMAPHORE_WAIT:
-                        break;
-                case STATE_BASE_ADDRESS:
-                        retval = state_base_address(parser, dword_ptr);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
-                case STATE_SIP:
-                        if (parser->in_cmd == 1) {
-                                parser->sip |= *dword_ptr;
-                        } else if (parser->in_cmd == 2) {
-                                tmp = *dword_ptr;
-                                parser->sip |= tmp << 32;
-                        }
-                        break;
-                case COMPUTE_WALKER:
-                        retval = compute_walker(parser, dword_ptr, pid, stackid, procname);
-                        if (retval != BB_PARSER_STATUS_OK) {
-                                goto out;
-                        }
-                        break;
+                        case BATCH_BUFFER_START:
+                                retval = mi_batch_buffer_start(parser, dword_ptr);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
+                        case PRT_BATCH_BUFFER_START:
+                                retval = mi_batch_buffer_start(parser, dword_ptr);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
+                        case BATCH_BUFFER_END:
+                                if (mi_batch_buffer_end(parser)) {
+                                        retval = BB_PARSER_STATUS_OK;
+                                        goto out;
+                                }
+                                break;
+                        case LOAD_REGISTER_IMM:
+                                retval = mi_load_register_imm(parser, dword_ptr);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
+                        case PREDICATE:
+                                retval = mi_predicate(parser, dword_ptr);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
+                        case SEMAPHORE_WAIT:
+                                break;
+                        case STATE_BASE_ADDRESS:
+                                retval = state_base_address(parser, dword_ptr);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
+                        case STATE_SIP:
+                                if (parser->in_cmd == 1) {
+                                        parser->sip |= *dword_ptr;
+                                } else if (parser->in_cmd == 2) {
+                                        tmp = *dword_ptr;
+                                        parser->sip |= tmp << 32;
+                                }
+                                break;
+                        case COMPUTE_WALKER:
+                                retval = compute_walker(parser, dword_ptr, pid, stackid, procname);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
+                                }
+                                break;
                 }
 
                 if (parser->cur_cmd) {
@@ -841,7 +635,7 @@ out:;
 uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
 {
         uint8_t cur_num_dwords;
-        uint32_t *dword_ptr, type, op;
+        uint32_t *dword_ptr, op;
         uint64_t pc, off, cur_cmd, ksp;
         unsigned char in_cmd;
         struct buffer_object *bo;
@@ -879,62 +673,56 @@ uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
                 }
 
                 if (!cur_cmd) {
-                        type = CMD_TYPE(*dword_ptr);
-                        op = (*dword_ptr) >> (32 - CMD_TYPE_LEN(type));
-                        if (type == CMD_2D) {
-                                op = op & 0x7F;
-                        } else if (type == GFXPIPE) {
-                                op = op & OP_3D;
-                        }
+                        op = GET_OPCODE(*dword_ptr);
 
                         /* Decode which op this is */
                         switch (op) {
-                        case COMPUTE_WALKER:
-                                if (bb_debug) {
-                                        debug_printf("op=COMPUTE_WALKER\n");
-                                }
-                                cur_cmd = COMPUTE_WALKER;
-                                cur_num_dwords = COMPUTE_WALKER_DWORDS;
-                                break;
-                        case GPGPU_WALKER:
-                                if (bb_debug) {
-                                        debug_printf("op=GPGPU_WALKER\n");
-                                }
-                                cur_cmd = GPGPU_WALKER;
-                                cur_num_dwords = GPGPU_WALKER_DWORDS;
-                                break;
-                        case MI_SEMAPHORE_WAIT:
-                                if (bb_debug) {
-                                        debug_printf("op=MI_SEMAPHORE_WAIT\n");
-                                }
-                                cur_cmd = MI_SEMAPHORE_WAIT;
-                                cur_num_dwords = MI_SEMAPHORE_WAIT_DWORDS;
-                                break;
-                        default:
-                                break;
+                                case COMPUTE_WALKER:
+                                        if (bb_debug) {
+                                                debug_printf("op=COMPUTE_WALKER\n");
+                                        }
+                                        cur_cmd = COMPUTE_WALKER;
+                                        cur_num_dwords = cmd_lengths[COMPUTE_WALKER];
+                                        break;
+                                case GPGPU_WALKER:
+                                        if (bb_debug) {
+                                                debug_printf("op=GPGPU_WALKER\n");
+                                        }
+                                        cur_cmd = GPGPU_WALKER;
+                                        cur_num_dwords = cmd_lengths[GPGPU_WALKER];
+                                        break;
+                                case SEMAPHORE_WAIT:
+                                        if (bb_debug) {
+                                                debug_printf("op=SEMAPHORE_WAIT\n");
+                                        }
+                                        cur_cmd = SEMAPHORE_WAIT;
+                                        cur_num_dwords = cmd_lengths[SEMAPHORE_WAIT];
+                                        break;
+                                default:
+                                        break;
                         }
                 }
 
                 /* Consume this command's dwords */
                 switch (cur_cmd) {
-                case COMPUTE_WALKER:
-                        if (bb_debug) {
-                                debug_printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
-                                *dword_ptr, off);
-                                debug_printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
-                                in_cmd, cur_cmd, cur_num_dwords);
-                        }
-                        compute_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
-                        break;
-                case GPGPU_WALKER:
-                        if (bb_debug) {
-                                debug_printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
-                                *dword_ptr, off);
-                                debug_printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
-                                in_cmd, cur_cmd, cur_num_dwords);
-                        }
-                        gpgpu_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
-                        break;
+                        case COMPUTE_WALKER:
+                                if (bb_debug) {
+                                        debug_printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
+                                        *dword_ptr, off);
+                                        debug_printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
+                                        in_cmd, cur_cmd, cur_num_dwords);
+                                }
+                                compute_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
+                                break;
+                        case GPGPU_WALKER:
+                                if (bb_debug) {
+                                        debug_printf("size=0x%lx dword=0x%x offset=0x%lx\n", bo->buff_sz,
+                                        *dword_ptr, off);
+                                        debug_printf("in_cmd=%u cur_cmd=%lu cur_num_dwords=%u\n",
+                                        in_cmd, cur_cmd, cur_num_dwords);
+                                }
+                                gpgpu_walker_simple(dword_ptr, &ksp, in_cmd, pc, addr);
+                                break;
                 }
 
                 if (cur_cmd) {
