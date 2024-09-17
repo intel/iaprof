@@ -28,6 +28,7 @@
 
 struct i915_symbol_entry {
         uint64_t start_addr;
+        uint64_t size;
         char *symbol;
         char *filename;
         int linenum;
@@ -59,6 +60,14 @@ extern pthread_cond_t debug_i915_vm_bind_cond;
 extern pthread_mutex_t debug_i915_vm_bind_lock;
 #endif
 
+struct shader_binary {
+        uint64_t      start;
+        uint64_t      size;
+        unsigned char bytes[];
+};
+
+extern pthread_mutex_t debug_i915_shader_binaries_lock;
+
 /******************************************************************************
 * Initialization
 * **************
@@ -71,6 +80,10 @@ void read_debug_i915_events(int fd, int pid_index);
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
 
 void free_debug_i915();
+
+/* debug_i915_shader_binaries_lock must be locked when calling this and held
+ * as long as the returned struct shader_binary pointer may be used. */
+struct shader_binary *get_shader_binary(uint64_t gpu_addr);
 
 /******************************************************************************
 * Strings

@@ -42,6 +42,14 @@ typedef struct {
 
 use_hash_table(sym_str_t, Debug_Info);
 
+typedef struct shader_binary *shader_binary_ptr;
+
+use_tree(uint64_t, shader_binary_ptr);
+
+static tree(uint64_t, shader_binary_ptr) shader_binaries;
+
+pthread_mutex_t debug_i915_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
+
 void init_debug_i915(int i915_fd, int pid)
 {
         int debug_fd;
@@ -54,6 +62,10 @@ void init_debug_i915(int i915_fd, int pid)
          * debug_i915_collect_thread. */
 
         pthread_rwlock_rdlock(&debug_i915_info_lock);
+
+        if (shader_binaries == NULL) {
+                shader_binaries = tree_make(uint64_t, shader_binary_ptr);
+        }
 
         /* First, check if we've already initialized this PID. */
         for (i = 0; i < debug_i915_info.num_pids; i++) {
@@ -159,8 +171,14 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                         int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
         struct i915_symbol_table *table;
-        struct i915_symbol_entry *entry;
         int num_syms;
+        struct i915_symbol_entry *entry;
+        tree_it(uint64_t, shader_binary_ptr) it;
+        struct shader_binary *bin;
+        Elf_Scn *bin_scn;
+        Elf64_Shdr *bin_shdr;
+        Elf_Data *bin_scn_data;
+        uint64_t offset;
         char *name;
         Debug_Info *info;
 
@@ -177,6 +195,31 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         entry = &(table->symtab[table->num_syms - 1]);
         memset(entry, 0, sizeof(*entry));
         entry->start_addr = (uint64_t)symbol->st_value;
+        entry->size = (int64_t)symbol->st_size;
+
+        /* Add the shader binary. */
+        it = tree_lookup(shader_binaries, entry->start_addr);
+        if (tree_it_good(it)) {
+                free(tree_it_val(it));
+                tree_delete(shader_binaries, entry->start_addr);
+        }
+        bin = malloc(sizeof(struct shader_binary) + entry->size);
+        memset(bin, 0, sizeof(*bin));
+        bin->start = entry->start_addr;
+        bin->size = entry->size;
+
+        bin_scn = elf_getscn(elf, symbol->st_shndx);
+        bin_shdr = elf64_getshdr(bin_scn);
+        bin_scn_data = elf_getdata(bin_scn, NULL);
+
+        offset = bin->start - bin_shdr->sh_addr;
+
+        memcpy(bin->bytes, bin_scn_data->d_buf + offset, bin->size);
+
+        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+        tree_insert(shader_binaries, bin->start, bin);
+        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
+
 
         name = elf_strptr(elf, string_table_index, symbol->st_name);
         if (name == NULL) {
@@ -360,6 +403,10 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         Elf64_Shdr *section_header;
         int retval;
         size_t string_table_index;
+        struct vm_profile *vm;
+        struct buffer_binding *bind;
+        struct shader_binary *shader_bin;
+        struct buffer_object *bo;
 
 
         /* Initialize the ELF from the buffer */
@@ -423,6 +470,23 @@ cleanup:
         if (retval != 0) {
                 fprintf(stderr, "WARNING: Failed to cleanup ELF object.\n");
         }
+
+        /* If there are any existing buffer_bindings that match to a shader we've saved,
+         * let's create a buffer_object for it. Subsequent vm_binds that create new bindings
+         * will see the shaders at that point. */
+        FOR_BINDING(vm, bind, {
+                pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+                shader_bin = get_shader_binary(bind->gpu_addr);
+                if (shader_bin != NULL) {
+                        bo = acquire_buffer(bind->file, bind->handle);
+                        if (bo == NULL) {
+                                bo = create_buffer(bind->file, bind->handle);
+                                handle_binary(&(bo->buff), shader_bin->bytes, &(bo->buff_sz), shader_bin->size);
+                        }
+                        release_buffer(bo);
+                }
+                pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
+        });
 }
 
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
@@ -620,4 +684,16 @@ void free_debug_i915() {
 
                 memset(symtab, 0, sizeof(*symtab));
         }
+}
+
+struct shader_binary *get_shader_binary(uint64_t gpu_addr) {
+        tree_it(uint64_t, shader_binary_ptr) it;
+
+        if (shader_binaries == NULL) {
+                return NULL;
+        }
+
+        it = tree_lookup(shader_binaries, gpu_addr);
+
+        return tree_it_good(it) ? tree_it_val(it) : NULL;
 }
