@@ -306,10 +306,10 @@ int handle_eustall_read(int fd)
                 handle_eustall_samples(eustall_info.perf_buf, len);
         }
 
-/*         store_flames(); */
+        store_interval_flames();
 
         /* Reset for the next interval */
-/*         clear_interval_profiles(); */
+        clear_interval_profiles();
 /*         clear_unbound_buffers(); */
 
         return 0;
@@ -386,7 +386,7 @@ next:;
         }
 
         handle_remaining_eustalls();
-        store_flames();
+        store_interval_flames();
 
 out:;
         return NULL;

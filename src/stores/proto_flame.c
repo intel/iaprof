@@ -226,7 +226,7 @@ void store_kernel_flames(struct buffer_binding *bind)
         }
 }
 
-void store_flames()
+void store_interval_flames()
 {
         struct vm_profile *vm;
         struct buffer_binding *bind;
