@@ -403,7 +403,9 @@ void handle_remaining_eustalls() {
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
-                print_eustall_drop(&it->sample, addr, it->info.subslice, time);
+                if (verbose) {
+                        print_eustall_drop(&it->sample, addr, it->info.subslice, time);
+                }
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);
