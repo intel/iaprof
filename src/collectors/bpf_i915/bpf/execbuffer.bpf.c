@@ -91,7 +91,7 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
                         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
                 }
         } else {
-                bpf_map_update_elem(&known_not_batch_buffers, gmapping, &one, BPF_ANY);
+/*                 bpf_map_update_elem(&known_not_batch_buffers, gmapping, &one, BPF_ANY); */
         }
 
         return 0;
