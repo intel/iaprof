@@ -50,6 +50,21 @@ static tree(uint64_t, shader_binary_ptr) shader_binaries;
 
 pthread_mutex_t debug_i915_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 
+void deinit_debug_i915(int index)
+{
+  
+        pthread_rwlock_wrlock(&debug_i915_info_lock);
+        close(debug_i915_info.pollfds[index].fd);
+        memset(debug_i915_info.pollfds + index, 0, sizeof(struct pollfd));
+        debug_i915_info.pids[index] = 0;
+        
+        /* Free symtab info */
+/*         debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid; */
+        
+/*         debug_i915_info.num_pids--; */
+        pthread_rwlock_unlock(&debug_i915_info_lock);
+}
+
 void init_debug_i915(int i915_fd, int pid)
 {
         int debug_fd;

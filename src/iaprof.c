@@ -508,12 +508,14 @@ void *debug_i915_collect_thread_main(void *a) {
                         }
 
                         for (i = 0; i < n_fds; i += 1) {
-                                if (pollfds[i].revents == POLLIN) {
+                                if (pollfds[i].revents & POLLIN) {
                                         /* We don't hold the debug_i915_info_lock at
                                          * this point going down this call stack, but
                                          * it may get grabbed within it (e.g. by
                                          * debug_i915_add_sym). */
                                         read_debug_i915_events(pollfds[i].fd, i);
+                                } else {
+                                  deinit_debug_i915(i);
                                 }
                         }
                 } else {

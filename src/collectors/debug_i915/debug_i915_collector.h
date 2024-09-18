@@ -74,6 +74,7 @@ extern pthread_mutex_t debug_i915_shader_binaries_lock;
 * Adds a PID to be profiled with the i915 debugger.
 ******************************************************************************/
 
+void deinit_debug_i915(int pid);
 void init_debug_i915(int i915_fd, int pid);
 int read_debug_i915_event(int fd, int pid_index);
 void read_debug_i915_events(int fd, int pid_index);
