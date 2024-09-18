@@ -474,8 +474,8 @@ cleanup:
         /* If there are any existing buffer_bindings that match to a shader we've saved,
          * let's create a buffer_object for it. Subsequent vm_binds that create new bindings
          * will see the shaders at that point. */
+        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
         FOR_BINDING(vm, bind, {
-                pthread_mutex_lock(&debug_i915_shader_binaries_lock);
                 shader_bin = get_shader_binary(bind->gpu_addr);
                 if (shader_bin != NULL) {
                         bo = acquire_buffer(bind->file, bind->handle);
@@ -485,8 +485,8 @@ cleanup:
                         }
                         release_buffer(bo);
                 }
-                pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
         });
+        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
 }
 
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,

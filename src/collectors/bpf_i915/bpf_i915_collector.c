@@ -153,6 +153,8 @@ int handle_vm_bind(void *data_arg)
         }
 #endif
 
+        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+
         vm = acquire_vm_profile(info->vm_id);
 
         if (!vm) {
@@ -171,7 +173,6 @@ int handle_vm_bind(void *data_arg)
 
         /* See if we've saved the shader binary for this address.
          * If so, create a buffer object for it. */
-        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
         shader_bin = get_shader_binary(bind->gpu_addr);
         if (shader_bin != NULL) {
                 bo = acquire_buffer(bind->file, bind->handle);
@@ -181,12 +182,11 @@ int handle_vm_bind(void *data_arg)
                 }
                 release_buffer(bo);
         }
-        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
-
 
         release_vm_profile(vm);
 
 cleanup:
+        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
 
 #ifdef SLOW_MODE
         if (debug_collector) {
