@@ -43,6 +43,8 @@
 
 #include "gpu_parsers/shader_decoder.h"
 
+#include "utils/array.h"
+
 /*******************
 * COMMANDLINE ARGS *
 *******************/
@@ -458,11 +460,14 @@ out:;
 }
 
 void *debug_i915_collect_thread_main(void *a) {
-        sigset_t      mask;
-        int           n_fds;
-        struct pollfd pollfds[MAX_PIDS];
-        int           n_ready;
-        int           i;
+        sigset_t       mask;
+        array_t        pollfds;
+        array_t        pollfds_indices;
+        int            n_fds;
+        int            n_ready;
+        int            i;
+        struct pollfd *pfd;
+        int            index;
 
         /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
@@ -473,17 +478,29 @@ void *debug_i915_collect_thread_main(void *a) {
                 return NULL;
         }
 
+        pollfds         = array_make(struct pollfd);
+        pollfds_indices = array_make(int);
+
         collect_threads_profiling += 1;
 
         while (collect_threads_should_stop == 0) {
                 /* Copy the pollfds array from debug_i915_info so that we don't
                  * need to hold the lock while we poll. */
                 pthread_rwlock_rdlock(&debug_i915_info_lock);
+
                 n_fds = debug_i915_info.num_pids;
-                memcpy(pollfds, debug_i915_info.pollfds, n_fds * sizeof(struct pollfd));
+
+                array_clear(pollfds);
+                for (i = 0; i < n_fds; i += 1) {
+                        if (debug_i915_info.pollfds[i].fd > 0) {
+                                array_push(pollfds, debug_i915_info.pollfds[i]);
+                                array_push(pollfds_indices, i);
+                        }
+                }
+
                 pthread_rwlock_unlock(&debug_i915_info_lock);
 
-                n_ready = poll(pollfds, n_fds, 100);
+                n_ready = poll(array_data(pollfds), array_len(pollfds), 100);
 
                 if (n_ready < 0) {
                         switch (errno) {
@@ -507,15 +524,18 @@ void *debug_i915_collect_thread_main(void *a) {
                                 fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
                         }
 
-                        for (i = 0; i < n_fds; i += 1) {
-                                if (pollfds[i].revents & POLLIN) {
+
+                        for (i = 0; i < array_len(pollfds); i += 1) {
+                                pfd = array_item(pollfds, i);
+                                index = *(int*)array_item(pollfds_indices, i);
+                                if (pfd->revents & POLLIN) {
                                         /* We don't hold the debug_i915_info_lock at
                                          * this point going down this call stack, but
                                          * it may get grabbed within it (e.g. by
                                          * debug_i915_add_sym). */
-                                        read_debug_i915_events(pollfds[i].fd, i);
+                                        read_debug_i915_events(pfd->fd, index);
                                 } else {
-                                  deinit_debug_i915(i);
+                                        deinit_debug_i915(index);
                                 }
                         }
                 } else {
@@ -526,6 +546,9 @@ void *debug_i915_collect_thread_main(void *a) {
         }
 
 out:;
+        array_free(pollfds);
+        array_free(pollfds_indices);
+
         return NULL;
 }
 
