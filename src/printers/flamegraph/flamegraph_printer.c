@@ -44,7 +44,7 @@ void print_flamegraph()
                                 printf("%s_[G];", flame->gpu_symbol);
                         }
                 } else {
-                        printf("[unknown]_[G];");
+                        printf("0x%lx_[G];", flame->addr);
                 }
                 if (flame->insn_text) {
                         printf("%s_[g];", flame->insn_text);
