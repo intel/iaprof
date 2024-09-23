@@ -46,7 +46,7 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
         int sfd, i, last_i;
         size_t len, cur_len, new_len;
         const char *to_copy;
-        char *dso_name, have_reloaded, should_free;
+        char *dso_name, should_free;
         unsigned long dso_offset;
 
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
@@ -90,10 +90,8 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
         for (i = 0; i < MAX_STACK_DEPTH && ip[i]; i++) {
                 last_i = i;
         }
-        have_reloaded = 0;
 
         for (i = last_i; i >= 0; i--) {
-retry:
                 should_free = 0;
                 dso_name = NULL;
                 sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
@@ -114,23 +112,6 @@ retry:
                         if (dso_name) {
                                 to_copy = dso_name;
                         } else {
-                                if (!have_reloaded) {
-                                        syms_cache__reload_syms(syms_cache,
-                                                                pid);
-                                        syms = syms_cache__get_syms(syms_cache,
-                                                                    pid);
-                                        if (!syms) {
-                                                if (debug) {
-                                                        fprintf(stderr,
-                                                                "WARNING: Failed to get syms for PID %" PRIu32
-                                                                "\n",
-                                                                pid);
-                                                }
-                                                goto cleanup;
-                                        }
-                                        have_reloaded = 1;
-                                        goto retry;
-                                }
                                 memset(tmp_str, 0, MAX_CHARS_UINT64);
                                 sprintf(tmp_str, "0x%lx", ip[i]);
                                 to_copy = tmp_str;

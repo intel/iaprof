@@ -4,8 +4,8 @@ BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 CLANG=${CLANG:-clang}
 CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
-CSAN="-fsanitize=address"
-LSAN="-fsanitize=address -static-libsan"
+# CSAN="-fsanitize=address"
+# LSAN="-fsanitize=address -static-libsan"
 # OPT="-O3"
 OPT="-O0"
 CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"

@@ -399,7 +399,7 @@ void *bpf_collect_thread_main(void *a) {
         struct pollfd pollfd;
         int n_ready;
         int retval;
-
+        
         /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
         sigemptyset(&mask);
@@ -410,6 +410,7 @@ void *bpf_collect_thread_main(void *a) {
         }
 
         init_bpf_i915();
+        errno = 0;
 
         collect_threads_profiling += 1;
 
@@ -491,6 +492,7 @@ void *debug_i915_collect_thread_main(void *a) {
                 n_fds = debug_i915_info.num_pids;
 
                 array_clear(pollfds);
+                array_clear(pollfds_indices);
                 for (i = 0; i < n_fds; i += 1) {
                         if (debug_i915_info.pollfds[i].fd > 0) {
                                 array_push(pollfds, debug_i915_info.pollfds[i]);
