@@ -52,15 +52,15 @@ pthread_mutex_t debug_i915_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void deinit_debug_i915(int index)
 {
-  
+
         pthread_rwlock_wrlock(&debug_i915_info_lock);
         close(debug_i915_info.pollfds[index].fd);
         memset(debug_i915_info.pollfds + index, 0, sizeof(struct pollfd));
         debug_i915_info.pids[index] = 0;
-        
+
         /* Free symtab info */
 /*         debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid; */
-        
+
 /*         debug_i915_info.num_pids--; */
         pthread_rwlock_unlock(&debug_i915_info_lock);
 }
@@ -127,7 +127,6 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         int i, pid_index;
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
-        char less_than_last;
 
         if (debug) {
                 fprintf(stderr, "Finding symbol for pid=%d addr=0x%lx\n", pid,
@@ -149,15 +148,10 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         }
 
         /* Find the addr range in this PID's symbol table */
-        /* XXX: Completely rewrite. */
         table = &(debug_i915_info.symtabs[pid_index]);
         for (i = 0; i < table->num_syms; i++) {
                 entry = &(table->symtab[i]);
-                if (addr < entry->start_addr) {
-                        less_than_last = true;
-                        continue;
-                }
-                if (less_than_last && (addr > entry->start_addr)) {
+                if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
                         if (out_gpu_symbol != NULL) {
                                 *out_gpu_symbol = entry->symbol;
                         }
