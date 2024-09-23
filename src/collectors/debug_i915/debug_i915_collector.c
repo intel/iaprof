@@ -174,22 +174,10 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         return -1;
 }
 
-/* Adds a symbol to the per-PID symbol table.
-   XXX: Check for duplicates and throw a warning */
-void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
-                        int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
-{
+void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filename, int linenum, int pid_index) {
         struct i915_symbol_table *table;
         int num_syms;
         struct i915_symbol_entry *entry;
-        tree_it(uint64_t, shader_binary_ptr) it;
-        struct shader_binary *bin;
-        Elf_Scn *bin_scn;
-        Elf64_Shdr *bin_shdr;
-        Elf_Data *bin_scn_data;
-        uint64_t offset;
-        char *name;
-        Debug_Info *info;
 
         pthread_rwlock_wrlock(&debug_i915_info_lock);
 
@@ -200,57 +188,91 @@ void debug_i915_add_sym(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         num_syms = table->num_syms;
         table->symtab = realloc(table->symtab,
                                 sizeof(struct i915_symbol_entry) * num_syms);
+
         /* Add this symbol to the table */
         entry = &(table->symtab[table->num_syms - 1]);
         memset(entry, 0, sizeof(*entry));
-        entry->start_addr = (uint64_t)symbol->st_value;
-        entry->size = (int64_t)symbol->st_size;
+        entry->start_addr = start_addr;
+        entry->size = size;
+        entry->symbol = symbol;
+        entry->filename = filename;
+        entry->linenum = linenum;
 
-        /* Add the shader binary. */
-        it = tree_lookup(shader_binaries, entry->start_addr);
+        pthread_rwlock_unlock(&debug_i915_info_lock);
+}
+
+void debug_i915_add_shader_binary(Elf_Scn *section) {
+        Elf64_Shdr *shdr;
+        tree_it(uint64_t, shader_binary_ptr) it;
+        struct shader_binary *bin;
+        Elf_Data *data;
+        uint64_t offset;
+
+        shdr = elf64_getshdr(section);
+
+        it = tree_lookup(shader_binaries, shdr->sh_addr);
         if (tree_it_good(it)) {
                 free(tree_it_val(it));
-                tree_delete(shader_binaries, entry->start_addr);
+                tree_delete(shader_binaries, shdr->sh_addr);
         }
-        bin = malloc(sizeof(struct shader_binary) + entry->size);
+        bin = malloc(sizeof(struct shader_binary) + shdr->sh_size);
         memset(bin, 0, sizeof(*bin));
-        bin->start = entry->start_addr;
-        bin->size = entry->size;
 
-        bin_scn = elf_getscn(elf, symbol->st_shndx);
-        bin_shdr = elf64_getshdr(bin_scn);
-        bin_scn_data = elf_getdata(bin_scn, NULL);
+        bin->start = shdr->sh_addr;
+        bin->size = shdr->sh_size;
 
-        offset = bin->start - bin_shdr->sh_addr;
+        data = elf_getdata(section, NULL);
+        offset = bin->start - shdr->sh_addr;
 
-        memcpy(bin->bytes, bin_scn_data->d_buf + offset, bin->size);
+        memcpy(bin->bytes, data->d_buf + offset, bin->size);
 
         pthread_mutex_lock(&debug_i915_shader_binaries_lock);
         tree_insert(shader_binaries, bin->start, bin);
         pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
+}
 
+/* Adds a symbol to the per-PID symbol table.
+   XXX: Check for duplicates and throw a warning */
+void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
+                        int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
+{
+        char *name;
+        char *filename;
+        int linenum;
+        char *demangled;
+        Debug_Info *info;
+        Elf_Scn *section;
 
         name = elf_strptr(elf, string_table_index, symbol->st_name);
+        filename = NULL;
+        linenum = 0;
+
         if (name == NULL) {
-                entry->symbol   = strdup("???");
-                entry->filename = strdup("<unknown>");
+                name = strdup("???");
         } else {
                 info = hash_table_get_val(debug_info_table, name);
                 if (info != NULL) {
-                        entry->filename = strdup(info->filename);
-                        entry->linenum  = info->linenum;
+                        filename = strdup(info->filename);
+                        linenum  = info->linenum;
                 }
-                entry->symbol =
-                        cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
-                if (entry->symbol == NULL) {
-                        entry->symbol = strdup(name);
+                demangled = cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
+                if (demangled != NULL) {
+                        name = demangled;
+                } else {
+                        name = strdup(name);
                 }
         }
+        if (filename == NULL) {
+                filename = strdup("<unknown>");
+        }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", entry->start_addr,
-                entry->symbol, entry->filename, entry->linenum);
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", symbol->st_value,
+                name, filename, linenum);
 
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+        debug_i915_add_sym(name, symbol->st_value, symbol->st_size, filename, linenum, pid_index);
+
+        section = elf_getscn(elf, symbol->st_shndx);
+        debug_i915_add_shader_binary(section);
 }
 
 void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
@@ -274,7 +296,7 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
                                 /* Add an entry into our internal symbol tables, and record
                                    the name and address */
 
-                                debug_i915_add_sym(&(symbols[i]), elf,
+                                handle_elf_symbol(&(symbols[i]), elf,
                                                    string_table_index,
                                                    pid_index, debug_info_table);
                         }
@@ -403,11 +425,26 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
         hash_table_free(debug_info_table);
 }
 
+void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index) {
+        char *name;
+
+        name = elf_strptr(elf, string_table_index, section_header->sh_name);
+
+        debug_i915_add_sym(strdup(name),
+                           section_header->sh_addr,
+                           section_header->sh_size,
+                           strdup("<unknown>"),
+                           0,
+                           pid_index);
+        debug_i915_add_shader_binary(section);
+}
+
 void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 {
         Elf *elf;
         hash_table(sym_str_t, Debug_Info) debug_info_table;
         Elf64_Ehdr *elf_header;
+        int seen_symtab;
         Elf_Scn *section;
         Elf64_Shdr *section_header;
         int retval;
@@ -445,6 +482,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 
 
         /* Iterate over ELF sections to find .symbtab sections */
+        seen_symtab = 0;
         section = elf_nextscn(elf, NULL);
         while (section != NULL) {
                 /* Get the section header */
@@ -466,10 +504,38 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                         debug_printf("  Symbol table:\n");
                         handle_elf_symtab(elf, section, string_table_index,
                                           pid_index, debug_info_table);
+                        seen_symtab = 1;
                 }
 
                 /* Next section */
                 section = elf_nextscn(elf, section);
+        }
+
+        if (!seen_symtab) {
+                section = elf_nextscn(elf, NULL);
+                while (section != NULL) {
+                        /* Get the section header */
+                        section_header = elf64_getshdr(section);
+                        if (section_header == NULL) {
+                                fprintf(stderr,
+                                        "WARNING: There was an error reading the ELF section headers.\n");
+                                goto cleanup;
+                        }
+
+                        if (section_header->sh_type == SHT_PROGBITS) {
+                                /* Get the string name */
+                                debug_printf("Progbits: %s\n",
+                                        elf_strptr(elf, string_table_index,
+                                                section_header->sh_name));
+
+                                handle_elf_progbits(elf, section, section_header, string_table_index,
+                                                pid_index);
+                        }
+
+                        /* Next section */
+                        section = elf_nextscn(elf, section);
+                }
+
         }
 
 cleanup:
