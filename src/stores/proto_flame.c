@@ -22,7 +22,11 @@ uint64_t grow_proto_flames()
                 /* Not enough room in the array */
                 old_size = proto_flame_size;
 
-                proto_flame_size += 64;
+                if (old_size == 0) {
+                        proto_flame_size = 64;
+                } else {
+                        proto_flame_size *= 2;
+                }
 
                 proto_flame_arr =
                         realloc(proto_flame_arr,
