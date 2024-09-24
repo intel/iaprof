@@ -13,7 +13,7 @@
 
 void print_debug_binding(struct buffer_binding *bind)
 {
-        printf("buffer handle=%u gpu_addr=0x%lx vm_id=%u has_stalls=%u\n",
+        debug_printf("buffer handle=%u gpu_addr=0x%lx vm_id=%u has_stalls=%u\n",
                bind->handle, bind->gpu_addr, bind->vm_id,
                bind->stall_counts != NULL);
 }
@@ -35,7 +35,7 @@ void print_debug_profile()
                 print_debug_binding(bind);
         });
 
-        printf("Matched eustalls: %lu\n", eustall_info.matched);
-        printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
-        printf("Guessed eustalls: %lu\n", eustall_info.guessed);
+        debug_printf("Matched eustalls: %lu\n", eustall_info.matched);
+        debug_printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
+        debug_printf("Guessed eustalls: %lu\n", eustall_info.guessed);
 }

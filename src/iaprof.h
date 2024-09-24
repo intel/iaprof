@@ -21,8 +21,8 @@ void add_to_epoll_fd(int fd);
 do {                                                     \
         if (debug) {                                     \
                 pthread_mutex_lock(&debug_print_lock);   \
-                printf(__VA_ARGS__);                     \
-                fflush(stdout);                          \
+                fprintf(stderr, __VA_ARGS__);            \
+                fflush(stderr);                          \
                 pthread_mutex_unlock(&debug_print_lock); \
         }                                                \
 } while (0)

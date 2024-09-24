@@ -399,7 +399,7 @@ void *bpf_collect_thread_main(void *a) {
         struct pollfd pollfd;
         int n_ready;
         int retval;
-        
+
         /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
         sigemptyset(&mask);
