@@ -92,6 +92,8 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
 #if STACK_INCLUDE_TID
         snprintf(tid_buf, sizeof(tid_buf), "%u;", tid);
         *stack_str = strdup(tid_buf);
+#else
+        (void)tid_buf;
 #endif
 
         /* Start at the last nonzero IP */
