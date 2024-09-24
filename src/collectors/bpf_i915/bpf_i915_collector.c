@@ -362,7 +362,7 @@ int handle_execbuf_end(void *data_arg)
         clock_gettime(CLOCK_MONOTONIC, &parser_start);
         bb_parser_init(&parser);
         bb_parser_parse(&parser, vm, bind, info->batch_start_offset,
-                        info->batch_len, info->pid, info->stackid, info->name);
+                        info->batch_len, info->pid, info->tid, info->stackid, info->name);
         clock_gettime(CLOCK_MONOTONIC, &parser_end);
         if (bb_debug) {
                 debug_printf("Parsed %zu dwords in %.5f seconds.\n",

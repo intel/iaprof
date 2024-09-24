@@ -253,7 +253,7 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
 }
 
 enum bb_parser_status compute_walker(struct bb_parser *parser,
-                                     uint32_t *ptr, int pid,
+                                     uint32_t *ptr, int pid, int tid,
                                      int stackid, char *procname)
 {
         struct buffer_binding *shader_bind;
@@ -282,7 +282,7 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                                 free(shader_bind->execbuf_stack_str);
                                 shader_bind->execbuf_stack_str = NULL;
                         }
-                        store_stack(pid, stackid, &(shader_bind->execbuf_stack_str));
+                        store_stack(pid, tid, stackid, &(shader_bind->execbuf_stack_str));
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                      parser->vm->vm_id, shader_bind->gpu_addr);
@@ -451,7 +451,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_binding *bind,
                                       uint32_t offset, uint64_t size,
-                                      int pid, int stackid, char *procname)
+                                      int pid, int tid, int stackid, char *procname)
 {
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
@@ -589,7 +589,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 }
                                 break;
                         case COMPUTE_WALKER:
-                                retval = compute_walker(parser, dword_ptr, pid, stackid, procname);
+                                retval = compute_walker(parser, dword_ptr, pid, tid, stackid, procname);
                                 if (retval != BB_PARSER_STATUS_OK) {
                                         goto out;
                                 }

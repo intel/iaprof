@@ -4,6 +4,8 @@
 #include <bpf/bpf.h>
 #include <pthread.h>
 
+#define STACK_INCLUDE_TID 0
+
 /* For demangling */
 #include <libiberty/demangle.h>
 
@@ -39,10 +41,11 @@ int init_syms_cache()
         return 0;
 }
 
-void store_stack(uint32_t pid, int stackid, char **stack_str)
+void store_stack(int pid, int tid, int stackid, char **stack_str)
 {
         const struct syms *syms;
         const struct sym *sym;
+        char tid_buf[64];
         int sfd, i, last_i;
         size_t len, cur_len, new_len;
         const char *to_copy;
@@ -84,6 +87,12 @@ void store_stack(uint32_t pid, int stackid, char **stack_str)
                 *stack_str = strdup("[unknown]");
                 goto cleanup;
         }
+
+
+#if STACK_INCLUDE_TID
+        snprintf(tid_buf, sizeof(tid_buf), "%u;", tid);
+        *stack_str = strdup(tid_buf);
+#endif
 
         /* Start at the last nonzero IP */
         last_i = 0;

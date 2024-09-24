@@ -166,7 +166,7 @@ int print_execbuf_start(struct execbuf_start_info *info)
                info->ctx_id, info->vm_id, info->buffer_count, info->batch_len);
         printf("batch_start_offset=0x%x batch_index=%u ",
                info->batch_start_offset, info->batch_index);
-        store_stack(info->pid, info->stackid, &stack_str);
+        store_stack(info->pid, info->tid, info->stackid, &stack_str);
         printf("%s", stack_str);
         printf("\n");
 
