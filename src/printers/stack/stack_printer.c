@@ -3,6 +3,8 @@
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
 #include <pthread.h>
+#include <ctype.h>
+#include <linux/limits.h>
 
 #define STACK_INCLUDE_TID 0
 
@@ -19,6 +21,9 @@
 
 #include "printers/stack/stack_printer.h"
 
+#include "utils/hash_table.h"
+#include "utils/tree.h"
+
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
 static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
@@ -27,6 +32,15 @@ static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
    necessary to print a hexadecimal uint64_t. */
 #define MAX_CHARS_UINT64 19
 static char tmp_str[MAX_CHARS_UINT64];
+
+typedef struct sym *sym_ptr;
+use_tree(uint64_t, sym_ptr);
+typedef tree(uint64_t, sym_ptr) hll_syms_map_t;
+use_hash_table(int, hll_syms_map_t);
+
+static hash_table(int, hll_syms_map_t) hll_syms;
+
+static uint64_t pid_hash(int pid) { return pid; }
 
 int init_syms_cache()
 {
@@ -38,12 +52,84 @@ int init_syms_cache()
                         return -1;
                 }
         }
+
+        hll_syms = hash_table_make(int, hll_syms_map_t, pid_hash);
+
         return 0;
+}
+
+static hll_syms_map_t get_hll_syms(int pid) {
+        hll_syms_map_t *lookup;
+        hll_syms_map_t  map;
+        char            tmpfile[128];
+        FILE           *f;
+        struct sym     *sym;
+        int             ret;
+        char            buf[PATH_MAX];
+        char           *name;
+
+        lookup = hash_table_get_val(hll_syms, pid);
+        if (lookup != NULL) {
+                map = *lookup;
+        } else {
+                map = tree_make(uint64_t, sym_ptr);
+
+                snprintf(tmpfile, sizeof(tmpfile), "/tmp/perf-%d.map", pid);
+                f = fopen(tmpfile, "r");
+                if (f == NULL) {
+                        goto out;
+                }
+
+                while (true) {
+                        sym = malloc(sizeof(*sym));
+                        memset(sym, 0, sizeof(*sym));
+
+                        ret = fscanf(f, "%lx %lx %[^\n]", &sym->start, &sym->size, buf);
+                        if ((ret == EOF && feof(f)) || ret != 3) {
+                                free(sym);
+                                break;
+                        }
+
+                        name = buf;
+                        name = buf;
+                        while (isspace(*name)) {
+                                name++;
+                        }
+                        sym->name = strdup(name);
+
+                        tree_insert(map, sym->start, sym);
+                }
+
+                hash_table_insert(hll_syms, pid, map);
+        }
+
+out:;
+        return map;
+}
+
+static struct sym *hll_sym(hll_syms_map_t map, uint64_t addr) {
+        tree_it(uint64_t, sym_ptr) it;
+        struct sym *sym;
+
+        it = tree_gtr(map, addr);
+        tree_it_prev(it);
+
+        if (!tree_it_good(it)) {
+                return NULL;
+        }
+
+        sym = tree_it_val(it);
+        if (addr >= sym->start + sym->size) {
+                return NULL;
+        }
+
+        return sym;
 }
 
 void store_stack(int pid, int tid, int stackid, char **stack_str)
 {
         const struct syms *syms;
+        hll_syms_map_t hll_syms_map;
         const struct sym *sym;
         char tid_buf[64];
         int sfd, i, last_i;
@@ -82,6 +168,7 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
                 }
                 goto cleanup;
         }
+        hll_syms_map = get_hll_syms(pid);
 
         if (bpf_map_lookup_elem(sfd, &stackid, ip) != 0) {
                 *stack_str = strdup("[unknown]");
@@ -106,6 +193,10 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
                 should_free = 0;
                 dso_name = NULL;
                 sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
+                if (sym == NULL) {
+                        sym = hll_sym(hll_syms_map, ip[i]);
+                }
+
                 cur_len = 0;
                 if (*stack_str) {
                         cur_len = strlen(*stack_str);
