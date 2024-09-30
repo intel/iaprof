@@ -92,7 +92,8 @@ void usage()
 void check_permissions()
 {
         if (geteuid() != 0) {
-                printf("Tool currently needs superuser (root) permission. "
+                fprintf(stderr,
+                       "Tool currently needs superuser (root) permission. "
                        "Please consider running with sudo. Exiting.\n");
                 exit(1);
         }
