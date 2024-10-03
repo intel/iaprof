@@ -347,9 +347,11 @@ int BPF_PROG(unmap_region,
         gmapping = bpf_map_lookup_elem(&cpu_gpu_map, &cmapping);
         save_gmapping.addr = 0;
         save_gmapping.vm_id = 0;
+        save_gmapping.file = 0;
         if (gmapping) {
                 save_gmapping.addr = gmapping->addr;
                 save_gmapping.vm_id = gmapping->vm_id;
+                save_gmapping.file = gmapping->file;
                 if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
                         DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
                 }

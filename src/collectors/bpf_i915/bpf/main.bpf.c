@@ -121,6 +121,7 @@ struct cpu_mapping {
 };
 struct gpu_mapping {
         u64 addr;
+        u64 file;
         u32 vm_id;
 };
 struct {
@@ -192,6 +193,7 @@ char send_debug_area_info(struct gpu_mapping *gmapping, int stackid)
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->gpu_addr = gmapping->addr;
         info->vm_id = gmapping->vm_id;
+        info->file = gmapping->file;
         info->stackid = stackid;
         bpf_get_current_comm(info->name, sizeof(info->name));
 

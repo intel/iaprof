@@ -56,7 +56,7 @@ enum eustall_status {
 struct eustall_sample;
 struct offset_profile;
 
-int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
+int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time);
 int handle_eustall_samples(void *perf_buf, int len);

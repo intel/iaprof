@@ -12,14 +12,28 @@ _Atomic uint64_t iba = 0;
 tree(file_handle_pair_struct, buffer_object_struct) buffer_objects;
 pthread_rwlock_t buffer_objects_lock = PTHREAD_RWLOCK_INITIALIZER;
 
-hash_table(uint64_t, vm_profile_ptr) vm_profiles;
+tree(file_vm_pair_struct, vm_profile_ptr) vm_profiles;
 pthread_rwlock_t vm_profiles_lock = PTHREAD_RWLOCK_INITIALIZER;
 
-static uint64_t vm_id_hash(uint64_t vm_id) { return vm_id; }
+int file_vm_pair_cmp(struct file_vm_pair a, struct file_vm_pair b) {
+        if (a.file < b.file) {
+                return -1;
+        }
+        if (a.file > b.file) {
+                return 1;
+        }
+        if (a.vm_id < b.vm_id) {
+                return -1;
+        }
+        if (a.vm_id > b.vm_id) {
+                return 1;
+        }
+        return 0;
+}
 
 void init_profiles() {
         buffer_objects = tree_make(file_handle_pair_struct, buffer_object_struct);
-        vm_profiles = hash_table_make(uint64_t, vm_profile_ptr, vm_id_hash);
+        vm_profiles = tree_make(file_vm_pair_struct, vm_profile_ptr);
 }
 
 struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr) {
@@ -124,16 +138,13 @@ static void free_bindings(tree(uint64_t, buffer_binding_struct) buffer_bindings)
 }
 
 void free_profiles() {
-        uint64_t                      vm_id;
-        struct vm_profile           **vmp;
-        struct vm_profile            *vm;
+        tree_it(file_vm_pair_struct, vm_profile_ptr)  it;
+        struct vm_profile                            *vm;
 
         pthread_rwlock_wrlock(&vm_profiles_lock);
 
-        hash_table_traverse(vm_profiles, vm_id, vmp) {
-                (void)vm_id;
-
-                vm = *vmp;
+        tree_traverse(vm_profiles, it) {
+                vm = tree_it_val(it);
 
                 free_bindings(vm->bindings);
 
@@ -208,14 +219,16 @@ again:;
         });
 }
 
-static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
-        struct vm_profile **vmp;
-        struct vm_profile  *vm;
+static struct vm_profile *_get_vm_profile(uint64_t file, uint32_t vm_id, int create) {
+        struct file_vm_pair                           pair;
+        tree_it(file_vm_pair_struct, vm_profile_ptr)  lookup;
+        struct vm_profile                            *vm;
 
-        vmp = hash_table_get_val(vm_profiles, (uint64_t)vm_id);
+        pair   = (struct file_vm_pair){ .file = file, .vm_id = vm_id };
+        lookup = tree_lookup(vm_profiles, pair);
 
-        if (vmp != NULL) {
-                return *vmp;
+        if (tree_it_good(lookup)) {
+                return tree_it_val(lookup);
         }
 
         if (!create) {
@@ -226,22 +239,23 @@ static struct vm_profile *_get_vm_profile(uint32_t vm_id, int create) {
         memset(vm, 0, sizeof(*vm));
 
         pthread_mutex_init(&vm->lock, NULL);
-        vm->vm_id = vm_id;
+        vm->vm_id    = vm_id;
+        vm->file     = file;
         vm->bindings = tree_make(uint64_t, buffer_binding_struct);
 
-        hash_table_insert(vm_profiles, (uint64_t)vm_id, vm);
+        tree_insert(vm_profiles, pair, vm);
 
         return vm;
 }
 
-void create_vm_profile(uint32_t vm_id) {
+void create_vm_profile(uint64_t file ,uint32_t vm_id) {
         pthread_rwlock_wrlock(&vm_profiles_lock);
-        _get_vm_profile(vm_id, 1);
+        _get_vm_profile(file, vm_id, 1);
         pthread_rwlock_unlock(&vm_profiles_lock);
 }
 
-struct vm_profile *get_vm_profile(uint32_t vm_id) {
-        return _get_vm_profile(vm_id, 0);
+struct vm_profile *get_vm_profile(uint64_t file ,uint32_t vm_id) {
+        return _get_vm_profile(file, vm_id, 0);
 }
 
 void lock_vm_profile(struct vm_profile *vm) {
@@ -256,12 +270,12 @@ void unlock_vm_profile(struct vm_profile *vm) {
         pthread_mutex_unlock(&vm->lock);
 }
 
-struct vm_profile *acquire_vm_profile(uint32_t vm_id) {
+struct vm_profile *acquire_vm_profile(uint64_t file ,uint32_t vm_id) {
         struct vm_profile *vm;
 
         pthread_rwlock_rdlock(&vm_profiles_lock);
 
-        vm = _get_vm_profile(vm_id, 0);
+        vm = _get_vm_profile(file, vm_id, 0);
 
         if (vm == NULL) {
                 pthread_rwlock_unlock(&vm_profiles_lock);

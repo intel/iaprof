@@ -74,6 +74,7 @@ struct vm_create_info {
         __u32 pid, tid, cpu;
         __u64 time;
         __u32 vm_id;
+        __u64 file;
 };
 
 /* Collected from a vm_bind */
@@ -135,6 +136,7 @@ struct batchbuffer_info {
         __u64 time;
         __u64 gpu_addr;
         __u32 vm_id;
+        __u64 file;
 };
 
 /* Collected from the end of an execbuffer */
@@ -173,6 +175,7 @@ struct debug_area_info {
         __u8 type;
 
         __u32 pid, vm_id;
+        __u64 file;
         __u64 gpu_addr;
         int stackid;
         char name[TASK_COMM_LEN];

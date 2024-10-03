@@ -56,7 +56,7 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         return total;
 }
 
-int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
+int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time)
 {
@@ -65,7 +65,7 @@ int associate_sample(struct eustall_sample *sample, uint32_t vm_id,
         struct vm_profile *vm;
         struct buffer_binding *bind;
 
-        vm = acquire_vm_profile(vm_id);
+        vm = acquire_vm_profile(file, vm_id);
 
         if (!vm) {
                 fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u\n",
@@ -125,6 +125,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
         uint64_t offset;
         uint64_t first_found_offset;
         uint32_t first_found_vm_id;
+        uint64_t first_found_file;
         struct deferred_eustall deferred;
         struct vm_profile *vm;
         struct buffer_binding *bind;
@@ -139,6 +140,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
 
         first_found_offset = 0;
         first_found_vm_id = 0;
+        first_found_file = 0;
 
         if (!iba) {
                 goto none_found;
@@ -187,6 +189,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                 if (found == 1) {
                         first_found_offset = offset;
                         first_found_vm_id = vm->vm_id;
+                        first_found_file = vm->file;
                 }
 
 /* Jump here instead of continue so that the macro invokes the unlock functions. */
@@ -212,7 +215,7 @@ none_found:
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
-                associate_sample(sample, first_found_vm_id,
+                associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
                                  info->subslice, time);
                 eustall_info.matched += num_stalls_in_sample(sample);
@@ -224,7 +227,7 @@ none_found:
                                             info->subslice, time);
                 }
 
-                associate_sample(sample, first_found_vm_id,
+                associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
                                  info->subslice, time);
                 eustall_info.guessed += num_stalls_in_sample(sample);

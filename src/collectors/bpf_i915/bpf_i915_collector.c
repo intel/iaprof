@@ -124,7 +124,7 @@ int handle_vm_create(void *data_arg)
                 print_vm_create(info);
         }
 
-        create_vm_profile(info->vm_id);
+        create_vm_profile(info->file, info->vm_id);
 
         if (debug_collector) {
                 /* Register the PID with the debug_i915 collector */
@@ -155,7 +155,7 @@ int handle_vm_bind(void *data_arg)
 
         pthread_mutex_lock(&debug_i915_shader_binaries_lock);
 
-        vm = acquire_vm_profile(info->vm_id);
+        vm = acquire_vm_profile(info->file, info->vm_id);
 
         if (!vm) {
                 fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
@@ -217,7 +217,7 @@ int handle_vm_unbind(void *data_arg)
                 print_vm_unbind(info);
         }
 
-        vm = acquire_vm_profile(info->vm_id);
+        vm = acquire_vm_profile(info->file, info->vm_id);
 
         bind = get_binding(vm, info->gpu_addr);
         if (bind == NULL) {
@@ -250,7 +250,7 @@ int handle_batchbuffer(void *data_arg)
                 print_batchbuffer(info);
         }
 
-        vm = acquire_vm_profile(info->vm_id);
+        vm = acquire_vm_profile(info->file, info->vm_id);
 
         /* Find the buffer that this batchbuffer is associated with */
         bind = get_binding(vm, info->gpu_addr);
@@ -285,7 +285,7 @@ int handle_debug_area(void *data_arg)
                 print_debug_area(info);
         }
 
-        vm = acquire_vm_profile(info->vm_id);
+        vm = acquire_vm_profile(info->file, info->vm_id);
 
         /* Find the buffer that this batchbuffer is associated with */
         bind = get_binding(vm, info->gpu_addr);
@@ -326,12 +326,12 @@ int handle_execbuf_end(void *data_arg)
                 print_execbuf_end(info);
         }
 
-        vm = acquire_vm_profile(info->vm_id);
+        vm = acquire_vm_profile(info->file, info->vm_id);
 
         if (vm == NULL) {
                 fprintf(stderr,
-                        "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
-                        info->vm_id, info->bb_offset);
+                        "WARNING: Unable to find a vm_profile for vm_id=%u\n",
+                        info->vm_id);
                 drop_buffer_from_bpf();
                 goto cleanup;
         }
