@@ -58,6 +58,28 @@ int init_syms_cache()
         return 0;
 }
 
+void deinit_syms_cache()
+{
+        int pid;
+        tree(uint64_t, sym_ptr) *val;
+        tree(uint64_t, sym_ptr) found;
+        tree_it(uint64_t, sym_ptr) it;
+        
+        if (syms_cache == NULL) {
+                return;
+        }
+        
+        syms_cache__free(syms_cache);
+        hash_table_traverse(hll_syms, pid, val) {
+                found = (tree(uint64_t, sym_ptr)) *val;
+                tree_traverse(found, it) {
+                        free(tree_it_val(it));
+                }
+                (void)pid;
+        }
+        hash_table_free(hll_syms);
+}
+
 static hll_syms_map_t get_hll_syms(int pid) {
         hll_syms_map_t *lookup;
         hll_syms_map_t  map;

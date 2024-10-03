@@ -39,6 +39,7 @@
 /* Printers */
 #include "printers/printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
+#include "printers/stack/stack_printer.h"
 #include "printers/debug/debug_printer.h"
 
 #include "gpu_parsers/shader_decoder.h"
@@ -453,9 +454,10 @@ void *bpf_collect_thread_main(void *a) {
                         }
                 }
         }
-
+        
 out_deinit:;
         deinit_bpf_i915();
+        deinit_syms_cache();
 
 out:;
         return NULL;
@@ -750,7 +752,7 @@ int main(int argc, char **argv)
                 print_status(
                         "Exit requested (had not yet started profiling).\n");
         }
-
+        
         /* Wait for the collection thread to finish */
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
