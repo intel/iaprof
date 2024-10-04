@@ -37,6 +37,12 @@ typedef char *string;
 use_hash_table(int, string);
 static hash_table(int, string) stacks;
 
+use_hash_table(uint64_t, char);
+typedef hash_table(uint64_t, char) blacklist_t;
+use_hash_table(int, blacklist_t);
+
+static hash_table(int, blacklist_t) blacklists;
+
 /* @TODO: put a lock around hll_syms to that multiple threads may use store_stack(). */
 
 typedef struct sym *sym_ptr;
@@ -47,6 +53,7 @@ use_hash_table(int, hll_syms_map_t);
 static hash_table(int, hll_syms_map_t) hll_syms;
 
 static uint64_t id_hash(int pid) { return pid; }
+static uint64_t addr_hash(uint64_t addr) { return addr >> 3; }
 
 int init_syms_cache()
 {
@@ -63,29 +70,45 @@ int init_syms_cache()
                 hll_syms = hash_table_make(int, hll_syms_map_t, id_hash);
         }
 
+        if (blacklists == NULL) {
+                blacklists = hash_table_make(int, blacklist_t, id_hash);
+        }
+
         return 0;
+}
+
+static void free_hll_syms_map(hll_syms_map_t map) {
+        tree_it(uint64_t, sym_ptr) it;
+
+        tree_traverse(map, it) {
+                free((char*)tree_it_val(it)->name);
+                free(tree_it_val(it));
+        }
+
+        tree_free(map);
 }
 
 void deinit_syms_cache()
 {
         int pid;
-        tree(uint64_t, sym_ptr) *val;
-        tree(uint64_t, sym_ptr) found;
-        tree_it(uint64_t, sym_ptr) it;
-        
+        hll_syms_map_t *val;
+        blacklist_t *blacklistp;
+
         if (syms_cache == NULL) {
                 return;
         }
-        
+
         syms_cache__free(syms_cache);
         hash_table_traverse(hll_syms, pid, val) {
-                found = (tree(uint64_t, sym_ptr)) *val;
-                tree_traverse(found, it) {
-                        free(tree_it_val(it));
-                }
                 (void)pid;
+                free_hll_syms_map(*val);
         }
         hash_table_free(hll_syms);
+
+        hash_table_traverse(blacklists, pid, blacklistp) {
+                hash_table_free(*blacklistp);
+        }
+        hash_table_free(blacklists);
 }
 
 static hll_syms_map_t get_hll_syms(int pid) {
@@ -138,6 +161,18 @@ out:;
         return map;
 }
 
+static hll_syms_map_t reload_hll_syms(int pid) {
+        hll_syms_map_t *lookup;
+
+        lookup = hash_table_get_val(hll_syms, pid);
+        if (lookup != NULL) {
+                free_hll_syms_map(*lookup);
+                hash_table_delete(hll_syms, pid);
+        }
+
+        return get_hll_syms(pid);
+}
+
 static struct sym *hll_sym(hll_syms_map_t map, uint64_t addr) {
         tree_it(uint64_t, sym_ptr) it;
         struct sym *sym;
@@ -157,13 +192,43 @@ static struct sym *hll_sym(hll_syms_map_t map, uint64_t addr) {
         return sym;
 }
 
+int is_blacklisted(int pid, uint64_t addr) {
+        blacklist_t *blp;
+        blacklist_t  bl;
+
+        blp = hash_table_get_val(blacklists, pid);
+        if (blp == NULL) {
+                bl = hash_table_make(uint64_t, char, addr_hash);
+                hash_table_insert(blacklists, pid, bl);
+                return 0;
+        }
+
+        bl = *blp;
+        return !!hash_table_get_val(bl, addr);
+}
+
+void blacklist(int pid, uint64_t addr) {
+        blacklist_t *blp;
+        blacklist_t  bl;
+
+        blp = hash_table_get_val(blacklists, pid);
+        if (blp == NULL) {
+                bl = hash_table_make(uint64_t, char, addr_hash);
+                hash_table_insert(blacklists, pid, bl);
+                return;
+        }
+
+        bl = *blp;
+        hash_table_insert(bl, addr, 1);
+}
+
 char *get_stack(int stackid) {
         char **lookup;
-        
+
         if(stacks == NULL) {
                 return NULL;
         }
-        
+
         lookup = hash_table_get_val(stacks, stackid);
         if (!lookup) {
                 return NULL;
@@ -184,9 +249,9 @@ void store_stack(int pid, int tid, int stackid)
         unsigned long dso_offset;
         char *stack_str;
         char **lookup;
-        
+
         stack_str = NULL;
-        
+
         if (stacks == NULL) {
                 stacks = hash_table_make(int, string, id_hash);
         }
@@ -256,6 +321,21 @@ void store_stack(int pid, int tid, int stackid)
                 if (sym == NULL) {
                         sym = hll_sym(hll_syms_map, ip[i]);
                 }
+                if (sym == NULL) {
+                        if (!is_blacklisted(pid, ip[i])) {
+                                syms_cache__reload_syms(syms_cache, pid);
+                                syms = syms_cache__get_syms(syms_cache, pid);
+                                hll_syms_map = reload_hll_syms(pid);
+
+                                sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
+                                if (sym == NULL) {
+                                        sym = hll_sym(hll_syms_map, ip[i]);
+                                }
+                                if (sym == NULL) {
+                                        blacklist(pid, ip[i]);
+                                }
+                        }
+                }
 
                 cur_len = 0;
                 if (stack_str) {
@@ -293,7 +373,7 @@ void store_stack(int pid, int tid, int stackid)
 insert:
 
         hash_table_insert(stacks, stackid, stack_str);
-        
+
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 fprintf(stderr,
                         "Error unlocking the syms_cache_lock. Aborting.\n");
