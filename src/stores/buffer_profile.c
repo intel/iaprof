@@ -116,11 +116,6 @@ static void clear_stalls(struct buffer_binding *bind) {
 static void free_binding(struct buffer_binding *bind) {
         clear_stalls(bind);
 
-        if (bind->execbuf_stack_str != NULL) {
-            free(bind->execbuf_stack_str);
-            bind->execbuf_stack_str = NULL;
-        }
-
         if (bind->kv != NULL) {
             iga_fini(bind->kv);
             bind->kv = NULL;

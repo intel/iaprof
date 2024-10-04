@@ -151,31 +151,6 @@ int print_batchbuffer(struct batchbuffer_info *info)
         return 0;
 }
 
-int print_execbuf_start(struct execbuf_start_info *info)
-{
-        char *stack_str = NULL;
-
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_start");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-        fprintf(stderr, " bb_offset=0x%llx ", info->bb_offset);
-        fprintf(stderr, "ctx_id=%u vm_id=%u buffer_count=%u batch_len=0x%llx ",
-               info->ctx_id, info->vm_id, info->buffer_count, info->batch_len);
-        fprintf(stderr, "batch_start_offset=0x%x batch_index=%u ",
-               info->batch_start_offset, info->batch_index);
-        store_stack(info->pid, info->tid, info->stackid, &stack_str);
-        fprintf(stderr, "%s", stack_str);
-        fprintf(stderr, "\n");
-
-        free(stack_str);
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
 /* Prints buffers that an execbuffer referenced through its vm_id */
 int print_execbuf_buffer(struct buffer_binding *bind)
 {

@@ -1,5 +1,6 @@
 #include "iaprof.h"
 
+#include "printers/stack/stack_printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
 #include "stores/proto_flame.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
@@ -9,6 +10,7 @@ void print_flamegraph()
         struct proto_flame *flame;
         int err;
         uint64_t index;
+        char *stack_str;
 
         for (index = 0; index < proto_flame_used; index++) {
                 flame = &(proto_flame_arr[index]);
@@ -25,8 +27,12 @@ void print_flamegraph()
 
                 printf("%s;", flame->proc_name);
                 printf("%u;", flame->pid);
-                if (flame->cpu_stack) {
-                        printf("%s", flame->cpu_stack);
+                
+                stack_str = get_stack(flame->cpu_stackid);
+                if (stack_str) {
+                        printf("%s", stack_str);
+                } else if (flame->is_debug) {
+                        printf("L0 Debugger");
                 } else {
                         printf("[unknown];");
                 }

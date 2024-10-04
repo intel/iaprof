@@ -300,10 +300,6 @@ int handle_debug_area(void *data_arg)
         bind->type = BUFFER_TYPE_DEBUG_AREA;
         bind->pid = info->pid;
         memcpy(bind->name, info->name, TASK_COMM_LEN);
-        if (bind->execbuf_stack_str) {
-                free(bind->execbuf_stack_str);
-        }
-        bind->execbuf_stack_str = strdup("L0 Debugger");
 
 cleanup:
         release_vm_profile(vm);
@@ -364,7 +360,7 @@ int handle_execbuf_end(void *data_arg)
         bb_parser_parse(&parser, vm, bind, info->batch_start_offset,
                         info->batch_len, info->pid, info->tid, info->stackid, info->name);
         clock_gettime(CLOCK_MONOTONIC, &parser_end);
-        if (bb_debug) {
+        if (debug) {
                 debug_printf("Parsed %zu dwords in %.5f seconds.\n",
                         parser.num_dwords,
                         ((double)parser_end.tv_sec +

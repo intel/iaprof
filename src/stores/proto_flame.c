@@ -44,11 +44,12 @@ void store_cpu_side(uint64_t index, struct buffer_binding *bind)
 {
         proto_flame_arr[index].proc_name = strdup(bind->name);
         proto_flame_arr[index].pid = bind->pid;
-        if (bind->execbuf_stack_str) {
-                proto_flame_arr[index].cpu_stack =
-                        strdup(bind->execbuf_stack_str);
-        } else {
-                proto_flame_arr[index].cpu_stack = NULL;
+        if (bind->execbuf_stackid) {
+                proto_flame_arr[index].cpu_stackid =
+                        bind->execbuf_stackid;
+        }
+        if (bind->type == BUFFER_TYPE_DEBUG_AREA) {
+                proto_flame_arr[index].is_debug = 1;
         }
 }
 

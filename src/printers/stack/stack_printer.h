@@ -4,4 +4,5 @@
 
 int init_syms_cache();
 void deinit_syms_cache();
-void store_stack(int pid, int tid, int stackid, char **stack_str);
+void store_stack(int pid, int tid, int stackid);
+char *get_stack(int stackid);

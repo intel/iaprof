@@ -33,6 +33,12 @@ static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
 #define MAX_CHARS_UINT64 19
 static char tmp_str[MAX_CHARS_UINT64];
 
+typedef char *string;
+use_hash_table(int, string);
+static hash_table(int, string) stacks;
+
+/* @TODO: put a lock around hll_syms to that multiple threads may use store_stack(). */
+
 typedef struct sym *sym_ptr;
 use_tree(uint64_t, sym_ptr);
 typedef tree(uint64_t, sym_ptr) hll_syms_map_t;
@@ -40,7 +46,7 @@ use_hash_table(int, hll_syms_map_t);
 
 static hash_table(int, hll_syms_map_t) hll_syms;
 
-static uint64_t pid_hash(int pid) { return pid; }
+static uint64_t id_hash(int pid) { return pid; }
 
 int init_syms_cache()
 {
@@ -53,7 +59,9 @@ int init_syms_cache()
                 }
         }
 
-        hll_syms = hash_table_make(int, hll_syms_map_t, pid_hash);
+        if (hll_syms == NULL) {
+                hll_syms = hash_table_make(int, hll_syms_map_t, id_hash);
+        }
 
         return 0;
 }
@@ -99,6 +107,7 @@ static hll_syms_map_t get_hll_syms(int pid) {
                 snprintf(tmpfile, sizeof(tmpfile), "/tmp/perf-%d.map", pid);
                 f = fopen(tmpfile, "r");
                 if (f == NULL) {
+                        fprintf(stderr, "WARNING error opening %s\n", tmpfile);
                         goto out;
                 }
 
@@ -148,7 +157,21 @@ static struct sym *hll_sym(hll_syms_map_t map, uint64_t addr) {
         return sym;
 }
 
-void store_stack(int pid, int tid, int stackid, char **stack_str)
+char *get_stack(int stackid) {
+        char **lookup;
+        
+        if(stacks == NULL) {
+                return NULL;
+        }
+        
+        lookup = hash_table_get_val(stacks, stackid);
+        if (!lookup) {
+                return NULL;
+        }
+        return *lookup;
+}
+
+void store_stack(int pid, int tid, int stackid)
 {
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
@@ -159,6 +182,18 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
         const char *to_copy;
         char *dso_name, should_free;
         unsigned long dso_offset;
+        char *stack_str;
+        char **lookup;
+        
+        stack_str = NULL;
+        
+        if (stacks == NULL) {
+                stacks = hash_table_make(int, string, id_hash);
+        }
+        lookup = hash_table_get_val(stacks, stackid);
+        if (lookup) {
+                return;
+        }
 
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
                 fprintf(stderr,
@@ -167,18 +202,20 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
         }
 
         if (pid == 0) {
-                *stack_str = strdup("[unknown]");
-                goto cleanup;
+                stack_str = strdup("[unknown]");
+                goto insert;
         }
 
         sfd = bpf_map__fd(bpf_info.obj->maps.stackmap);
         if (sfd <= 0) {
                 fprintf(stderr, "Failed to get stackmap.\n");
-                goto cleanup;
+                stack_str = strdup("[unknown]");
+                goto insert;
         }
 
         if (init_syms_cache() != 0) {
-                goto cleanup;
+                stack_str = strdup("[unknown]");
+                goto insert;
         }
         syms = syms_cache__get_syms(syms_cache, pid);
         if (!syms) {
@@ -188,19 +225,20 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
                                 "\n",
                                 pid);
                 }
-                goto cleanup;
+                stack_str = strdup("[unknown]");
+                goto insert;
         }
         hll_syms_map = get_hll_syms(pid);
 
         if (bpf_map_lookup_elem(sfd, &stackid, ip) != 0) {
-                *stack_str = strdup("[unknown]");
-                goto cleanup;
+                stack_str = strdup("[unknown]");
+                goto insert;
         }
 
 
 #if STACK_INCLUDE_TID
         snprintf(tid_buf, sizeof(tid_buf), "%u;", tid);
-        *stack_str = strdup(tid_buf);
+        stack_str = strdup(tid_buf);
 #else
         (void)tid_buf;
 #endif
@@ -220,8 +258,8 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
                 }
 
                 cur_len = 0;
-                if (*stack_str) {
-                        cur_len = strlen(*stack_str);
+                if (stack_str) {
+                        cur_len = strlen(stack_str);
                 }
                 if (sym) {
                         to_copy = cplus_demangle(sym->name,
@@ -243,17 +281,19 @@ void store_stack(int pid, int tid, int stackid, char **stack_str)
                 }
                 len = strlen(to_copy);
                 new_len = cur_len + len + 2;
-                *stack_str = realloc(*stack_str, new_len);
-                memset(*stack_str + cur_len, 0, new_len - cur_len);
-                strcpy(*stack_str + cur_len, to_copy);
-                (*stack_str)[new_len - 2] = ';';
+                stack_str = realloc(stack_str, new_len);
+                memset(stack_str + cur_len, 0, new_len - cur_len);
+                strcpy(stack_str + cur_len, to_copy);
+                (stack_str)[new_len - 2] = ';';
                 if (should_free) {
                         free((void *)to_copy);
                 }
         }
 
-cleanup:
+insert:
 
+        hash_table_insert(stacks, stackid, stack_str);
+        
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 fprintf(stderr,
                         "Error unlocking the syms_cache_lock. Aborting.\n");

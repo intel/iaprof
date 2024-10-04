@@ -84,7 +84,7 @@ struct buffer_binding {
         int      unbound;
 
         /* The stack where this buffer was execbuffer'd */
-        char *execbuf_stack_str;
+        int execbuf_stackid;
 
         /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;

@@ -24,8 +24,9 @@ void store_interval_flames();
 struct proto_flame {
         char *proc_name;
         uint32_t pid;
-        char *cpu_stack;
-
+        int cpu_stackid;
+        int is_debug;
+        
         char *stall_type;
         uint64_t count;
         uint64_t addr;

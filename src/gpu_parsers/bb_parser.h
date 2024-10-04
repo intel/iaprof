@@ -278,11 +278,8 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                 if (shader_bind != NULL) {
                         shader_bind->type = BUFFER_TYPE_SHADER;
                         shader_bind->pid = pid;
-                        if (shader_bind->execbuf_stack_str) {
-                                free(shader_bind->execbuf_stack_str);
-                                shader_bind->execbuf_stack_str = NULL;
-                        }
-                        store_stack(pid, tid, stackid, &(shader_bind->execbuf_stack_str));
+                        store_stack(pid, tid, stackid);
+                        shader_bind->execbuf_stackid = stackid;
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                      parser->vm->vm_id, shader_bind->gpu_addr);
