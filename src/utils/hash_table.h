@@ -18,29 +18,29 @@
         (CAT2(hash_table(K_T, V_T), _make)((HASH), NULL))
 #define hash_table_make_e(K_T, V_T, HASH, EQU) \
         (CAT2(hash_table(K_T, V_T), _make)((HASH), (EQU)))
-#define hash_table_len(t) (t->len)
-#define hash_table_free(t) (t->_free((t)))
-#define hash_table_get_key(t, k) (t->_get_key((t), (k)))
-#define hash_table_get_val(t, k) (t->_get_val((t), (k)))
-#define hash_table_insert(t, k, v) (t->_insert((t), (k), (v)))
-#define hash_table_delete(t, k) (t->_delete((t), (k)))
-#define hash_table_traverse(t, key, val_ptr)                                  \
-        for (/* vars */                                                       \
-             uint64_t __i = 0,                                                \
-                      __size = ht_prime_sizes[t->_size_idx]; /* conditions */ \
-             __i < __size; /* increment */                                    \
-             __i += 1)                                                        \
-                for (/* vars */                                               \
-                     __typeof__(*t->_data) *__slot_ptr = t->_data + __i,      \
-                                           __slot = *__slot_ptr;              \
-                                                                              \
-                     /* conditions */                                         \
-                     __slot != NULL && (key = __slot->_key, 1) &&             \
-                     (val_ptr = &(__slot->_val), 1);                          \
-                                                                              \
-                     /* increment */                                          \
-                     __slot_ptr = &(__slot->_next),                           \
-                                           __slot = *__slot_ptr)              \
+#define hash_table_len(t) ((t)->len)
+#define hash_table_free(t) ((t)->_free((t)))
+#define hash_table_get_key(t, k) ((t)->_get_key((t), (k)))
+#define hash_table_get_val(t, k) ((t)->_get_val((t), (k)))
+#define hash_table_insert(t, k, v) ((t)->_insert((t), (k), (v)))
+#define hash_table_delete(t, k) ((t)->_delete((t), (k)))
+#define hash_table_traverse(t, key, val_ptr)                                      \
+        for (/* vars */                                                           \
+             uint64_t __i = 0,                                                    \
+                      __size = ht_prime_sizes[(t)->_size_idx]; /* conditions */   \
+             __i < __size; /* increment */                                        \
+             __i += 1)                                                            \
+                for (/* vars */                                                   \
+                     __typeof__(*(t)->_data) *__slot_ptr = (t)->_data + __i,      \
+                                           __slot = *__slot_ptr;                  \
+                                                                                  \
+                     /* conditions */                                             \
+                     __slot != NULL && (key = __slot->_key, 1) &&                 \
+                     (val_ptr = &(__slot->_val), 1);                              \
+                                                                                  \
+                     /* increment */                                              \
+                     __slot_ptr = &(__slot->_next),                               \
+                                           __slot = *__slot_ptr)                  \
         /* LOOP BODY HERE */
 
 #define STR(x) _STR(x)
