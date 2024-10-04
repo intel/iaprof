@@ -47,6 +47,7 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
                         cmapping.addr = cpu_addr;
                         gmapping.addr = gpu_addr;
                         gmapping.vm_id = vm_id;
+                        gmapping.file = (u64)file;
                         bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
                         bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
                 } else {
@@ -109,6 +110,7 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
         /* Find the CPU mapping for this GPU address */
         gmapping.vm_id = vm_id;
         gmapping.addr = gpu_addr;
+        gmapping.file = (u64)file;
         lookup = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
         if (!lookup) {
                 DEBUG_PRINTK(

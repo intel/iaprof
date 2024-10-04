@@ -100,20 +100,29 @@ use_tree(uint64_t, buffer_binding_struct);
 
 
 struct vm_profile {
+        uint64_t file;
         uint32_t vm_id;
-        uint64_t debugger_vm_id;
         uint32_t vm_order;
+        uint64_t debugger_vm_id;
         pthread_mutex_t lock;
         _Atomic pthread_t lock_holder;
         char active;
         tree(uint64_t, buffer_binding_struct) bindings;
 };
 
+struct file_vm_pair {
+        uint64_t file;
+        uint32_t vm_id;
+};
 
+typedef struct file_vm_pair file_vm_pair_struct;
 typedef struct vm_profile *vm_profile_ptr;
-use_hash_table(uint64_t, vm_profile_ptr);
 
-extern hash_table(uint64_t, vm_profile_ptr) vm_profiles;
+int file_vm_pair_cmp(struct file_vm_pair a, struct file_vm_pair b);
+
+use_tree_c(file_vm_pair_struct, vm_profile_ptr, file_vm_pair_cmp);
+
+extern tree(file_vm_pair_struct, vm_profile_ptr) vm_profiles;
 extern pthread_rwlock_t vm_profiles_lock;
 
 void init_profiles();
@@ -124,16 +133,16 @@ struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gp
 void delete_binding(struct vm_profile *vm, uint64_t gpu_addr);
 void free_profiles();
 
-void create_vm_profile(uint32_t vm_id);
+void create_vm_profile(uint64_t file, uint32_t vm_id);
 
 /* This function does not lock the vm_profile! */
-struct vm_profile *get_vm_profile(uint32_t vm_id);
+struct vm_profile *get_vm_profile(uint64_t file, uint32_t vm_id);
 
 void lock_vm_profile(struct vm_profile *vm);
 void unlock_vm_profile(struct vm_profile *vm);
 
-struct vm_profile *acquire_vm_profile(uint32_t vm_id);
-struct vm_profile *acquire_ordered_vm_profile(uint32_t vm_order);
+struct vm_profile *acquire_vm_profile(uint64_t file, uint32_t vm_id);
+struct vm_profile *acquire_ordered_vm_profile(uint64_t file, uint32_t vm_order);
 void release_vm_profile(struct vm_profile *vm);
 
 
@@ -148,12 +157,10 @@ void release_buffer(struct buffer_object *bo);
 
 #define FOR_VM(vm, ...)                                             \
 do {                                                                \
-        uint32_t _vm_id;                                            \
-        struct vm_profile **_vmp;                                   \
+        tree_it(file_vm_pair_struct, vm_profile_ptr) _it;           \
         pthread_rwlock_rdlock(&vm_profiles_lock);                   \
-        hash_table_traverse(vm_profiles, _vm_id, _vmp) {            \
-                (void)_vmp;                                         \
-                (vm) = get_vm_profile(_vm_id);                      \
+        tree_traverse(vm_profiles, _it) {                           \
+                (vm) = tree_it_val(_it);                            \
                 lock_vm_profile((vm));                              \
                 __VA_ARGS__                                         \
                 unlock_vm_profile((vm));                            \
@@ -169,16 +176,14 @@ do {                                                                \
 
 #define FOR_BINDING(vm, bind, ...)                                  \
 do {                                                                \
-        uint32_t _vm_id;                                            \
-        struct vm_profile **_vmp;                                   \
-        tree_it(uint64_t, buffer_binding_struct) _it;               \
+        tree_it(file_vm_pair_struct, vm_profile_ptr) _vit;          \
+        tree_it(uint64_t, buffer_binding_struct)     _bit;          \
         pthread_rwlock_rdlock(&vm_profiles_lock);                   \
-        hash_table_traverse(vm_profiles, _vm_id, _vmp) {            \
-                (void)_vmp;                                         \
-                (vm) = get_vm_profile(_vm_id);                      \
+        tree_traverse(vm_profiles, _vit) {                          \
+                (vm) = tree_it_val(_vit);                           \
                 lock_vm_profile((vm));                              \
-                tree_traverse((*_vmp)->bindings, _it) {             \
-                        (bind) = &tree_it_val(_it);                 \
+                tree_traverse((vm)->bindings, _bit) {               \
+                        (bind) = &tree_it_val(_bit);                \
                         __VA_ARGS__                                 \
                 }                                                   \
                 unlock_vm_profile((vm));                            \
@@ -188,7 +193,7 @@ do {                                                                \
 
 #define FOR_BINDING_CLEANUP()                                       \
 do {                                                                \
-        unlock_vm_profile(*_vmp);                                   \
+        unlock_vm_profile(tree_it_val(_vit));                       \
         pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
 
