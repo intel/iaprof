@@ -437,6 +437,8 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
                            0,
                            pid_index);
         debug_i915_add_shader_binary(section);
+        
+        debug_printf("Adding symbol %s 0x%lx %lu\n", name, section_header->sh_addr, section_header->sh_size);
 }
 
 void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
