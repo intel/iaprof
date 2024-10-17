@@ -3,7 +3,7 @@ results/
 bude
 tags
 *.svg
-*.txt
+/*.txt
 core.*
 out/
 
