@@ -487,7 +487,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
         parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
         
-        dump_buffer(parser->bo->buff, parser->bo->buff_sz, parser->bind->handle);
+/*         dump_buffer(parser->bo->buff, parser->bo->buff_sz, parser->bind->handle); */
         store_stack(pid, tid, stackid);
         debug_printf("Parsing BB for stack %s\n", get_stack(stackid));
         debug_printf("batch_len=0x%lx\n", size);

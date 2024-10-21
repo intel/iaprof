@@ -156,7 +156,7 @@ int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu
         return 0;
 }
 
-#define MAX_DUPLICATES 1024
+#define MAX_DUPLICATES 4096
 void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
 {
         char filename[256];

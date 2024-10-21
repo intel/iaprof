@@ -6,8 +6,7 @@ CC=${CC:-${CLANG}}
 LDFLAGS=${LDFLAGS:-}
 # CSAN="-fsanitize=address"
 # LSAN="-fsanitize=address -static-libsan"
-# OPT="-O3"
-OPT="-O0"
+OPT="-O3"
 CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 CFLAGS+=" -DDEBUG"
 # EXTRA_CFLAGS="-DSLOW_MODE"
