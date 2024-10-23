@@ -4,10 +4,9 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
-/* #include <libgen.h> */
+#include <libgen.h>
 #include <ctype.h>
 #include <fcntl.h>
-#include <libiberty/demangle.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -21,6 +20,7 @@
 #include "stores/buffer_profile.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
+#include "utils/demangle.h"
 
 #ifdef SLOW_MODE
 static uint32_t vm_bind_counter = 0;
@@ -255,7 +255,7 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                         filename = strdup(info->filename);
                         linenum  = info->linenum;
                 }
-                demangled = cplus_demangle(name, DMGL_NO_OPTS | DMGL_PARAMS | DMGL_AUTO);
+                demangled = demangle(name);
                 if (demangled != NULL) {
                         name = demangled;
                 } else {

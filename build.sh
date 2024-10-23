@@ -2,7 +2,10 @@
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 CLANG=${CLANG:-clang}
+CLANGPP=${CLANGPP:-clang++}
+LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
+CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
 # CSAN="-fsanitize=address"
 # LSAN="-fsanitize=address -static-libsan"
@@ -12,6 +15,7 @@ CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-lea
 CFLAGS+=" -DDEBUG"
 # EXTRA_CFLAGS="-DSLOW_MODE"
 LDFLAGS="${LSAN}"
+LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
@@ -172,6 +176,10 @@ ${CC} ${COMMON_FLAGS} -c \
   ${UTILS_DIR}/array.c \
   -o ${UTILS_DIR}/array.o
 
+${CXX} ${COMMON_FLAGS} $(${LLVM_CONFIG} --cppflags) -c \
+  ${UTILS_DIR}/demangle.cpp \
+  -o ${UTILS_DIR}/demangle.o
+
 ####################
 #   GPU PARSERS    #
 ####################
@@ -193,7 +201,7 @@ ${CC} ${COMMON_FLAGS} -c \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
 
-${CC} ${LDFLAGS} \
+${CXX} ${LDFLAGS} \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
   ${I915_HELPERS_DIR}/i915_helpers.o \
   \
@@ -215,6 +223,7 @@ ${CC} ${LDFLAGS} \
   \
   ${UTILS_DIR}/utils.o \
   ${UTILS_DIR}/array.o \
+  ${UTILS_DIR}/demangle.o \
   \
   ${GPU_PARSERS_DIR}/shader_decoder.o \
   \
@@ -227,7 +236,6 @@ ${CC} ${LDFLAGS} \
   ${PREFIX}/lib/libbpf.a \
   -lelf -ldw -lz \
   -lstdc++ \
-  -liberty \
   ${PREFIX}/lib/libelf.a \
   ${PREFIX}/lib/libiga64.a || exit $?
 echo ""
