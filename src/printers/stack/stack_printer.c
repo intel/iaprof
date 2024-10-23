@@ -321,14 +321,8 @@ void store_stack(int pid, int tid, int stackid)
                 }
                 if (sym == NULL) {
                         if (!is_blacklisted(pid, ip[i])) {
-                                syms_cache__reload_syms(syms_cache, pid);
-                                syms = syms_cache__get_syms(syms_cache, pid);
                                 hll_syms_map = reload_hll_syms(pid);
-
-                                sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
-                                if (sym == NULL) {
-                                        sym = hll_sym(hll_syms_map, ip[i]);
-                                }
+                                sym = hll_sym(hll_syms_map, ip[i]);
                                 if (sym == NULL) {
                                         blacklist(pid, ip[i]);
                                 }

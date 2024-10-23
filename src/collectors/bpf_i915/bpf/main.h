@@ -8,7 +8,7 @@
 #define MAX_BUFFER_COPIES 256
 
 /* GEN binary copying maximums */
-#define MAX_BINARY_SIZE (512 * 1024)
+#define MAX_BINARY_SIZE (2048 * 1024)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)

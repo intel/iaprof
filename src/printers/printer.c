@@ -171,14 +171,17 @@ int print_execbuf_buffer(struct buffer_binding *bind)
 
 int print_execbuf_end(struct execbuf_end_info *einfo)
 {
+        static int counter;
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_end");
         fprintf(stderr, " %-*llu", TIME_LEN, einfo->time);
         fprintf(stderr, " %-*u", CPU_LEN, einfo->cpu);
         fprintf(stderr, " %-*u", PID_LEN, einfo->pid);
         fprintf(stderr, " %-*u", TID_LEN, einfo->tid);
-        fprintf(stderr, " ctx_id=%u gpu_addr=0x%llx buffer_count=%u\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count);
-        pthread_mutex_unlock(&debug_print_lock);;
+        fprintf(stderr, " ctx_id=%u gpu_addr=0x%llx buffer_count=%u, batch_start_offset=0x%x, counter=%d\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count, einfo->batch_start_offset, counter);
+        pthread_mutex_unlock(&debug_print_lock);
+        
+        counter++;
 
         return 0;
 }

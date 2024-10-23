@@ -479,6 +479,15 @@ int deinit_bpf_i915()
 {
         uint64_t i;
         int retval;
+        size_t ring_buffer_avail;
+        struct ring *ring;
+        
+        ring = ring_buffer__ring(bpf_info.rb, 0);
+        ring_buffer_avail = ring__avail_data_size(ring);
+        debug_printf("Leftover ringbuffer size: %lu\n", ring_buffer_avail);
+        ring = ring_buffer__ring(bpf_info.buffer_copy_rb, 0);
+        ring_buffer_avail = ring__avail_data_size(ring);
+        debug_printf("Leftover buffer copy ringbuffer size: %lu\n", ring_buffer_avail);
 
         for (i = 0; i < bpf_info.num_links; i++) {
                 retval = bpf_link__destroy(bpf_info.links[i]);
