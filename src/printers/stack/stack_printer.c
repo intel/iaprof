@@ -8,9 +8,6 @@
 
 #define STACK_INCLUDE_TID 0
 
-/* For demangling */
-#include <libiberty/demangle.h>
-
 #include "iaprof.h"
 
 #include "bpf_helpers/trace_helpers.h"
@@ -23,6 +20,7 @@
 
 #include "utils/hash_table.h"
 #include "utils/tree.h"
+#include "utils/demangle.h"
 
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -355,9 +353,7 @@ char *store_stack(int pid, int tid, struct stack *stack)
                         cur_len = strlen(stack_str);
                 }
                 if (sym) {
-                        to_copy = cplus_demangle(sym->name,
-                                                 DMGL_NO_OPTS | DMGL_PARAMS |
-                                                         DMGL_AUTO);
+                        to_copy = demangle(sym->name);
                         should_free = 1;
                         if (!to_copy) {
                                 to_copy = sym->name;
