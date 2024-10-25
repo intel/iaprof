@@ -427,8 +427,19 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
 
 void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index) {
         char *name;
+        int   len;
+        char *seek;
 
         name = elf_strptr(elf, string_table_index, section_header->sh_name);
+        len  = strlen(name);
+
+        if (len == 0) { return; }
+
+        /* Chop off *. prefix. */
+        for (seek = name + len; seek > name && *(seek - 1) != '.'; seek -= 1);
+        name = seek;
+
+        if (*name == 0) { return; }
 
         debug_i915_add_sym(strdup(name),
                            section_header->sh_addr,
@@ -437,7 +448,7 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
                            0,
                            pid_index);
         debug_i915_add_shader_binary(section);
-        
+
         debug_printf("Adding symbol %s 0x%lx %lu\n", name, section_header->sh_addr, section_header->sh_size);
 }
 
