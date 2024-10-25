@@ -1,7 +1,7 @@
 #ifndef GEM_COLLECTOR_H
 #define GEM_COLLECTOR_H
 
-#define MAX_STACK_DEPTH 127
+#define MAX_STACK_DEPTH 512
 #define TASK_COMM_LEN 16
 #define MAX_ENTRIES 1024 * 1024
 #define RINGBUF_SIZE 512 * 1024 * 1024 /* 512 MB */
@@ -22,6 +22,10 @@ struct file_handle_pair {
 struct buffer_copy {
         uint64_t      size;
         unsigned char bytes[MAX_BINARY_SIZE];
+};
+
+struct stack {
+        __u64 addrs[MAX_STACK_DEPTH];
 };
 
 enum {
@@ -50,7 +54,6 @@ struct mapping_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
-        int stackid;
 };
 
 /* Collected from an munmap, possibly
@@ -91,7 +94,6 @@ struct vm_bind_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
-        int stackid;
 };
 
 /* Collected from a vm_unbind */
@@ -125,7 +127,6 @@ struct execbuf_start_info {
         char name[TASK_COMM_LEN];
         __u32 cpu, pid, tid;
         __u64 time;
-        int stackid;
 };
 
 /* Represents a copy of a batchbuffer */
@@ -155,7 +156,8 @@ struct execbuf_end_info {
         char name[TASK_COMM_LEN];
         __u32 cpu, pid, tid;
         __u64 time;
-        int stackid;
+        
+        struct stack stack;
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */

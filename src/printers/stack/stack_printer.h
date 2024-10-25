@@ -2,7 +2,9 @@
 
 #include <inttypes.h>
 
+struct stack;
+
 int init_syms_cache();
 void deinit_syms_cache();
-void store_stack(int pid, int tid, int stackid);
-char *get_stack(int stackid);
+char *store_stack(int pid, int tid, struct stack *stack);
+char *get_stack(struct stack *stack);

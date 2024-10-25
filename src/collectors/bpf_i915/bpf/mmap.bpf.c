@@ -216,7 +216,6 @@ int BPF_PROG(i915_gem_mmap,
         info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
         info->tid = bpf_get_current_pid_tgid();
-        info->stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
         info->time = bpf_ktime_get_ns();
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
