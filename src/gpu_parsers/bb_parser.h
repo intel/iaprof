@@ -100,8 +100,9 @@ struct bb_parser {
                 uint32_t gpr32[16 * 2];
         };
 
-        /* Infinite loop detection */
-        tree(uint64_t, char) visited_addresses;
+        /* Stores the address immediately following the first `MI_BATCH_BUFFER_START`
+           command. Heuristic for determining when we've left and re-entered the ringbuffer. */
+        uint64_t stop_addr;
 };
 
 
@@ -264,7 +265,7 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
 
 enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid, int tid,
-                                     int stackid, char *procname)
+                                     char *stack_str, char *procname)
 {
         struct buffer_binding *shader_bind;
         uint64_t tmp;
@@ -288,7 +289,7 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                 if (shader_bind != NULL) {
                         shader_bind->type = BUFFER_TYPE_SHADER;
                         shader_bind->pid = pid;
-                        shader_bind->execbuf_stackid = stackid;
+                        shader_bind->execbuf_stack_str = stack_str;
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                      parser->vm->vm_id, shader_bind->gpu_addr);
@@ -356,7 +357,6 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
         uint64_t tmp;
-        tree_it(uint64_t, char) it;
         
         if (parser->in_cmd == 0) {
                 parser->enable_predication = *ptr & 0x8000;
@@ -364,14 +364,12 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                         debug_printf("enable_predication=%u\n",
                                      parser->enable_predication);
                 }
-        } else if (parser->in_cmd == 1) {
+                
                 parser->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(*ptr);
                 if (bb_debug) {
                         debug_printf("bb2l=%u\n", parser->bb2l);
                 }
-                if (parser->bb2l == 0) {
-                        return BB_PARSER_STATUS_NOTFOUND;
-                }
+        } else if (parser->in_cmd == 1) {
                 parser->bbsp = 0;
                 parser->bbsp |= *ptr;
         } else if (parser->in_cmd == 2) {
@@ -382,15 +380,13 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 if (bb_debug) {
                         debug_printf("bbsp=0x%lx\n", parser->bbsp);
                 }
-
-                it = tree_lookup(parser->visited_addresses, parser->bbsp);
-                if (tree_it_good(it)) {
-                        if (bb_debug) {
-                                debug_printf("Recursion!\n");
-                        }
+                
+                if (parser->stop_addr == 0) {
+                        parser->stop_addr = parser->pc[parser->pc_depth] + 4;
+                }
+                if (parser->bbsp == parser->stop_addr) {
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
-                tree_insert(parser->visited_addresses, parser->bbsp, 1);
                 
                 if (parser->bb2l && (parser->pc_depth < 2)) {
                         parser->pc_depth++;
@@ -446,7 +442,6 @@ char mi_batch_buffer_end(struct bb_parser *parser, uint32_t *ptr)
 void bb_parser_init(struct bb_parser *parser)
 {
         memset(parser, 0, sizeof(struct bb_parser));
-        parser->visited_addresses = tree_make(uint64_t, char);
 }
 
 
@@ -454,10 +449,11 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_binding *bind,
                                       uint32_t offset, uint64_t size,
-                                      int pid, int tid, int stackid, char *procname)
+                                      int pid, int tid, struct stack *stack, char *procname)
 {
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
+        char *stack_str;
         enum bb_parser_status retval;
         
         /* Store our initial state */
@@ -488,8 +484,14 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
         
 /*         dump_buffer(parser->bo->buff, parser->bo->buff_sz, parser->bind->handle); */
-        store_stack(pid, tid, stackid);
-        debug_printf("Parsing BB for stack %s\n", get_stack(stackid));
+        stack_str = store_stack(pid, tid, stack);
+/*         debug_printf("Parsing BB for stack %s\n", stack_str); */
+        debug_printf("Parsing BB for stack");
+        for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
+                if (stack->addrs[i] == 0) { break; }
+                debug_printf(" 0x%llx", stack->addrs[i]);
+        }
+        debug_printf("\n%s\n", stack_str);
         debug_printf("batch_len=0x%lx\n", size);
 
 /*         fprintf(stderr, "!!! BB %u 0x%lx 0x%lx %u\n", */
@@ -620,7 +622,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 }
                                 break;
                         case COMPUTE_WALKER:
-                                retval = compute_walker(parser, dword_ptr, pid, tid, stackid, procname);
+                                retval = compute_walker(parser, dword_ptr, pid, tid, stack_str, procname);
                                 if (retval != BB_PARSER_STATUS_OK) {
                                         goto out;
                                 }
@@ -651,7 +653,6 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         }
 
 out:;
-        tree_free(parser->visited_addresses);
 
         if (parser->bo != NULL) {
                 release_buffer(parser->bo);

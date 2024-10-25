@@ -109,6 +109,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
              struct drm_i915_gem_exec_object2 *exec)
 {
         int err;
+        long stack_err;
         u32 cpu, handle, batch_index, batch_start_offset,
                 buffer_count;
         u64 cpu_addr, batch_len, offset, size, status,
@@ -118,8 +119,6 @@ int BPF_PROG(i915_gem_do_execbuffer,
         struct gpu_mapping gmapping = {};
         struct vm_callback_ctx vm_callback_ctx = {};
         struct file_ctx_pair pair = {};
-
-        int stackid;
 
         file_ptr = (u64)file;
 
@@ -206,8 +205,11 @@ int BPF_PROG(i915_gem_do_execbuffer,
 
                 DEBUG_PRINTK("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
 
-                stackid = bpf_get_stackid(ctx, &stackmap, BPF_F_USER_STACK);
-
+                stack_err = bpf_get_stack(ctx, &(info->stack.addrs), sizeof(info->stack.addrs), BPF_F_USER_STACK);
+                if (stack_err < 0) {
+                        DEBUG_PRINTK("WARNING: execbuffer failed to get a stack: %ld", stack_err);
+                }
+                
                 /* execbuffer-specific stuff */
                 info->type = BPF_EVENT_TYPE_EXECBUF_END;
                 info->file = file_ptr;
@@ -221,7 +223,6 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 info->cpu = cpu;
                 info->pid = bpf_get_current_pid_tgid() >> 32;
                 info->tid = bpf_get_current_pid_tgid();
-                info->stackid = stackid;
                 info->time = bpf_ktime_get_ns();
                 bpf_get_current_comm(info->name, sizeof(info->name));
                 bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);

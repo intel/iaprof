@@ -28,7 +28,7 @@ void print_flamegraph()
                 printf("%s;", flame->proc_name);
                 printf("%u;", flame->pid);
                 
-                stack_str = get_stack(flame->cpu_stackid);
+                stack_str = flame->cpu_stack_str;
                 if (stack_str) {
                         printf("%s", stack_str);
                 } else if (flame->is_debug) {

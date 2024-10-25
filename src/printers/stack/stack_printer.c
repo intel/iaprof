@@ -24,7 +24,6 @@
 
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
-static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
 
 /* A temporary string we can use to store the maximum characters
    necessary to print a hexadecimal uint64_t. */
@@ -32,8 +31,8 @@ static unsigned long ip[MAX_STACK_DEPTH * sizeof(uint64_t)];
 static char tmp_str[MAX_CHARS_UINT64];
 
 typedef char *string;
-use_hash_table(int, string);
-static hash_table(int, string) stacks;
+use_hash_table(uint64_t, string);
+static hash_table(uint64_t, string) stacks;
 
 use_hash_table(uint64_t, char);
 typedef hash_table(uint64_t, char) blacklist_t;
@@ -50,8 +49,29 @@ use_hash_table(int, hll_syms_map_t);
 
 static hash_table(int, hll_syms_map_t) hll_syms;
 
-static uint64_t id_hash(int pid) { return pid; }
+
+static uint64_t stack_hash(struct stack *stack) {
+        uint64_t  hash;
+        int       i;
+        uint64_t  piece;
+
+        hash = 2654435761ULL;
+
+        for (i = 0; i < MAX_STACK_DEPTH; i += 1) {
+                piece = (stack->addrs[i] >> 3);
+                if (piece == 0) { break; }
+                hash *= piece;
+                if (hash == 0) {
+                        hash = piece;
+                }
+        }
+        
+        return hash;
+}
+
+static uint64_t u64_id_hash(uint64_t val) { return val; }
 static uint64_t addr_hash(uint64_t addr) { return addr >> 3; }
+static uint64_t id_hash(int x) { return x; }
 
 int init_syms_cache()
 {
@@ -220,22 +240,23 @@ void blacklist(int pid, uint64_t addr) {
         hash_table_insert(bl, addr, 1);
 }
 
-char *get_stack(int stackid) {
+char *get_stack(struct stack *stack) {
         char **lookup;
 
-        if(stacks == NULL) {
+        if (stacks == NULL) {
                 return NULL;
         }
-
-        lookup = hash_table_get_val(stacks, stackid);
+        
+        lookup = hash_table_get_val(stacks, stack_hash(stack));
         if (!lookup) {
                 return NULL;
         }
         return *lookup;
 }
 
-void store_stack(int pid, int tid, int stackid)
+char *store_stack(int pid, int tid, struct stack *stack)
 {
+        uint64_t hash;
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
         const struct sym *sym;
@@ -251,11 +272,14 @@ void store_stack(int pid, int tid, int stackid)
         stack_str = NULL;
 
         if (stacks == NULL) {
-                stacks = hash_table_make(int, string, id_hash);
+                stacks = hash_table_make(uint64_t, string, u64_id_hash);
         }
-        lookup = hash_table_get_val(stacks, stackid);
+        
+        hash = stack_hash(stack);
+        
+        lookup = hash_table_get_val(stacks, hash);
         if (lookup) {
-                return;
+                return *lookup;
         }
 
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
@@ -293,11 +317,6 @@ void store_stack(int pid, int tid, int stackid)
         }
         hll_syms_map = get_hll_syms(pid);
 
-        if (bpf_map_lookup_elem(sfd, &stackid, ip) != 0) {
-                stack_str = strdup("[unknown]");
-                goto insert;
-        }
-
 
 #if STACK_INCLUDE_TID
         snprintf(tid_buf, sizeof(tid_buf), "%u;", tid);
@@ -308,23 +327,23 @@ void store_stack(int pid, int tid, int stackid)
 
         /* Start at the last nonzero IP */
         last_i = 0;
-        for (i = 0; i < MAX_STACK_DEPTH && ip[i]; i++) {
+        for (i = 0; i < MAX_STACK_DEPTH && stack->addrs[i]; i++) {
                 last_i = i;
         }
 
         for (i = last_i; i >= 0; i--) {
                 should_free = 0;
                 dso_name = NULL;
-                sym = syms__map_addr_dso(syms, ip[i], &dso_name, &dso_offset);
+                sym = syms__map_addr_dso(syms, stack->addrs[i], &dso_name, &dso_offset);
                 if (sym == NULL) {
-                        sym = hll_sym(hll_syms_map, ip[i]);
+                        sym = hll_sym(hll_syms_map, stack->addrs[i]);
                 }
                 if (sym == NULL) {
-                        if (!is_blacklisted(pid, ip[i])) {
+                        if (!is_blacklisted(pid, stack->addrs[i])) {
                                 hll_syms_map = reload_hll_syms(pid);
-                                sym = hll_sym(hll_syms_map, ip[i]);
+                                sym = hll_sym(hll_syms_map, stack->addrs[i]);
                                 if (sym == NULL) {
-                                        blacklist(pid, ip[i]);
+                                        blacklist(pid, stack->addrs[i]);
                                 }
                         }
                 }
@@ -345,7 +364,7 @@ void store_stack(int pid, int tid, int stackid)
                                 to_copy = dso_name;
                         } else {
                                 memset(tmp_str, 0, MAX_CHARS_UINT64);
-                                sprintf(tmp_str, "0x%lx", ip[i]);
+                                sprintf(tmp_str, "0x%llx", stack->addrs[i]);
                                 to_copy = tmp_str;
                         }
                 }
@@ -362,7 +381,7 @@ void store_stack(int pid, int tid, int stackid)
 
 insert:
 
-        hash_table_insert(stacks, stackid, stack_str);
+        hash_table_insert(stacks, hash, stack_str);
 
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 fprintf(stderr,
@@ -370,5 +389,5 @@ insert:
                 exit(1);
         }
 
-        return;
+        return stack_str;
 }
