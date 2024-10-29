@@ -21,7 +21,7 @@
 
 /* Global IBA, or Instruction Base Address, which is found by
  * parsing batchbuffer commands. */
-extern uint64_t iba;
+extern _Atomic uint64_t iba;
 
 /***************************************
 * BPF Handlers

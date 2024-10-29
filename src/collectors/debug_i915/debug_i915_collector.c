@@ -40,7 +40,7 @@ typedef struct {
         int   linenum;
 } Debug_Info;
 
-use_hash_table(sym_str_t, Debug_Info);
+use_hash_table_e(sym_str_t, Debug_Info, str_equ);
 
 typedef struct shader_binary *shader_binary_ptr;
 
@@ -378,7 +378,7 @@ hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
         Dwarf_Die                          subdie;
 
 
-        debug_info_table = hash_table_make_e(sym_str_t, Debug_Info, str_hash, str_equ);
+        debug_info_table = hash_table_make(sym_str_t, Debug_Info, str_hash);
 
         dwarf = dwarf_begin_elf(elf, DWARF_C_READ, NULL);
 

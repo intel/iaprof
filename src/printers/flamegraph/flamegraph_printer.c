@@ -5,63 +5,85 @@
 #include "stores/proto_flame.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 
+
 void print_flamegraph()
 {
-        struct proto_flame *flame;
-        int err;
-        uint64_t index;
-        char *stack_str, *kernel_stack_str;
+        struct proto_flame  flame;
+        uint64_t           *countp;
+        uint64_t            count;
+        int                 err;
+        char               *gpu_symbol;
+        char               *gpu_file;
+        int                 gpu_line;
+        const char         *ustack_str;
+        const char         *kstack_str;
+        const char         *stall_type_str;
 
-        for (index = 0; index < proto_flame_used; index++) {
-                flame = &(proto_flame_arr[index]);
+        hash_table_traverse(flame_samples, flame, countp) {
+                count = *countp;
 
                 /* Ensure we've got a GPU symbol */
-                if (!(flame->gpu_symbol)) {
-                        err = debug_i915_get_sym(flame->pid, flame->addr, &flame->gpu_symbol, &flame->gpu_file, &flame->gpu_line);
-                        if (err) {
-                                flame->gpu_symbol = NULL;
-                                flame->gpu_file   = NULL;
-                                flame->gpu_line   = 0;
-                        }
+                err = debug_i915_get_sym(flame.pid, flame.addr, &gpu_symbol, &gpu_file, &gpu_line);
+                if (err) {
+                        gpu_symbol = NULL;
+                        gpu_file   = NULL;
+                        gpu_line   = 0;
                 }
 
-                printf("%s;", flame->proc_name);
-                printf("%u;", flame->pid);
-                
-                stack_str = flame->cpu_stack_str;
-                kernel_stack_str = flame->cpu_kernel_stack_str;
-                if (stack_str) {
-                        printf("%s", stack_str);
-                        if (kernel_stack_str) {
-                                printf("%s", kernel_stack_str);
+                printf("%s;", flame.proc_name);
+                printf("%u;", flame.pid);
+
+                ustack_str = flame.ustack_str;
+                kstack_str = flame.kstack_str;
+                if (ustack_str) {
+                        printf("%s", ustack_str);
+                        if (kstack_str) {
+                                printf("%s", kstack_str);
                         }
-                } else if (flame->is_debug) {
+                } else if (flame.is_debug) {
                         printf("L0 Debugger");
                 } else {
                         printf("[unknown];");
                 }
 
                 printf("-;");
-                if (flame->gpu_file) {
-                        printf("%s_[G];", flame->gpu_file);
+
+                if (gpu_file) {
+                        printf("%s_[G];", gpu_file);
                 } else {
                         printf("[unknown file]_[G];");
                 }
-                if (flame->gpu_symbol) {
-                        if (flame->gpu_line) {
-                                printf("%s line %d_[G];", flame->gpu_symbol, flame->gpu_line);
+                if (gpu_symbol) {
+                        if (gpu_line) {
+                                printf("%s line %d_[G];", gpu_symbol, gpu_line);
                         } else {
-                                printf("%s_[G];", flame->gpu_symbol);
+                                printf("%s_[G];", gpu_symbol);
                         }
                 } else {
-                        printf("0x%lx_[G];", flame->addr);
+                        printf("0x%lx_[G];", flame.addr);
                 }
-                if (flame->insn_text) {
-                        printf("%s_[g];", flame->insn_text);
+                if (flame.insn_text) {
+                        printf("%s_[g];", flame.insn_text);
                 } else {
                         printf("[failed_decode]_[g];");
                 }
-                printf("%s_[g];", flame->stall_type);
-                printf("0x%lx_[g] %lu\n", flame->offset, flame->count);
+
+                switch (flame.stall_type) {
+                        case STALL_TYPE_ACTIVE:     stall_type_str = "active";     break;
+                        case STALL_TYPE_CONTROL:    stall_type_str = "control";    break;
+                        case STALL_TYPE_PIPESTALL:  stall_type_str = "pipestall";  break;
+                        case STALL_TYPE_SEND:       stall_type_str = "send";       break;
+                        case STALL_TYPE_DIST_ACC:   stall_type_str = "dist_acc";   break;
+                        case STALL_TYPE_SBID:       stall_type_str = "sbid";       break;
+                        case STALL_TYPE_SYNC:       stall_type_str = "sync";       break;
+                        case STALL_TYPE_INST_FETCH: stall_type_str = "inst_fetch"; break;
+                        case STALL_TYPE_OTHER:      stall_type_str = "other";      break;
+                        default:
+                                stall_type_str = "unknown";
+                                break;
+                }
+
+                printf("%s_[g];", stall_type_str);
+                printf("0x%lx_[g] %lu\n", flame.offset, count);
         }
 }

@@ -97,17 +97,7 @@ struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gp
 }
 
 static void clear_stalls(struct buffer_binding *bind) {
-        uint64_t offset, *tmp;
-        struct offset_profile **found;
-
         if (bind->stall_counts != NULL) {
-                hash_table_traverse(bind->stall_counts,
-                                        offset, tmp)
-                {
-                        (void)offset;
-                        found = (struct offset_profile **)tmp;
-                        free(*found);
-                }
                 hash_table_free(bind->stall_counts);
                 bind->stall_counts = NULL;
         }

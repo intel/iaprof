@@ -17,27 +17,26 @@
 * so that we can build it up as we go.
 ***************************************/
 
-uint64_t grow_proto_flames();
-void store_interval_flames();
-
-/* Stores a single "frame" of a flamegraph. */
+/* Stores a single "flame" of a flamegraph. */
 struct proto_flame {
-        char *proc_name;
-        uint32_t pid;
-        char *cpu_stack_str;
-        char *cpu_kernel_stack_str;
-        int is_debug;
-        
-        char *stall_type;
-        uint64_t count;
-        uint64_t addr;
-        uint64_t offset;
-        char *insn_text;
-        char *gpu_symbol;
-        char *gpu_file;
-        int   gpu_line;
+        char       *proc_name;
+        const char *ustack_str;
+        const char *kstack_str;
+
+        uint32_t    pid;
+        int         is_debug;
+
+        uint64_t    addr;
+        uint64_t    offset;
+        char       *insn_text;
+        int         stall_type;
 };
 
-extern pthread_rwlock_t proto_flame_lock;
-extern struct proto_flame *proto_flame_arr;
-extern size_t proto_flame_size, proto_flame_used;
+typedef struct proto_flame proto_flame_struct;
+int proto_flame_equ(const struct proto_flame a, const struct proto_flame b);
+use_hash_table_e(proto_flame_struct, uint64_t, proto_flame_equ);
+
+extern hash_table(proto_flame_struct, uint64_t) flame_samples;
+
+void init_flames();
+void store_interval_flames();

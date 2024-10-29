@@ -2,63 +2,60 @@
 
 #include "proto_flame.h"
 
+#include "stores/buffer_profile.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #include "gpu_parsers/shader_decoder.h"
 
-pthread_rwlock_t proto_flame_lock = PTHREAD_RWLOCK_INITIALIZER;
-struct proto_flame *proto_flame_arr = NULL;
-size_t proto_flame_size = 0, proto_flame_used = 0;
+#include "utils/utils.h"
 
-/* Ensure we have enough room for another proto-flame. */
-uint64_t grow_proto_flames()
-{
-        size_t old_size;
+hash_table(proto_flame_struct, uint64_t) flame_samples;
 
-        /* Ensure there's enough room in the array */
-        if (proto_flame_size == proto_flame_used) {
-                /* Not enough room in the array */
-                old_size = proto_flame_size;
+int proto_flame_equ(const struct proto_flame a, const struct proto_flame b) {
+        /* Check the stack strings by pointer value since they are uniquely stored
+         * and retrieved via {store,get}_stack(). */
+        if (a.ustack_str != b.ustack_str)          { return 0; }
+        if (a.kstack_str != b.kstack_str)          { return 0; }
 
-                if (old_size == 0) {
-                        proto_flame_size = 64;
-                } else {
-                        proto_flame_size *= 2;
-                }
+        if (a.pid        != b.pid)                 { return 0; }
+        if (a.is_debug   != b.is_debug)            { return 0; }
+        if (a.addr       != b.addr)                { return 0; }
+        if (a.offset     != b.offset)              { return 0; }
+        if (a.stall_type != b.stall_type)          { return 0; }
 
-                proto_flame_arr =
-                        realloc(proto_flame_arr,
-                                proto_flame_size * sizeof(struct proto_flame));
+        if (strcmp(a.insn_text, b.insn_text) != 0) { return 0; }
+        if (strcmp(a.proc_name, b.proc_name) != 0) { return 0; }
 
-                memset(proto_flame_arr + proto_flame_used, 0,
-                       (proto_flame_size - old_size) *
-                               sizeof(struct proto_flame));
-        }
-
-        proto_flame_used++;
-        return proto_flame_used - 1;
+        return 1;
 }
-void store_cpu_side(uint64_t index, struct buffer_binding *bind)
-{
-        proto_flame_arr[index].proc_name = strdup(bind->name);
-        proto_flame_arr[index].pid = bind->pid;
-        if (bind->execbuf_stack_str != NULL) {
-                proto_flame_arr[index].cpu_stack_str =
-                        bind->execbuf_stack_str;
-        }
-        if (bind->execbuf_kernel_stack_str != NULL) {
-                proto_flame_arr[index].cpu_kernel_stack_str =
-                        bind->execbuf_kernel_stack_str;
-        }
-        if (bind->type == BUFFER_TYPE_DEBUG_AREA) {
-                proto_flame_arr[index].is_debug = 1;
-        }
+
+static uint64_t proto_flame_hash(const struct proto_flame a) {
+        uint64_t hash;
+
+        hash = 2654435761ULL;
+
+        hash *= ((uint64_t)a.ustack_str >> 3) * ((uint64_t)a.kstack_str >> 3);
+
+        hash ^= a.pid;
+        hash ^= a.is_debug;
+
+        hash ^= ((a.addr + a.offset) >> 3) << a.stall_type;
+
+        hash ^= str_hash(a.insn_text);
+        hash ^= str_hash(a.proc_name);
+
+        return hash;
 }
+
+void init_flames() {
+        flame_samples = hash_table_make(proto_flame_struct, uint64_t, proto_flame_hash);
+}
+
 
 /* Returns 0 on success, -1 for failure */
-char get_insn_text(struct buffer_binding *bind, uint64_t offset,
+static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
@@ -132,36 +129,55 @@ out:;
         return retval;
 }
 
-void store_gpu_side(uint64_t index, char *stall_type, uint64_t count,
-                    uint64_t addr, uint64_t offset, char *insn_text)
-{
-        proto_flame_arr[index].stall_type = strdup(stall_type);
-        proto_flame_arr[index].addr = addr;
-        proto_flame_arr[index].offset = offset;
-        proto_flame_arr[index].count = count;
-        proto_flame_arr[index].insn_text = strdup(insn_text);
-        proto_flame_arr[index].gpu_symbol = NULL;
+static void update_flame(const struct proto_flame *flame, uint64_t count) {
+        uint64_t           *lookup;
+        struct proto_flame  flame_copy;
+
+        lookup = hash_table_get_val(flame_samples, *flame);
+
+        if (lookup != NULL) {
+                *lookup += count;
+        } else {
+                memcpy(&flame_copy, flame, sizeof(flame_copy));
+                flame_copy.proc_name = strdup(flame_copy.proc_name);
+                flame_copy.insn_text = strdup(flame_copy.insn_text);
+
+                hash_table_insert(flame_samples, flame_copy, count);
+        }
 }
 
 /* Prints the flamegraph for a single kernel */
 void store_kernel_flames(struct buffer_binding *bind)
 {
-        uint64_t offset, *tmp, addr, index;
-        struct offset_profile **found;
+        struct proto_flame flame;
+        uint64_t offset, addr;
+        struct offset_profile *profile;
         char *failed_decode = "[failed_decode]";
         char retval;
         char *insn_text;
         size_t insn_text_len;
+        int stall_type;
+        uint64_t count;
 
         if (debug) {
                 debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", bind->vm_id, bind->gpu_addr,
                        bind->pid);
         }
 
+        memset(&flame, 0, sizeof(flame));
+
+        flame.proc_name  = strdup(bind->name);
+        flame.pid        = bind->pid;
+        flame.ustack_str = bind->execbuf_ustack_str;
+        flame.kstack_str = bind->execbuf_kstack_str;
+        flame.is_debug   = bind->type == BUFFER_TYPE_DEBUG_AREA;
+
         /* Iterate over the offsets that we have EU stalls for */
-        hash_table_traverse(bind->stall_counts, offset, tmp)
-        {
-                found = (struct offset_profile **)tmp;
+        hash_table_traverse(bind->stall_counts, offset, profile) {
+                addr = bind->gpu_addr + offset;
+
+                flame.addr = addr;
+                flame.offset = offset;
 
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
@@ -171,68 +187,26 @@ void store_kernel_flames(struct buffer_binding *bind)
                         insn_text = failed_decode;
                 }
 
-                addr = bind->gpu_addr + offset;
+                flame.insn_text = insn_text;
 
-                if ((*found)->active) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "active", (*found)->active, addr,
-                                       offset, insn_text);
-                }
-                if ((*found)->other) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "other", (*found)->other, addr,
-                                       offset, insn_text);
-                }
-                if ((*found)->control) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "control", (*found)->control,
-                                       addr, offset, insn_text);
-                }
-                if ((*found)->pipestall) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "pipestall", (*found)->pipestall,
-                                       addr, offset, insn_text);
-                }
-                if ((*found)->send) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "send", (*found)->send, addr,
-                                       offset, insn_text);
-                }
-                if ((*found)->dist_acc) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "dist_acc", (*found)->dist_acc,
-                                       addr, offset, insn_text);
-                }
-                if ((*found)->sbid) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "sbid", (*found)->sbid, addr,
-                                       offset, insn_text);
-                }
-                if ((*found)->sync) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "sync", (*found)->sync, addr,
-                                       offset, insn_text);
-                }
-                if ((*found)->inst_fetch) {
-                        index = grow_proto_flames();
-                        store_cpu_side(index, bind);
-                        store_gpu_side(index, "inst_fetch",
-                                       (*found)->inst_fetch, addr, offset,
-                                       insn_text);
+                /* NOTE: We do late symbolization of GPU addresses because we may be slightly behind
+                 * collecting collecting ELF info from the debug interface. See print_flamegraph(). */
+
+                for (stall_type = 0; stall_type < NR_STALL_TYPES; stall_type += 1) {
+                        flame.stall_type = stall_type;
+
+                        count = profile->counts[stall_type];
+                        if (count > 0) {
+                                update_flame(&flame, count);
+                        }
                 }
 
                 if (insn_text != failed_decode) {
                         free(insn_text);
                 }
         }
+
+        free(flame.proc_name);
 }
 
 void store_interval_flames()

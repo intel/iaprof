@@ -7,11 +7,13 @@
 
 #include "collectors/bpf_i915/bpf/main.h"
 #include "gpu_parsers/shader_decoder.h"
+#include "collectors/eustall/eustall_collector.h"
 
 #include "utils/hash_table.h"
 #include "utils/tree.h"
 
-use_hash_table(uint64_t, uint64_t);
+typedef struct offset_profile offset_profile_struct;
+use_hash_table(uint64_t, offset_profile_struct);
 
 void clear_interval_profiles();
 void clear_unbound_buffers();
@@ -84,15 +86,15 @@ struct buffer_binding {
         int      unbound;
 
         /* The stack where this buffer was execbuffer'd */
-        char *execbuf_stack_str;
-        char *execbuf_kernel_stack_str;
+        const char *execbuf_ustack_str;
+        const char *execbuf_kstack_str;
 
         /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;
 
         /* The EU stalls. Key is the offset into the binary,
            value is a pointer to the struct of EU stall counts */
-        hash_table(uint64_t, uint64_t) stall_counts;
+        hash_table(uint64_t, offset_profile_struct) stall_counts;
 };
 
 typedef struct buffer_binding buffer_binding_struct;

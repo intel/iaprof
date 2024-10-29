@@ -43,21 +43,21 @@ struct bb_parser {
         uint8_t pc_depth;
         uint64_t pc[3];
         uint64_t batch_len[3];
-        
+
         /* Batch Buffer Start Pointer */
         uint64_t bbsp;
-        
+
         /* Second Level Batch Buffer */
         uint8_t bb2l;
-        
+
         /* Predication? */
         uint32_t enable_predication;
-        
+
         /* Start, end, and batch_len end of the primary batchbuffer */
         uint64_t primary_buffer_start;
         uint64_t primary_buffer_end;
         uint64_t primary_batch_buffer_end;
-        
+
         unsigned char in_cmd;
         uint64_t cur_cmd;
         uint8_t cur_num_dwords;
@@ -265,7 +265,7 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
 
 enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid, int tid,
-                                     char *stack_str, char *kernel_stack_str, char *procname)
+                                     const char *ustack_str, const char *kstack_str, char *procname)
 {
         struct buffer_binding *shader_bind;
         uint64_t tmp;
@@ -287,10 +287,10 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                 parser->ksp |= ((tmp & 0xffff) << 32);
                 shader_bind = get_containing_binding(parser->vm, parser->ksp);
                 if (shader_bind != NULL) {
-                        shader_bind->type = BUFFER_TYPE_SHADER;
-                        shader_bind->pid = pid;
-                        shader_bind->execbuf_stack_str = stack_str;
-                        shader_bind->execbuf_kernel_stack_str = kernel_stack_str;
+                        shader_bind->type               = BUFFER_TYPE_SHADER;
+                        shader_bind->pid                = pid;
+                        shader_bind->execbuf_ustack_str = ustack_str;
+                        shader_bind->execbuf_kstack_str = kstack_str;
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                      parser->vm->vm_id, shader_bind->gpu_addr);
@@ -358,14 +358,14 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                                             uint32_t *ptr)
 {
         uint64_t tmp;
-        
+
         if (parser->in_cmd == 0) {
                 parser->enable_predication = *ptr & 0x8000;
                 if (bb_debug) {
                         debug_printf("enable_predication=%u\n",
                                      parser->enable_predication);
                 }
-                
+
                 parser->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(*ptr);
                 if (bb_debug) {
                         debug_printf("bb2l=%u\n", parser->bb2l);
@@ -381,14 +381,14 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                 if (bb_debug) {
                         debug_printf("bbsp=0x%lx\n", parser->bbsp);
                 }
-                
+
                 if (parser->stop_addr == 0) {
                         parser->stop_addr = parser->pc[parser->pc_depth] + 4;
                 }
                 if (parser->bbsp == parser->stop_addr) {
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
-                
+
                 if (parser->bb2l && (parser->pc_depth < 2)) {
                         parser->pc_depth++;
                 }
@@ -427,7 +427,7 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 char mi_batch_buffer_end(struct bb_parser *parser, uint32_t *ptr)
 {
         char enable_predication;
-        
+
         enable_predication = *ptr & 0x8000;
         if (bb_debug) {
                 debug_printf("enable_predication=%u\n",
@@ -450,14 +450,15 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_binding *bind,
                                       uint32_t offset, uint64_t size,
-                                      int pid, int tid, struct stack *stack, struct stack *kernel_stack,
+                                      int pid, int tid, const struct stack *ustack, const struct stack *kstack,
                                       char *procname)
 {
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
-        char *stack_str, *kernel_stack_str;
+        const char *ustack_str;
+        const char *kstack_str;
         enum bb_parser_status retval;
-        
+
         /* Store our initial state */
         parser->primary_buffer_start = bind->gpu_addr;
         parser->primary_buffer_end = bind->gpu_addr + bind->bind_size;
@@ -484,20 +485,20 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         }
 
         parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
-        
-        stack_str = store_ustack(pid, stack);
-        kernel_stack_str = store_kstack(kernel_stack);
+
+        ustack_str = store_ustack(pid, ustack);
+        kstack_str = store_kstack(kstack);
         debug_printf("Parsing BB for stack");
         for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
-                if (stack->addrs[i] == 0) { break; }
-                debug_printf(" 0x%llx", stack->addrs[i]);
+                if (ustack->addrs[i] == 0) { break; }
+                debug_printf(" 0x%llx", ustack->addrs[i]);
         }
         for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
-                if (kernel_stack->addrs[i] == 0) { break; }
-                debug_printf(" 0x%llx", kernel_stack->addrs[i]);
+                if (kstack->addrs[i] == 0) { break; }
+                debug_printf(" 0x%llx", kstack->addrs[i]);
         }
-        debug_printf("\n%s", stack_str);
-        debug_printf("\n%s\n", kernel_stack_str);
+        debug_printf("\n%s", ustack_str);
+        debug_printf("\n%s\n", kstack_str);
         debug_printf("batch_len=0x%lx\n", size);
 
 /*         fprintf(stderr, "!!! BB %u 0x%lx 0x%lx %u\n", */
@@ -517,7 +518,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         retval = BB_PARSER_STATUS_BUFF_OVERFLOW;
                         goto out;
                 }
-                
+
                 if ((parser->pc[parser->pc_depth] >= parser->primary_batch_buffer_end) &&
                     (parser->pc[parser->pc_depth] <  parser->primary_buffer_end)) {
                         if (bb_debug) {
@@ -537,7 +538,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
                 /* Keep track of how many dwords we've parsed */
                 parser->num_dwords++;
-                
+
                 #if 0
                 /* Stop if we hit size bytes */
                 if ((parser->num_dwords * 4) >= size) {
@@ -628,7 +629,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 }
                                 break;
                         case COMPUTE_WALKER:
-                                retval = compute_walker(parser, dword_ptr, pid, tid, stack_str, kernel_stack_str, procname);
+                                retval = compute_walker(parser, dword_ptr, pid, tid, ustack_str, kstack_str, procname);
                                 if (retval != BB_PARSER_STATUS_OK) {
                                         goto out;
                                 }

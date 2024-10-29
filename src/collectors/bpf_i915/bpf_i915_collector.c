@@ -321,7 +321,7 @@ int handle_execbuf_end(void *data_arg)
         if (verbose) {
                 print_execbuf_end(info);
         }
-        
+
         debug_printf("execbuf stack");
         for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
                 if (info->stack.addrs[i] == 0) { break; }
@@ -331,7 +331,7 @@ int handle_execbuf_end(void *data_arg)
                 if (info->kernel_stack.addrs[i] == 0) { break; }
                 debug_printf(" 0x%llx", info->kernel_stack.addrs[i]);
         }
-        printf("\n");
+        debug_printf("\n");
 
         vm = acquire_vm_profile(info->file, info->vm_id);
 
@@ -492,7 +492,7 @@ int deinit_bpf_i915()
         int retval;
         size_t ring_buffer_avail;
         struct ring *ring;
-        
+
         ring = ring_buffer__ring(bpf_info.rb, 0);
         ring_buffer_avail = ring__avail_data_size(ring);
         debug_printf("Leftover ringbuffer size: %lu\n", ring_buffer_avail);

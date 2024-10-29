@@ -28,9 +28,16 @@ pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
 #define MAX_CHARS_UINT64 19
 static char tmp_str[MAX_CHARS_UINT64];
 
+typedef struct stack stack_struct;
 typedef char *string;
-use_hash_table(uint64_t, string);
-static hash_table(uint64_t, string) stacks;
+
+static int stack_equ(const struct stack a, const struct stack b) {
+        return 0;
+}
+
+use_hash_table_e(stack_struct, string, stack_equ);
+
+static hash_table(stack_struct, string) stacks;
 
 use_hash_table(uint64_t, char);
 typedef hash_table(uint64_t, char) blacklist_t;
@@ -49,7 +56,7 @@ static hash_table(int, hll_syms_map_t) hll_syms;
 
 const struct ksyms *ksyms;
 
-static uint64_t stack_hash(struct stack *stack) {
+static uint64_t stack_hash(const struct stack stack) {
         uint64_t  hash;
         int       i;
         uint64_t  piece;
@@ -57,14 +64,14 @@ static uint64_t stack_hash(struct stack *stack) {
         hash = 2654435761ULL;
 
         for (i = 0; i < MAX_STACK_DEPTH; i += 1) {
-                piece = (stack->addrs[i] >> 3);
+                piece = (stack.addrs[i] >> 3);
                 if (piece == 0) { break; }
                 hash *= piece;
                 if (hash == 0) {
-                        hash = piece;
+                        hash = 2654435761ULL;
                 }
         }
-        
+
         return hash;
 }
 
@@ -90,7 +97,7 @@ int init_syms_cache()
         if (blacklists == NULL) {
                 blacklists = hash_table_make(int, blacklist_t, id_hash);
         }
-        
+
         if (ksyms == NULL) {
                 ksyms = ksyms__load();
         }
@@ -152,7 +159,9 @@ static hll_syms_map_t get_hll_syms(int pid) {
                 f = fopen(tmpfile, "r");
                 if (f == NULL) {
                         fprintf(stderr, "WARNING error opening %s\n", tmpfile);
-                        goto out;
+
+                        /* Insert an empty map so we don't keep trying. */
+                        goto insert;
                 }
 
                 while (true) {
@@ -175,10 +184,10 @@ static hll_syms_map_t get_hll_syms(int pid) {
                         tree_insert(map, sym->start, sym);
                 }
 
+insert:;
                 hash_table_insert(hll_syms, pid, map);
         }
 
-out:;
         return map;
 }
 
@@ -243,23 +252,22 @@ void blacklist(int pid, uint64_t addr) {
         hash_table_insert(bl, addr, 1);
 }
 
-char *get_stack(struct stack *stack) {
+const char *get_stack(const struct stack *stack) {
         char **lookup;
 
         if (stacks == NULL) {
                 return NULL;
         }
-        
-        lookup = hash_table_get_val(stacks, stack_hash(stack));
+
+        lookup = hash_table_get_val(stacks, *stack);
         if (!lookup) {
                 return NULL;
         }
         return *lookup;
 }
 
-static char *_store_stack(int pid, struct stack *stack, int is_user)
+static const char *_store_stack(int pid, const struct stack *stack, int is_user)
 {
-        uint64_t hash;
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
         const struct sym *sym;
@@ -276,12 +284,10 @@ static char *_store_stack(int pid, struct stack *stack, int is_user)
         stack_str = NULL;
 
         if (stacks == NULL) {
-                stacks = hash_table_make(uint64_t, string, u64_id_hash);
+                stacks = hash_table_make(stack_struct, string, stack_hash);
         }
-        
-        hash = stack_hash(stack);
-        
-        lookup = hash_table_get_val(stacks, hash);
+
+        lookup = hash_table_get_val(stacks, *stack);
         if (lookup) {
                 return *lookup;
         }
@@ -303,7 +309,7 @@ static char *_store_stack(int pid, struct stack *stack, int is_user)
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
-        
+
         if (init_syms_cache() != 0) {
                 stack_str = strdup("[unknown]");
                 goto insert;
@@ -335,7 +341,7 @@ static char *_store_stack(int pid, struct stack *stack, int is_user)
                 should_free = 0;
                 dso_name = NULL;
                 sym_name = NULL;
-                
+
                 if (is_user) {
                         sym = syms__map_addr_dso(syms, stack->addrs[i], &dso_name, &dso_offset);
                         if (sym == NULL) {
@@ -350,7 +356,7 @@ static char *_store_stack(int pid, struct stack *stack, int is_user)
                                         }
                                 }
                         }
-                        
+
                         if (sym != NULL) {
                                 sym_name = sym->name;
                         }
@@ -403,7 +409,7 @@ static char *_store_stack(int pid, struct stack *stack, int is_user)
 
 insert:
 
-        hash_table_insert(stacks, hash, stack_str);
+        hash_table_insert(stacks, *stack, stack_str);
 
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 fprintf(stderr,
@@ -414,10 +420,10 @@ insert:
         return stack_str;
 }
 
-char *store_kstack(struct stack *stack) {
+const char *store_kstack(const struct stack *stack) {
         return _store_stack(0, stack, 0);
 }
 
-char *store_ustack(int pid, struct stack *stack) {
+const char *store_ustack(int pid, const struct stack *stack) {
         return _store_stack(pid, stack, 1);
 }

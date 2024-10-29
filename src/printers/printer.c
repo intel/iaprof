@@ -176,7 +176,7 @@ int print_execbuf_end(struct execbuf_end_info *einfo)
         fprintf(stderr, " %-*u", TID_LEN, einfo->tid);
         fprintf(stderr, " ctx_id=%u gpu_addr=0x%llx buffer_count=%u, batch_start_offset=0x%x, counter=%d\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count, einfo->batch_start_offset, counter);
         pthread_mutex_unlock(&debug_print_lock);
-        
+
         counter++;
 
         return 0;

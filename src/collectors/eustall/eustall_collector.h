@@ -5,8 +5,6 @@
 
 #include "drm_helpers/drm_helpers.h"
 
-#include "stores/buffer_profile.h"
-
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 
 #include "utils/array.h"
@@ -90,16 +88,34 @@ void init_eustall_waitlist();
   *            be returned from the instruction cache.
 ***************************************/
 
+enum {
+        STALL_TYPE_ACTIVE = 0,
+        STALL_TYPE_CONTROL,
+        STALL_TYPE_PIPESTALL,
+        STALL_TYPE_SEND,
+        STALL_TYPE_DIST_ACC,
+        STALL_TYPE_SBID,
+        STALL_TYPE_SYNC,
+        STALL_TYPE_INST_FETCH,
+        STALL_TYPE_OTHER,
+        NR_STALL_TYPES,
+};
+
 struct offset_profile {
-        unsigned int active;
-        unsigned int other;
-        unsigned int control;
-        unsigned int pipestall;
-        unsigned int send;
-        unsigned int dist_acc;
-        unsigned int sbid;
-        unsigned int sync;
-        unsigned int inst_fetch;
+        union {
+                struct {
+                        unsigned int active;
+                        unsigned int control;
+                        unsigned int pipestall;
+                        unsigned int send;
+                        unsigned int dist_acc;
+                        unsigned int sbid;
+                        unsigned int sync;
+                        unsigned int inst_fetch;
+                        unsigned int other;
+                };
+                unsigned int counts[NR_STALL_TYPES];
+        };
 };
 
 /***************************************

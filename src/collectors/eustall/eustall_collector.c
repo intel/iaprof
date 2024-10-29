@@ -60,8 +60,8 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
                      uint64_t gpu_addr, uint64_t offset,
                      uint16_t subslice, unsigned long long time)
 {
-        struct offset_profile **found;
-        struct offset_profile *profile;
+        struct offset_profile *found;
+        struct offset_profile profile;
         struct vm_profile *vm;
         struct buffer_binding *bind;
 
@@ -85,7 +85,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         /* Make sure we're initialized */
         if (bind->stall_counts == NULL) {
                 bind->stall_counts =
-                        hash_table_make(uint64_t, uint64_t, uint64_t_hash);
+                        hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
         }
 
         if (verbose) {
@@ -94,24 +94,23 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         }
 
         /* Check if this offset has been seen yet */
-        found = (struct offset_profile **)hash_table_get_val(
-                bind->stall_counts, offset);
+        found = hash_table_get_val(bind->stall_counts, offset);
         if (!found) {
                 /* We have to allocate a struct of counts */
-                profile = calloc(1, sizeof(struct offset_profile));
-                hash_table_insert(bind->stall_counts, offset,
-                                  (uint64_t)profile);
-                found = &profile;
+                memset(&profile, 0, sizeof(profile));
+                hash_table_insert(bind->stall_counts, offset, profile);
+                found = hash_table_get_val(bind->stall_counts, offset);
         }
-        (*found)->active += sample->active;
-        (*found)->other += sample->other;
-        (*found)->control += sample->control;
-        (*found)->pipestall += sample->pipestall;
-        (*found)->send += sample->send;
-        (*found)->dist_acc += sample->dist_acc;
-        (*found)->sbid += sample->sbid;
-        (*found)->sync += sample->sync;
-        (*found)->inst_fetch += sample->inst_fetch;
+
+        found->active     += sample->active;
+        found->other      += sample->other;
+        found->control    += sample->control;
+        found->pipestall  += sample->pipestall;
+        found->send       += sample->send;
+        found->dist_acc   += sample->dist_acc;
+        found->sbid       += sample->sbid;
+        found->sync       += sample->sync;
+        found->inst_fetch += sample->inst_fetch;
 
         release_vm_profile(vm);
         return 0;

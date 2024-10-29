@@ -454,7 +454,7 @@ void *bpf_collect_thread_main(void *a) {
                         }
                 }
         }
-        
+
 out_deinit:;
         deinit_bpf_i915();
         deinit_syms_cache();
@@ -671,6 +671,7 @@ int main(int argc, char **argv)
         print_status("Initializing, please wait...\n");
 
         init_profiles();
+        init_flames();
         init_eustall_waitlist();
         init_driver();
 
@@ -752,7 +753,7 @@ int main(int argc, char **argv)
                 print_status(
                         "Exit requested (had not yet started profiling).\n");
         }
-        
+
         /* Wait for the collection thread to finish */
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
