@@ -48,6 +48,10 @@ void store_cpu_side(uint64_t index, struct buffer_binding *bind)
                 proto_flame_arr[index].cpu_stack_str =
                         bind->execbuf_stack_str;
         }
+        if (bind->execbuf_kernel_stack_str != NULL) {
+                proto_flame_arr[index].cpu_kernel_stack_str =
+                        bind->execbuf_kernel_stack_str;
+        }
         if (bind->type == BUFFER_TYPE_DEBUG_AREA) {
                 proto_flame_arr[index].is_debug = 1;
         }

@@ -205,9 +205,13 @@ int BPF_PROG(i915_gem_do_execbuffer,
 
                 DEBUG_PRINTK("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
 
+                stack_err = bpf_get_stack(ctx, &(info->kernel_stack.addrs), sizeof(info->kernel_stack.addrs), 3 & BPF_F_SKIP_FIELD_MASK);
+                if (stack_err < 0) {
+                        DEBUG_PRINTK("WARNING: execbuffer failed to get a kernel stack: %ld", stack_err);
+                }
                 stack_err = bpf_get_stack(ctx, &(info->stack.addrs), sizeof(info->stack.addrs), BPF_F_USER_STACK);
                 if (stack_err < 0) {
-                        DEBUG_PRINTK("WARNING: execbuffer failed to get a stack: %ld", stack_err);
+                        DEBUG_PRINTK("WARNING: execbuffer failed to get a user stack: %ld", stack_err);
                 }
                 
                 /* execbuffer-specific stuff */

@@ -10,7 +10,7 @@ void print_flamegraph()
         struct proto_flame *flame;
         int err;
         uint64_t index;
-        char *stack_str;
+        char *stack_str, *kernel_stack_str;
 
         for (index = 0; index < proto_flame_used; index++) {
                 flame = &(proto_flame_arr[index]);
@@ -29,8 +29,12 @@ void print_flamegraph()
                 printf("%u;", flame->pid);
                 
                 stack_str = flame->cpu_stack_str;
+                kernel_stack_str = flame->cpu_kernel_stack_str;
                 if (stack_str) {
                         printf("%s", stack_str);
+                        if (kernel_stack_str) {
+                                printf("%s", kernel_stack_str);
+                        }
                 } else if (flame->is_debug) {
                         printf("L0 Debugger");
                 } else {

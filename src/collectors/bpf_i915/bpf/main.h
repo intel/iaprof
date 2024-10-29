@@ -158,6 +158,7 @@ struct execbuf_end_info {
         __u64 time;
         
         struct stack stack;
+        struct stack kernel_stack;
 };
 
 /* Collected from the end of a call to i915_gem_userptr_ioctl */

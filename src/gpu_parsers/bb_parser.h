@@ -265,7 +265,7 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
 
 enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid, int tid,
-                                     char *stack_str, char *procname)
+                                     char *stack_str, char *kernel_stack_str, char *procname)
 {
         struct buffer_binding *shader_bind;
         uint64_t tmp;
@@ -290,6 +290,7 @@ enum bb_parser_status compute_walker(struct bb_parser *parser,
                         shader_bind->type = BUFFER_TYPE_SHADER;
                         shader_bind->pid = pid;
                         shader_bind->execbuf_stack_str = stack_str;
+                        shader_bind->execbuf_kernel_stack_str = kernel_stack_str;
                         memcpy(shader_bind->name, procname, TASK_COMM_LEN);
                         debug_printf("Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                      parser->vm->vm_id, shader_bind->gpu_addr);
@@ -449,11 +450,12 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       struct vm_profile *acquired_vm,
                                       struct buffer_binding *bind,
                                       uint32_t offset, uint64_t size,
-                                      int pid, int tid, struct stack *stack, char *procname)
+                                      int pid, int tid, struct stack *stack, struct stack *kernel_stack,
+                                      char *procname)
 {
         uint32_t *dword_ptr, op;
         uint64_t off, tmp, noops;
-        char *stack_str;
+        char *stack_str, *kernel_stack_str;
         enum bb_parser_status retval;
         
         /* Store our initial state */
@@ -483,15 +485,19 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
         parser->bind->type = BUFFER_TYPE_BATCHBUFFER;
         
-/*         dump_buffer(parser->bo->buff, parser->bo->buff_sz, parser->bind->handle); */
-        stack_str = store_stack(pid, tid, stack);
-/*         debug_printf("Parsing BB for stack %s\n", stack_str); */
+        stack_str = store_ustack(pid, stack);
+        kernel_stack_str = store_kstack(kernel_stack);
         debug_printf("Parsing BB for stack");
         for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
                 if (stack->addrs[i] == 0) { break; }
                 debug_printf(" 0x%llx", stack->addrs[i]);
         }
-        debug_printf("\n%s\n", stack_str);
+        for (int i = 0; i < MAX_STACK_DEPTH; i += 1) {
+                if (kernel_stack->addrs[i] == 0) { break; }
+                debug_printf(" 0x%llx", kernel_stack->addrs[i]);
+        }
+        debug_printf("\n%s", stack_str);
+        debug_printf("\n%s\n", kernel_stack_str);
         debug_printf("batch_len=0x%lx\n", size);
 
 /*         fprintf(stderr, "!!! BB %u 0x%lx 0x%lx %u\n", */
@@ -622,7 +628,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 }
                                 break;
                         case COMPUTE_WALKER:
-                                retval = compute_walker(parser, dword_ptr, pid, tid, stack_str, procname);
+                                retval = compute_walker(parser, dword_ptr, pid, tid, stack_str, kernel_stack_str, procname);
                                 if (retval != BB_PARSER_STATUS_OK) {
                                         goto out;
                                 }

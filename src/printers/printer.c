@@ -24,8 +24,6 @@ int print_header()
 
 int print_mapping(struct mapping_info *info)
 {
-/*         char *stack_str = NULL; */
-
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "mmap");
         fprintf(stderr, " %-*llu", TIME_LEN, info->time);
@@ -37,8 +35,6 @@ int print_mapping(struct mapping_info *info)
         fprintf(stderr, " file=0x%llx handle=%u cpu_addr=0x%llx size=%llu offset=%llu ",
                info->file, info->handle, info->cpu_addr, info->size,
                info->offset);
-        /* 	store_stack(info->pid, info->stackid, &stack_str); */
-        /* 	fprintf(stderr, "%s", stack_str); */
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;
 

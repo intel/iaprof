@@ -6,8 +6,6 @@
 #include <ctype.h>
 #include <linux/limits.h>
 
-#define STACK_INCLUDE_TID 0
-
 #include "iaprof.h"
 
 #include "bpf_helpers/trace_helpers.h"
@@ -49,6 +47,7 @@ use_hash_table(int, hll_syms_map_t);
 
 static hash_table(int, hll_syms_map_t) hll_syms;
 
+const struct ksyms *ksyms;
 
 static uint64_t stack_hash(struct stack *stack) {
         uint64_t  hash;
@@ -90,6 +89,10 @@ int init_syms_cache()
 
         if (blacklists == NULL) {
                 blacklists = hash_table_make(int, blacklist_t, id_hash);
+        }
+        
+        if (ksyms == NULL) {
+                ksyms = ksyms__load();
         }
 
         return 0;
@@ -254,17 +257,18 @@ char *get_stack(struct stack *stack) {
         return *lookup;
 }
 
-char *store_stack(int pid, int tid, struct stack *stack)
+static char *_store_stack(int pid, struct stack *stack, int is_user)
 {
         uint64_t hash;
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
         const struct sym *sym;
-        char tid_buf[64];
+        const struct ksym *ksym;
         int sfd, i, last_i;
         size_t len, cur_len, new_len;
         const char *to_copy;
         char *dso_name, should_free;
+        const char *sym_name;
         unsigned long dso_offset;
         char *stack_str;
         char **lookup;
@@ -288,7 +292,7 @@ char *store_stack(int pid, int tid, struct stack *stack)
                 exit(1);
         }
 
-        if (pid == 0) {
+        if ((pid == 0) && is_user) {
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
@@ -299,31 +303,27 @@ char *store_stack(int pid, int tid, struct stack *stack)
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
-
+        
         if (init_syms_cache() != 0) {
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
-        syms = syms_cache__get_syms(syms_cache, pid);
-        if (!syms) {
-                if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Failed to get syms for PID %" PRIu32
-                                "\n",
-                                pid);
+
+        if (is_user) {
+                syms = syms_cache__get_syms(syms_cache, pid);
+                if (!syms) {
+                        if (debug) {
+                                fprintf(stderr,
+                                        "WARNING: Failed to get syms for PID %" PRIu32
+                                        "\n",
+                                        pid);
+                        }
+                        stack_str = strdup("[unknown]");
+                        goto insert;
                 }
-                stack_str = strdup("[unknown]");
-                goto insert;
+                hll_syms_map = get_hll_syms(pid);
+
         }
-        hll_syms_map = get_hll_syms(pid);
-
-
-#if STACK_INCLUDE_TID
-        snprintf(tid_buf, sizeof(tid_buf), "%u;", tid);
-        stack_str = strdup(tid_buf);
-#else
-        (void)tid_buf;
-#endif
 
         /* Start at the last nonzero IP */
         last_i = 0;
@@ -334,17 +334,31 @@ char *store_stack(int pid, int tid, struct stack *stack)
         for (i = last_i; i >= 0; i--) {
                 should_free = 0;
                 dso_name = NULL;
-                sym = syms__map_addr_dso(syms, stack->addrs[i], &dso_name, &dso_offset);
-                if (sym == NULL) {
-                        sym = hll_sym(hll_syms_map, stack->addrs[i]);
-                }
-                if (sym == NULL) {
-                        if (!is_blacklisted(pid, stack->addrs[i])) {
-                                hll_syms_map = reload_hll_syms(pid);
+                sym_name = NULL;
+                
+                if (is_user) {
+                        sym = syms__map_addr_dso(syms, stack->addrs[i], &dso_name, &dso_offset);
+                        if (sym == NULL) {
                                 sym = hll_sym(hll_syms_map, stack->addrs[i]);
-                                if (sym == NULL) {
-                                        blacklist(pid, stack->addrs[i]);
+                        }
+                        if (sym == NULL) {
+                                if (!is_blacklisted(pid, stack->addrs[i])) {
+                                        hll_syms_map = reload_hll_syms(pid);
+                                        sym = hll_sym(hll_syms_map, stack->addrs[i]);
+                                        if (sym == NULL) {
+                                                blacklist(pid, stack->addrs[i]);
+                                        }
                                 }
+                        }
+                        
+                        if (sym != NULL) {
+                                sym_name = sym->name;
+                        }
+                } else {
+                        ksym = ksyms__map_addr(ksyms, stack->addrs[i]);
+                        if (ksym != NULL) {
+                                fprintf(stderr, "WARNING: Failed to get kernel symbol for 0x%llx\n", stack->addrs[i]);
+                                sym_name = ksym->name;
                         }
                 }
 
@@ -352,15 +366,15 @@ char *store_stack(int pid, int tid, struct stack *stack)
                 if (stack_str) {
                         cur_len = strlen(stack_str);
                 }
-                if (sym) {
-                        to_copy = demangle(sym->name);
+                if (sym_name) {
+                        to_copy = demangle(sym_name);
                         should_free = 1;
                         if (!to_copy) {
-                                to_copy = sym->name;
+                                to_copy = sym_name;
                                 should_free = 0;
                         }
                 } else {
-                        if (dso_name) {
+                        if (dso_name && is_user) {
                                 to_copy = dso_name;
                         } else {
                                 memset(tmp_str, 0, MAX_CHARS_UINT64);
@@ -369,11 +383,19 @@ char *store_stack(int pid, int tid, struct stack *stack)
                         }
                 }
                 len = strlen(to_copy);
-                new_len = cur_len + len + 2;
+                if (is_user) {
+                        new_len = cur_len + len + 2;
+                } else {
+                        new_len = cur_len + len + 6;
+                }
                 stack_str = realloc(stack_str, new_len);
                 memset(stack_str + cur_len, 0, new_len - cur_len);
                 strcpy(stack_str + cur_len, to_copy);
-                (stack_str)[new_len - 2] = ';';
+                if (is_user) {
+                        stack_str[new_len - 2] = ';';
+                } else {
+                        memcpy(&(stack_str[new_len - 6]), "_[k];", 5);
+                }
                 if (should_free) {
                         free((void *)to_copy);
                 }
@@ -390,4 +412,12 @@ insert:
         }
 
         return stack_str;
+}
+
+char *store_kstack(struct stack *stack) {
+        return _store_stack(0, stack, 0);
+}
+
+char *store_ustack(int pid, struct stack *stack) {
+        return _store_stack(pid, stack, 1);
 }
