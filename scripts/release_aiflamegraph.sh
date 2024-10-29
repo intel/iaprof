@@ -9,7 +9,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 FILTER_CPYTHON=true
 
-while true; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-filter-cpython ) FILTER_CPYTHON=false; shift;;
         -- ) shift; break;;
@@ -27,7 +27,7 @@ ${DIR}/iaprof -q > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iapr
 echo "Building flame graph (this can take a minute)..."
 
 SEDSTR=""
-if [[ "${FILTER_CPYTHON}" == "yes" ]]; then
+if [[ "${FILTER_CPYTHON}" == "true" ]]; then
     SEDSTR='s/_Py[^;]*;//g'
     SEDSTR+=';s/Py(Object|Eval|Number)_[^;]*;//g'
     SEDSTR+=';s/run_mod;//g'
@@ -39,7 +39,7 @@ if [[ "${FILTER_CPYTHON}" == "yes" ]]; then
 fi
 
 sed -E "${SEDSTR}" < /tmp/${PROFILE_NAME}.stackcollapse |
-    ${DIR}/flamegraph.pl --colors=gpu > ${PROFILE_NAME}.svg || die "Error generating flame graph."
+    ${DIR}/deps/flamegraph/flamegraph.pl --colors=gpu > ${PROFILE_NAME}.svg || die "Error generating flame graph."
 
 echo "  ${PROFILE_NAME}.svg"
 

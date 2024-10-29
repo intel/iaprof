@@ -446,6 +446,8 @@ sub color {
 			$type = "aqua";
 		} elsif ($name =~ m:_\[k\]$:) {	# kernel annotation
 			$type = "orange";
+		} elsif ($name =~ /^py::/) {	# Python
+			$type = "pink";
 		} elsif ($name =~ /::/) {	# C++
 			$type = "yellow";
 		} else {			# system
@@ -606,6 +608,17 @@ sub color {
 		my $x = 190 + int(65 * $v1);
 		my $g = 80 + int(60 * $v1);
 		return "rgb($x,$g,$x)";
+	}
+	if (defined $type and $type eq "violet") {
+		my $x = 190 + int(55 * $v1);
+		my $g = 140 + int(50 * $v1);
+		return "rgb($x,$g,$x)";
+	}
+	if (defined $type and $type eq "pink") {
+		my $r = 245 + int(10 * $v1);
+		my $x = 138 + int(40 * $v1);
+		my $b = $x + 10;
+		return "rgb($r,$x,$b)";
 	}
 	if (defined $type and $type eq "aqua") {
 		my $r = 50 + int(60 * $v1);

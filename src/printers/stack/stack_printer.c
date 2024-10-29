@@ -363,8 +363,9 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
                 } else {
                         ksym = ksyms__map_addr(ksyms, stack->addrs[i]);
                         if (ksym != NULL) {
-                                fprintf(stderr, "WARNING: Failed to get kernel symbol for 0x%llx\n", stack->addrs[i]);
                                 sym_name = ksym->name;
+                        } else {
+                                fprintf(stderr, "WARNING: Failed to get kernel symbol for 0x%llx\n", stack->addrs[i]);
                         }
                 }
 

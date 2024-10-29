@@ -343,14 +343,14 @@ void *eustall_collect_thread_main(void *a) {
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 fprintf(stderr, "Error blocking signal. Aborting.\n");
-                goto out;
+                exit(1);
         }
 
         /* EU stall collector. Add to the epoll_fd that the bpf_i915
            collector created. */
         if (init_eustall(&devinfo)) {
                 fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
-                goto out;
+                exit(1);
         }
 
         collect_threads_profiling += 1;
@@ -372,7 +372,7 @@ void *eustall_collect_thread_main(void *a) {
                                         goto next;
                                 default:
                                         fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        goto out;
+                                        exit(1);
                         }
                 }
 
@@ -392,7 +392,6 @@ next:;
         handle_remaining_eustalls();
         store_interval_flames();
 
-out:;
         return NULL;
 }
 
@@ -408,7 +407,7 @@ void *bpf_collect_thread_main(void *a) {
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 fprintf(stderr, "Error blocking signal. Aborting.\n");
-                goto out;
+                exit(1);
         }
 
         init_bpf_i915();
@@ -433,7 +432,7 @@ void *bpf_collect_thread_main(void *a) {
                                         break;
                                 default:
                                         fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        goto out_deinit;
+                                        exit(1);
                         }
                         errno = 0;
                 }
@@ -455,11 +454,9 @@ void *bpf_collect_thread_main(void *a) {
                 }
         }
 
-out_deinit:;
         deinit_bpf_i915();
         deinit_syms_cache();
 
-out:;
         return NULL;
 }
 
@@ -479,7 +476,7 @@ void *debug_i915_collect_thread_main(void *a) {
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 fprintf(stderr, "Error blocking signal. Aborting.\n");
-                return NULL;
+                exit(1);
         }
 
         pollfds         = array_make(struct pollfd);
@@ -515,7 +512,7 @@ void *debug_i915_collect_thread_main(void *a) {
                                         break;
                                 default:
                                         fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        goto out;
+                                        exit(1);
                         }
                         errno = 0;
                 }
@@ -550,7 +547,6 @@ void *debug_i915_collect_thread_main(void *a) {
                 }
         }
 
-out:;
         array_free(pollfds);
         array_free(pollfds_indices);
 

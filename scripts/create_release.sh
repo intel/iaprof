@@ -11,8 +11,9 @@ mkdir -p ${RELEASE_NAME}
 
 cp iaprof ${RELEASE_NAME}
 cp scripts/release_aiflamegraph.sh ${RELEASE_NAME}/aiflamegraph.sh
-cp scripts/release_flamegraph.pl ${RELEASE_NAME}/flamegraph.pl
 cp scripts/license.txt ${RELEASE_NAME}/license.txt
+mkdir ${RELEASE_NAME}/deps
+cp -r deps/flamegraph ${RELEASE_NAME}/deps
 
 cat > ${RELEASE_NAME}/README.md << 'EOF'
 # Intel AI Flame Graph
