@@ -31,8 +31,8 @@ static char tmp_str[MAX_CHARS_UINT64];
 typedef struct stack stack_struct;
 typedef char *string;
 
-static int stack_equ(const struct stack a, const struct stack b) {
-        return 0;
+static inline int stack_equ(const struct stack a, const struct stack b) {
+        return memcmp(&a, &b, sizeof(a)) == 0;
 }
 
 use_hash_table_e(stack_struct, string, stack_equ);

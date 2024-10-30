@@ -13,24 +13,6 @@
 
 hash_table(proto_flame_struct, uint64_t) flame_samples;
 
-int proto_flame_equ(const struct proto_flame a, const struct proto_flame b) {
-        /* Check the stack strings by pointer value since they are uniquely stored
-         * and retrieved via {store,get}_stack(). */
-        if (a.ustack_str != b.ustack_str)          { return 0; }
-        if (a.kstack_str != b.kstack_str)          { return 0; }
-
-        if (a.pid        != b.pid)                 { return 0; }
-        if (a.is_debug   != b.is_debug)            { return 0; }
-        if (a.addr       != b.addr)                { return 0; }
-        if (a.offset     != b.offset)              { return 0; }
-        if (a.stall_type != b.stall_type)          { return 0; }
-
-        if (strcmp(a.insn_text, b.insn_text) != 0) { return 0; }
-        if (strcmp(a.proc_name, b.proc_name) != 0) { return 0; }
-
-        return 1;
-}
-
 static uint64_t proto_flame_hash(const struct proto_flame a) {
         uint64_t hash;
 
