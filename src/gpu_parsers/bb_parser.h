@@ -462,7 +462,10 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
         /* Store our initial state */
         parser->primary_buffer_start = bind->gpu_addr;
         parser->primary_buffer_end = bind->gpu_addr + bind->bind_size;
-        parser->primary_batch_buffer_end = bind->gpu_addr + offset + size;
+        parser->primary_batch_buffer_end = 0;
+        if (size) {
+                parser->primary_batch_buffer_end = bind->gpu_addr + offset + size;
+        }
 
         /* Loop over 32-bit dwords. */
         parser->pc_depth = 0;
@@ -519,7 +522,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                         goto out;
                 }
 
-                if ((parser->pc[parser->pc_depth] >= parser->primary_batch_buffer_end) &&
+                if ((parser->primary_batch_buffer_end && (parser->pc[parser->pc_depth] >= parser->primary_batch_buffer_end)) &&
                     (parser->pc[parser->pc_depth] <  parser->primary_buffer_end)) {
                         if (bb_debug) {
                                 fprintf(stderr, "Stop because of batch_len.\n");

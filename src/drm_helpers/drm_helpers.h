@@ -2,8 +2,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#ifdef XE_DRIVER
+#include <drm/xe_drm.h>
+#else
 #include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
+#endif
 
 /*******************
 *    DISCOVERY     *
@@ -15,10 +19,13 @@ typedef struct device_info {
         uint32_t id, ctx_id;
         char name[16];
         int fd;
-        uint64_t min_freq, max_freq;
         unsigned graphics_ver, graphics_rel;
+#ifdef XE_DRIVER
+        struct drm_xe_query_gt_list *gt_info;
+#else
         struct drm_i915_query_engine_info *engine_info;
         struct drm_i915_query_memory_regions *memory_regions;
+#endif
 } device_info;
 
 #define IP_VER(ver, rel) ((ver) << 8 | (rel))

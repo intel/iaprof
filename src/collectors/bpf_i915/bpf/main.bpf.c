@@ -1,5 +1,5 @@
 /***************************************
-* i915 GEM Tracer
+n* i915 GEM Tracer
 *
 * The purpose of this eBPF program is to trace, and send to userspace,
 * all GEMs that are associated with an executing batchbuffer in the i915
@@ -49,10 +49,17 @@
 *    - VM ID
 ***************************************/
 
+#ifdef XE_DRIVER
+#include "xe.h"
+#else
 #include "i915.h"
+#endif
+
+/* #include <linux/bpf.h> */
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+
 #include "main.h"
 #include "gpu_parsers/bb_parser_defs.h"
 
@@ -72,10 +79,14 @@
 * compile errors, so this is the path of least resistance.
 ***************************************/
 
+#ifdef XE_DRIVER
+
+#else
 #define MAX_ENGINE_INSTANCE 8
 #define I915_CONTEXT_CREATE_FLAGS_USE_EXTENSIONS (1u << 0)
 #define I915_CONTEXT_CREATE_EXT_SETPARAM 0
 #define I915_CONTEXT_PARAM_VM 0x9
+#endif
 
 int dropped_event;
 
@@ -118,6 +129,7 @@ struct {
 struct cpu_mapping {
         u64 addr;
         u64 size;
+        u32 num_faulted;
 };
 struct gpu_mapping {
         u64 addr;
@@ -136,6 +148,20 @@ struct {
         __type(key, struct cpu_mapping);
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
+#ifdef XE_DRIVER
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, u64);
+        __type(value, u64);
+} page_map SEC(".maps");
+#endif
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_ENTRIES);
+        __type(key, u64);
+        __type(value, u32);
+} fault_count_map SEC(".maps");
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
@@ -234,14 +260,22 @@ int buffer_copy_add(void *addr, u64 size) {
         return 1;
 }
 
-#include "batchbuffer.bpf.c"
+#ifdef XE_DRIVER
 
-#include "mmap.bpf.c"
+#include "i915/batchbuffer.bpf.c"
+#include "xe/mmap.bpf.c"
+#include "xe/vm_bind.bpf.c"
+#include "xe/context.bpf.c"
+#include "xe/exec.bpf.c"
 
-#include "context.bpf.c"
+#else
 
-#include "vm_bind.bpf.c"
+#include "i915/batchbuffer.bpf.c"
+#include "i915/mmap.bpf.c"
+#include "i915/context.bpf.c"
+#include "i915/vm_bind.bpf.c"
+#include "i915/execbuffer.bpf.c"
 
-#include "execbuffer.bpf.c"
+#endif
 
 char LICENSE[] SEC("license") = "GPL";

@@ -19,7 +19,7 @@
 #define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
 #define DEFAULT_POLL_PERIOD_NS 1000000 /* userspace wakeup interval */
 #define DEFAULT_EVENT_COUNT \
-        1 /* aggregation: number of events to trigger poll read */
+        100 /* aggregation: number of events to trigger poll read */
 
 /******************************************************************************
 * eustall_info

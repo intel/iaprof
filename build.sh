@@ -7,11 +7,13 @@ LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
-# CSAN="-fsanitize=address"
-# LSAN="-fsanitize=address -static-libsan"
-OPT="-O3"
+OPT="-O0"
 CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 CFLAGS+=" -DDEBUG"
+
+export IAPROF_XE_DRIVER=1
+CFLAGS+=" -DXE_DRIVER"
+
 # EXTRA_CFLAGS="-DSLOW_MODE"
 LDFLAGS="${LSAN}"
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
@@ -69,14 +71,24 @@ ${CC} ${COMMON_FLAGS} -c \
   -o ${DRM_HELPERS_DIR}/drm_helpers.o
 
 ####################
-#   I915 HELPERS    #
+#   I915 HELPERS   #
 ####################
-I915_HELPERS_DIR="${SRC_DIR}/i915_helpers"
-echo "Building ${I915_HELPERS_DIR}..."
-
-${CC} ${COMMON_FLAGS} -c \
-  ${I915_HELPERS_DIR}/i915_helpers.c \
-  -o ${I915_HELPERS_DIR}/i915_helpers.o
+DRIVER_HELPERS_DIR="${SRC_DIR}/driver_helpers"
+echo "Building ${DRIVER_HELPERS_DIR}..."
+if [ -z ${IAPROF_XE_DRIVER} ]; then
+        ${CC} ${COMMON_FLAGS} -c \
+        ${DRIVER_HELPERS_DIR}/i915_helpers.c \
+        -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
+        
+        DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/i915_helpers.o"
+else
+        
+        ${CC} ${COMMON_FLAGS} -c \
+        ${DRIVER_HELPERS_DIR}/xe_helpers.c \
+        -o ${DRIVER_HELPERS_DIR}/xe_helpers.o
+        
+        DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/xe_helpers.o"
+fi
 
 ####################
 #   BPF HELPERS    #
@@ -202,7 +214,7 @@ ${CC} ${COMMON_FLAGS} -c \
 
 ${CXX} ${LDFLAGS} \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
-  ${I915_HELPERS_DIR}/i915_helpers.o \
+  ${DRIVER_HELPER_FLAGS} \
   \
   ${BPF_HELPERS_DIR}/trace_helpers.o \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \

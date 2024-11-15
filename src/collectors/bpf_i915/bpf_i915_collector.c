@@ -171,16 +171,22 @@ int handle_vm_bind(void *data_arg)
         bind->file = info->file;
         bind->vm_bind_order = vm_bind_bpf_counter;
 
-        /* See if we've saved the shader binary for this address.
-         * If so, create a buffer object for it. */
-        shader_bin = get_shader_binary(bind->gpu_addr);
-        if (shader_bin != NULL) {
-                bo = acquire_buffer(bind->file, bind->handle);
-                if (bo == NULL) {
-                        bo = create_buffer(bind->file, bind->handle);
-                        handle_binary(&(bo->buff), shader_bin->bytes, &(bo->buff_sz), shader_bin->size);
-                }
+        if (info->userptr) {
+                bo = create_buffer(info->file, info->handle);
+                consume_buffer_from_bpf_into_bo(bo);
                 release_buffer(bo);
+        } else {
+                /* See if we've saved the shader binary for this address.
+                * If so, create a buffer object for it. */
+                shader_bin = get_shader_binary(bind->gpu_addr);
+                if (shader_bin != NULL) {
+                        bo = acquire_buffer(bind->file, bind->handle);
+                        if (bo == NULL) {
+                                bo = create_buffer(bind->file, bind->handle);
+                                handle_binary(&(bo->buff), shader_bin->bytes, &(bo->buff_sz), shader_bin->size);
+                        }
+                        release_buffer(bo);
+                }
         }
 
         release_vm_profile(vm);

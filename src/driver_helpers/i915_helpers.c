@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <search.h>
 #include <unistd.h>
+
 #include <drm/i915_drm_prelim.h>
 
 #include "i915_helpers.h"

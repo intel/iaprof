@@ -1,6 +1,11 @@
 #pragma once
 
+#ifdef XE_DRIVER
+#include <drm/xe_drm_prelim.h>
+#else
 #include <drm/i915_drm_prelim.h>
+#endif
+
 #include <poll.h>
 #include <pthread.h>
 

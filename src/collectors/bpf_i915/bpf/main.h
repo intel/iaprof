@@ -6,6 +6,8 @@
 #define MAX_ENTRIES 1024 * 1024
 #define RINGBUF_SIZE 512 * 1024 * 1024 /* 512 MB */
 #define MAX_BUFFER_COPIES 256
+#define PAGE_SIZE 4096
+#define PAGE_MASK ~(0xfff)
 
 /* GEN binary copying maximums */
 #define MAX_BINARY_SIZE (2048 * 1024)
@@ -84,16 +86,15 @@ struct vm_create_info {
 struct vm_bind_info {
         __u8 type;
 
+        __u8 userptr;
         __u64 file;
         __u32 handle;
         __u32 vm_id;
         __u64 gpu_addr;
         __u64 size;
         __u64 offset;
-        __u64 flags;
 
-        __u32 pid, tid, cpu;
-        __u64 time;
+        __u32 pid;
 };
 
 /* Collected from a vm_unbind */

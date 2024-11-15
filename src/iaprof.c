@@ -27,7 +27,11 @@
 
 /* Helpers */
 #include "drm_helpers/drm_helpers.h"
+#ifdef XE_DRIVER
+#include "driver_helpers/xe_helpers.h"
+#else
 #include "i915_helpers/i915_helpers.h"
+#endif
 
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
@@ -292,11 +296,17 @@ void init_driver()
                 exit(1);
         }
 
+#ifdef XE_DRIVER
+        if (xe_query_gts(devinfo.fd, &(devinfo.gt_info)) != 0) {
+                fprintf(stderr, "Failed to get GT info. Aborting.\n");
+                exit(1);
+        }
+#else
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
                 fprintf(stderr, "Failed to get engine info. Aborting.\n");
                 exit(1);
         }
-
+#endif
 }
 
 int handle_eustall_read(int fd)
@@ -351,6 +361,10 @@ void *eustall_collect_thread_main(void *a) {
         if (init_eustall(&devinfo)) {
                 fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
                 exit(1);
+        }
+        
+        if (debug) {
+                fprintf(stderr, "Initialized EU stall collector.\n");
         }
 
         collect_threads_profiling += 1;
@@ -412,6 +426,10 @@ void *bpf_collect_thread_main(void *a) {
 
         init_bpf_i915();
         errno = 0;
+        
+        if (debug) {
+                fprintf(stderr, "Initialized BPF collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
@@ -481,6 +499,10 @@ void *debug_i915_collect_thread_main(void *a) {
 
         pollfds         = array_make(struct pollfd);
         pollfds_indices = array_make(int);
+        
+        if (debug) {
+                fprintf(stderr, "Initialized debug collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
@@ -696,7 +718,7 @@ int main(int argc, char **argv)
                 exit(1);
         }
 
-        /* Wait for the collection thread to start */
+        /* Wait for the collection threads to start */
         while (collect_threads_profiling < 3) {
                 nanosleep(&request, &leftover);
         }

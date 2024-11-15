@@ -4,7 +4,7 @@
 
 #include "stores/buffer_profile.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+/* #include "collectors/debug_i915/debug_i915_collector.h" */
 #include "collectors/eustall/eustall_collector.h"
 
 #include "gpu_parsers/shader_decoder.h"
