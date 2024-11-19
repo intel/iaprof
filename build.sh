@@ -85,12 +85,15 @@ BPF_HELPERS_DIR="${SRC_DIR}/bpf_helpers"
 echo "Building ${BPF_HELPERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/trace_helpers.c \
   -o ${BPF_HELPERS_DIR}/trace_helpers.o
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/uprobe_helpers.c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.c \
   -o ${BPF_HELPERS_DIR}/bpf_map_helpers.o
 
