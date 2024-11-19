@@ -22,18 +22,32 @@ if [ $RETVAL -ne 0 ]; then
   exit 1
 fi
 
-# Also get i915's BTF information
-${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${GENERATED_HEADERS}/i915.h
-RETVAL="$?"
-if [ $RETVAL -ne 0 ]; then
-  echo "    I can't find the BTF information for i915! Trying to"
-  echo "    modprobe i915..."
-  sudo modprobe i915
+# Find i915 BTF information
+FOUND_I915_BTF=""
+KERNEL_VERSION=$(uname -r)
+LOADED_I915_MODULE=$(modinfo i915 | grep filename | awk '{print $2}')
+DKMS_I915_MODULE="/lib/modules/${KERNEL_VERSION}/updates/dkms/i915.ko"
+SYS_I915_BTF="/sys/kernel/btf/i915"
+
+if [ ! -z "${LOADED_I915_MODULE}" ] && [ -f "${LOADED_I915_MODULE}" ]; then
+  FOUND_I915_BTF="${LOADED_I915_MODULE}"
 fi
-${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${GENERATED_HEADERS}/i915.h
+if [ -z "${FOUND_I915_BTF}" ] && [ -f "${DKMS_I915_MODULE}" ]; then
+  FOUND_I915_BTF="${DKMS_I915_MODULE}"
+fi
+if [ -z "${FOUND_I915_BTF}" ] && [ -f "${SYS_I915_BTF}" ]; then
+  FOUND_I915_BTF="${DKMS_I915_MODULE}"
+fi
+if [ -z "${FOUND_I915_BTF}" ]; then
+  echo "    Can't find BTF information for i915. Aborting."
+  exit 1
+fi
+
+# Also get i915's BTF information
+${BPFTOOL} btf dump file ${FOUND_I915_BTF} format c --base-btf /sys/kernel/btf/vmlinux > ${GENERATED_HEADERS}/i915.h
 RETVAL="$?"
 if [ $RETVAL -ne 0 ]; then
-  echo "    I can't find the BTF information for i915! Bailing out."
+  echo "    Failed to run bpftool on ${FOUND_I915_BTF}! Aborting."
   exit 1
 fi
 
