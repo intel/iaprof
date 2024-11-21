@@ -73,6 +73,7 @@ int open_first_driver(device_info *devinfo)
 
                 /* Read in the name/version of the device */
                 memset(&version, 0, sizeof(version));
+                memset(name, 0, sizeof(name));
                 version.name_len = sizeof(name) - 1;
                 version.name = name;
                 if (ioctl_do(fd, DRM_IOCTL_VERSION, &version)) {
