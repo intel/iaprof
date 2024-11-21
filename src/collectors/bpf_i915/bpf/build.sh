@@ -2,7 +2,7 @@
 # WARNING: ONLY `-O2` OPTIMIZATIONS ARE SUPPORTED
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-BPFTOOL=${BPFTOOL:-bpftool}
+BPFTOOL=${BPFTOOL:-${PREFIX}/bin/bpftool}
 CLANG=${CLANG:-clang}
 BPF_CFLAGS=${BPF_CFLAGS:--O2}
 LLVM_STRIP=${LLVM_STRIP:-llvm-strip}

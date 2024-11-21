@@ -20,6 +20,7 @@ DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
 LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
 
+
 # Get the git commit hash
 cd ${BASE_DIR}
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -58,15 +59,6 @@ for dep in ${LOCAL_DEPS[@]}; do
   LDFLAGS="${LDFLAGS} ${dep}"
 done
 
-####################
-#   DRM HELPERS    #
-####################
-DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
-echo "Building ${DRM_HELPERS_DIR}..."
-
-${CC} ${COMMON_FLAGS} -c \
-  ${DRM_HELPERS_DIR}/drm_helpers.c \
-  -o ${DRM_HELPERS_DIR}/drm_helpers.o
 
 ####################
 #   I915 HELPERS    #
@@ -74,9 +66,29 @@ ${CC} ${COMMON_FLAGS} -c \
 I915_HELPERS_DIR="${SRC_DIR}/i915_helpers"
 echo "Building ${I915_HELPERS_DIR}..."
 
+I915_DKMS_SRC_DIR=$(find /usr/src -maxdepth 1 -name "intel-i915-dkms*" | tail -n 1)
+
+cat "${I915_DKMS_SRC_DIR}/i915-include/uapi/drm/i915_drm_prelim.h" |
+    sed 's/#include "i915_drm.h"/#include <drm\/i915_drm.h>/' |
+    sed '/define __I915_PMU_OTHER/i#ifndef __I915_PMU_OTHER' |
+    sed '/define __I915_PMU_OTHER/a#endif' > "${I915_HELPERS_DIR}/i915_drm_prelim.h"
+
 ${CC} ${COMMON_FLAGS} -c \
+  -I${I915_HELPERS_DIR} \
   ${I915_HELPERS_DIR}/i915_helpers.c \
   -o ${I915_HELPERS_DIR}/i915_helpers.o
+
+
+####################
+#   DRM HELPERS    #
+####################
+DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
+echo "Building ${DRM_HELPERS_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  -I${I915_HELPERS_DIR} \
+  ${DRM_HELPERS_DIR}/drm_helpers.c \
+  -o ${DRM_HELPERS_DIR}/drm_helpers.o
 
 ####################
 #   BPF HELPERS    #
@@ -105,10 +117,12 @@ echo "Building ${STORES_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${STORES_DIR}/buffer_profile.c \
   -o ${STORES_DIR}/buffer_profile.o
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
   ${STORES_DIR}/proto_flame.c \
   -o ${STORES_DIR}/proto_flame.o
@@ -124,6 +138,7 @@ source build.sh
 cd ${BASE_DIR}
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
   -std=c2x \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
@@ -131,11 +146,13 @@ ${CC} ${COMMON_FLAGS} -c \
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${COLLECTORS_DIR}/eustall/eustall_collector.c \
   -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
 
@@ -146,21 +163,25 @@ PRINTERS_DIR="${SRC_DIR}/printers"
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/printer.c \
   -o ${PRINTERS_DIR}/printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
   -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/debug/debug_printer.c \
   -o ${PRINTERS_DIR}/debug/debug_printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
 
@@ -171,14 +192,18 @@ UTILS_DIR="${SRC_DIR}/utils"
 echo "Building ${UTILS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${UTILS_DIR}/utils.c \
   -o ${UTILS_DIR}/utils.o
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${UTILS_DIR}/array.c \
   -o ${UTILS_DIR}/array.o
 
 ${CXX} ${COMMON_FLAGS} $(${LLVM_CONFIG} --cppflags) -c \
+  -I${PREFIX}/include \
   ${UTILS_DIR}/demangle.cpp \
   -o ${UTILS_DIR}/demangle.o
 
@@ -190,6 +215,7 @@ echo "Building ${GPU_PARSERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
 
@@ -200,6 +226,7 @@ ${CC} ${COMMON_FLAGS} -c \
 ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
 

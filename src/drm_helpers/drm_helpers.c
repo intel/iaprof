@@ -10,8 +10,8 @@
 #include <sys/sysmacros.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <drm/i915_drm_prelim.h>
 
+#include <i915_drm_prelim.h>
 #include "drm_helpers/drm_helpers.h"
 
 void ioctl_err(int err)

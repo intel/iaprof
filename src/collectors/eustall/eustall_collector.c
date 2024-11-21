@@ -2,10 +2,10 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <poll.h>
-#include <drm/i915_drm_prelim.h>
 
 #include "iaprof.h"
 
+#include <i915_drm_prelim.h>
 #include "drm_helpers/drm_helpers.h"
 #include "i915_helpers/i915_helpers.h"
 

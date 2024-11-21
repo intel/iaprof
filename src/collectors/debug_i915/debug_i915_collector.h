@@ -1,8 +1,9 @@
 #pragma once
 
-#include <drm/i915_drm_prelim.h>
 #include <poll.h>
 #include <pthread.h>
+
+#include <i915_drm_prelim.h>
 
 /******************************************************************************
 * debug_i915

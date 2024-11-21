@@ -18,3 +18,5 @@ reference/pkgs
 deps/bpftool.log
 deps/igc.log
 iaprof
+
+src/i915_helpers/i915_drm_prelim.h
