@@ -425,10 +425,14 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
         hash_table_free(debug_info_table);
 }
 
-void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index) {
-        char *name;
-        int   len;
-        char *seek;
+void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table) {
+        char       *name;
+        int         len;
+        char       *seek;
+        char       *filename;
+        int         linenum;
+        char       *demangled;
+        Debug_Info *info;
 
         name = elf_strptr(elf, string_table_index, section_header->sh_name);
         len  = strlen(name);
@@ -441,15 +445,30 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
 
         if (*name == 0) { return; }
 
-        debug_i915_add_sym(strdup(name),
-                           section_header->sh_addr,
-                           section_header->sh_size,
-                           strdup("<unknown>"),
-                           0,
-                           pid_index);
-        debug_i915_add_shader_binary(section);
+        filename = NULL;
+        linenum  = 0;
 
-        debug_printf("Adding symbol %s 0x%lx %lu\n", name, section_header->sh_addr, section_header->sh_size);
+        info = hash_table_get_val(debug_info_table, name);
+        if (info != NULL) {
+                filename = strdup(info->filename);
+                linenum  = info->linenum;
+        }
+        demangled = demangle(name);
+        if (demangled != NULL) {
+                name = demangled;
+        } else {
+                name = strdup(name);
+        }
+
+        if (filename == NULL) {
+                filename = strdup("<unknown>");
+        }
+
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", section_header->sh_addr,
+                name, filename, linenum);
+
+        debug_i915_add_sym(name, section_header->sh_addr, section_header->sh_size, filename, linenum, pid_index);
+        debug_i915_add_shader_binary(section);
 }
 
 void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
@@ -542,7 +561,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                                                 section_header->sh_name));
 
                                 handle_elf_progbits(elf, section, section_header, string_table_index,
-                                                pid_index);
+                                                pid_index, debug_info_table);
                         }
 
                         /* Next section */
