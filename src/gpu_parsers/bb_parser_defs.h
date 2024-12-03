@@ -87,6 +87,7 @@
         X(STATE_BASE_ADDRESS,                CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x01),         22)   \
         X(STATE_COMPUTE_MODE,                CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x05),          2)   \
         X(STATE_SIP,                         CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x02),          3)   \
+        X(STATE_PREFETCH,                    CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x00, 0x03),          4)   \
         X(STATE_SYSTEM_MEM_FENCE_ADDRESS,    CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x09),          3)   \
         X(CFE_STATE,                         CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x00),          6)   \
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
