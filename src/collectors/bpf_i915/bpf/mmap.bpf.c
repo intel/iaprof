@@ -318,6 +318,7 @@ int BPF_PROG(unmap_region,
         struct gpu_mapping save_gmapping = {};
         u64 fake_offset, size, cpu_addr, status;
         char one = 1;
+        long err;
 
         mmo = (struct i915_mmap_offset *)BPF_CORE_READ(vma, vm_private_data);
         cpu_addr = BPF_CORE_READ(vma, vm_start);
@@ -351,13 +352,13 @@ int BPF_PROG(unmap_region,
                 save_gmapping.addr = gmapping->addr;
                 save_gmapping.vm_id = gmapping->vm_id;
                 save_gmapping.file = gmapping->file;
-                if (!bpf_map_delete_elem(&gpu_cpu_map, gmapping)) {
-                        DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map!", gmapping->addr);
+                if ((err = bpf_map_delete_elem(&gpu_cpu_map, gmapping))) {
+                        DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map! err = %ld", gmapping->addr, err);
                 }
         }
         gmapping = NULL;
-        if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
-                DEBUG_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
+        if ((err = bpf_map_delete_elem(&cpu_gpu_map, &cmapping))) {
+                DEBUG_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map! err = %ld", cpu_addr, err);
         }
 
         if (looks_like_batch_buffer((void*)cpu_addr, size)) {
