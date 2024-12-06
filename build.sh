@@ -21,6 +21,7 @@ LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
+IGA_INCLUDE_DIR="${IGA_INCLUDE_DIR:-${DEPS_DIR}/install/include}"
 LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
 
@@ -104,6 +105,7 @@ echo "Building ${BPF_HELPERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
+  -I${IGA_INCLUDE_DIR} \
   ${BPF_HELPERS_DIR}/trace_helpers.c \
   -o ${BPF_HELPERS_DIR}/trace_helpers.o
 ${CC} ${COMMON_FLAGS} -c \
@@ -124,12 +126,14 @@ echo "Building ${STORES_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${I915_HELPERS_DIR} \
+  -I${IGA_INCLUDE_DIR} \
   ${STORES_DIR}/buffer_profile.c \
   -o ${STORES_DIR}/buffer_profile.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
+  -I${IGA_INCLUDE_DIR} \
   ${STORES_DIR}/proto_flame.c \
   -o ${STORES_DIR}/proto_flame.o
 
@@ -222,6 +226,7 @@ echo "Building ${GPU_PARSERS_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${I915_HELPERS_DIR} \
+  -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
 
