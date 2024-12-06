@@ -60,7 +60,7 @@ fi
 
 # Compile the BPF object code
 echo "  Compiling the BPF program..."
-${CLANG} ${EXTRA_CFLAGS} ${BPF_CFLAGS} -target bpf -D__TARGET_ARCH_x86 -g \
+${CLANG} ${BPF_CFLAGS} -target bpf -D__TARGET_ARCH_x86 -g \
   -Wno-pass-failed \
   -I${GENERATED_HEADERS} -I${DIR} -I${DIR}/../../.. -I${PREFIX}/include -c ${DIR}/main.bpf.c -o ${DIR}/main.bpf.o
 
