@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -eu
+
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 CLANG=${CLANG:-clang}
@@ -10,15 +13,15 @@ LDFLAGS=${LDFLAGS:-}
 # CSAN="-fsanitize=address"
 # LSAN="-fsanitize=address -static-libsan"
 OPT="-O3"
-CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 CFLAGS+=" -DDEBUG"
 # EXTRA_CFLAGS="-DSLOW_MODE"
-LDFLAGS="${LSAN}"
+LDFLAGS="${LSAN:-}"
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
-LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
+LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
 
 # Get the git commit hash
@@ -27,7 +30,7 @@ GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(git rev-parse HEAD)
 
 SRC_DIR="${BASE_DIR}/src"
-COMMON_FLAGS="${CFLAGS} -I${SRC_DIR} ${EXTRA_CFLAGS}"
+COMMON_FLAGS="${CFLAGS} -I${SRC_DIR} ${EXTRA_CFLAGS:-}"
 
 # Commandline arguments
 DO_DEPS=false
@@ -48,8 +51,11 @@ else
 fi
 
 # Check to make sure the dependencies are there
-for dep in ${LOCAL_DEPS[@]}; do
-  if [ ! -f ${dep} ]; then
+IFS=' ' read -ra ITEMS <<< "$LOCAL_DEPS"
+for dep in "${ITEMS[@]}"; do
+#done
+#for dep in ${LOCAL_DEPS[@]}; do
+  if [ ! -f "${dep}" ]; then
     echo ""
     echo "ERROR: Dependency ${dep} does not exist. Either:"
     echo "  1. Pass '-d' to this script to build local dependencies, or"
