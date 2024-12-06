@@ -23,6 +23,7 @@ enum buffer_type {
         BUFFER_TYPE_UNKNOWN = 0,
         BUFFER_TYPE_BATCHBUFFER,
         BUFFER_TYPE_SHADER,
+        BUFFER_TYPE_SYSTEM_ROUTINE,
         BUFFER_TYPE_DEBUG_AREA,
 };
 

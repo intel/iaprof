@@ -153,6 +153,7 @@ void store_kernel_flames(struct buffer_binding *bind)
         flame.ustack_str = bind->execbuf_ustack_str;
         flame.kstack_str = bind->execbuf_kstack_str;
         flame.is_debug   = bind->type == BUFFER_TYPE_DEBUG_AREA;
+        flame.is_sys     = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
 
         /* Iterate over the offsets that we have EU stalls for */
         hash_table_traverse(bind->stall_counts, offset, profile) {

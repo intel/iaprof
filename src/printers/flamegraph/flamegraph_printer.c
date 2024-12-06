@@ -59,6 +59,8 @@ void print_flamegraph()
                         } else {
                                 printf("%s_[G];", gpu_symbol);
                         }
+                } else if (flame.is_sys) {
+                        printf("System Routine (Exceptions);");
                 } else {
                         printf("0x%lx_[G];", flame.addr);
                 }

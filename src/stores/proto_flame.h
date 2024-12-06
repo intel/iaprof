@@ -25,6 +25,7 @@ struct proto_flame {
 
         uint32_t    pid;
         int         is_debug;
+        int         is_sys;
 
         uint64_t    addr;
         uint64_t    offset;
@@ -42,6 +43,7 @@ static inline int proto_flame_equ(const struct proto_flame a, const struct proto
 
         if (a.pid        != b.pid)                 { return 0; }
         if (a.is_debug   != b.is_debug)            { return 0; }
+        if (a.is_sys     != b.is_sys)              { return 0; }
         if (a.addr       != b.addr)                { return 0; }
         if (a.offset     != b.offset)              { return 0; }
         if (a.stall_type != b.stall_type)          { return 0; }

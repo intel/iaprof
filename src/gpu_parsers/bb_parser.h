@@ -263,6 +263,51 @@ enum bb_parser_status state_base_address(struct bb_parser *parser, uint32_t *ptr
         return BB_PARSER_STATUS_OK;
 }
 
+enum bb_parser_status state_sip(struct bb_parser *parser,
+                                uint32_t *ptr, int pid, int tid,
+                                const char *ustack_str, const char *kstack_str, char *procname)
+{
+        struct buffer_binding *shader_bind;
+        uint64_t tmp, tmp_iba;
+
+        if (parser->in_cmd == 1) {
+                /* The eleventh dword in STATE_BASE_ADDRESS stores
+                 * 28 of the SIP bits. */
+                tmp_iba = iba;
+                if (parser->iba) {
+                        tmp_iba = parser->iba;
+                }
+                if (!tmp_iba) {
+                        fprintf(stderr, "Want shader address, but IBA is not set yet!\n");
+                        return BB_PARSER_STATUS_OK;
+                }
+                parser->sip = (*ptr & 0xFFFFFFF0) + tmp_iba;
+        } else if (parser->in_cmd == 2) {
+                /* The twelfth dword in STATE_BASE_ADDRESS
+                        * stores the majority of the iba */
+                tmp = *ptr;
+                parser->sip |= tmp << 32;
+                if (bb_debug) {
+                        debug_printf("Found a SIP: 0x%lx\n",
+                                parser->sip);
+                }
+                shader_bind = get_containing_binding(parser->vm, parser->sip);
+                if (shader_bind != NULL) {
+                        shader_bind->type               = BUFFER_TYPE_SYSTEM_ROUTINE;
+                        shader_bind->pid                = pid;
+                        shader_bind->execbuf_ustack_str = ustack_str;
+                        shader_bind->execbuf_kstack_str = kstack_str;
+                        memcpy(shader_bind->name, procname, TASK_COMM_LEN);
+                        debug_printf("Marked buffer as a SIP shader: vm_id=%u gpu_addr=0x%lx\n",
+                                     parser->vm->vm_id, shader_bind->gpu_addr);
+                } else {
+                        debug_printf("Did not find the SIP shader for gpu_addr=0x%lx\n", parser->sip);
+                }
+        }
+
+        return BB_PARSER_STATUS_OK;
+}
+
 enum bb_parser_status compute_walker(struct bb_parser *parser,
                                      uint32_t *ptr, int pid, int tid,
                                      const char *ustack_str, const char *kstack_str, char *procname)
@@ -454,7 +499,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                       char *procname)
 {
         uint32_t *dword_ptr, op;
-        uint64_t off, tmp, noops;
+        uint64_t off, noops;
         const char *ustack_str;
         const char *kstack_str;
         enum bb_parser_status retval;
@@ -621,11 +666,9 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                                 }
                                 break;
                         case STATE_SIP:
-                                if (parser->in_cmd == 1) {
-                                        parser->sip |= *dword_ptr;
-                                } else if (parser->in_cmd == 2) {
-                                        tmp = *dword_ptr;
-                                        parser->sip |= tmp << 32;
+                                retval = state_sip(parser, dword_ptr, pid, tid, ustack_str, kstack_str, procname);
+                                if (retval != BB_PARSER_STATUS_OK) {
+                                        goto out;
                                 }
                                 break;
                         case COMPUTE_WALKER:

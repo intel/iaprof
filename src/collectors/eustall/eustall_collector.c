@@ -158,7 +158,8 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
                 }
 
                 if ((bind->type != BUFFER_TYPE_SHADER) &&
-                    (bind->type != BUFFER_TYPE_DEBUG_AREA)) {
+                    (bind->type != BUFFER_TYPE_DEBUG_AREA) &&
+                    (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
                         goto next;
                 }
 
