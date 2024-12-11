@@ -4,7 +4,9 @@
 #include <poll.h>
 
 #ifdef XE_DRIVER
-#include <drm/xe_drm_prelim.h>
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#include <uapi/drm/xe_drm_eudebug.h>
 #else
 #include <drm/i915_drm_prelim.h>
 #endif
@@ -29,11 +31,11 @@
 #include "printers/printer.h"
 
 #ifdef XE_DRIVER
-#define PROP_BUF_SZ PRELIM_DRM_XE_EU_STALL_PROP_BUF_SZ
-#define PROP_SAMPLE_RATE PRELIM_DRM_XE_EU_STALL_PROP_SAMPLE_RATE
-#define PROP_POLL_PERIOD PRELIM_DRM_XE_EU_STALL_PROP_POLL_PERIOD
-#define PROP_EVENT_REPORT_COUNT PRELIM_DRM_XE_EU_STALL_PROP_EVENT_REPORT_COUNT
-#define PROP_ENGINE_CLASS PRELIM_DRM_XE_EU_STALL_PROP_GT_ID
+#define PROP_BUF_SZ DRM_XE_EU_STALL_PROP_BUF_SZ
+#define PROP_SAMPLE_RATE DRM_XE_EU_STALL_PROP_SAMPLE_RATE
+#define PROP_POLL_PERIOD DRM_XE_EU_STALL_PROP_POLL_PERIOD
+#define PROP_EVENT_REPORT_COUNT DRM_XE_EU_STALL_PROP_EVENT_REPORT_COUNT
+#define PROP_ENGINE_CLASS DRM_XE_EU_STALL_PROP_GT_ID
 #define DEFAULT_BUF_SZ 0x20000
 #define ENGINE_CLASS_COMPUTE DRM_XE_ENGINE_CLASS_COMPUTE
 #else
@@ -58,7 +60,7 @@ struct deferred_eustall {
         unsigned long long time;
         struct eustall_sample sample;
         #ifdef XE_DRIVER
-        struct prelim_drm_xe_eu_stall_data_header info;
+        struct drm_xe_eu_stall_data_header info;
         #else
         struct prelim_drm_i915_stall_cntr_info info;
         #endif
@@ -149,7 +151,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
 }
 
 #ifdef XE_DRIVER
-static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_xe_eu_stall_data_header *info, unsigned long long time, int is_deferred) {
+static int handle_eustall_sample(struct eustall_sample *sample, struct drm_xe_eu_stall_data_header *info, unsigned long long time, int is_deferred) {
 #else
 static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
 #endif
@@ -279,7 +281,7 @@ int handle_eustall_samples(void *perf_buf, int len)
         int i, jump_by;
         struct eustall_sample *sample;
         int n;
-        struct prelim_drm_xe_eu_stall_data_header *info;
+        struct drm_xe_eu_stall_data_header *info;
         void *start_addr, *end_addr;
 
         /* Get the timestamp */
@@ -399,7 +401,7 @@ void xe_print_props(struct drm_xe_ext_set_property *properties)
 void xe_add_prop(struct drm_xe_ext_set_property **properties, int *index, uint32_t property, uint64_t value)
 {
         *properties = realloc(*properties, (*index + 1) * sizeof(struct drm_xe_ext_set_property));
-        (*properties)[*index].base.name = PRELIM_DRM_XE_EU_STALL_EXTENSION_SET_PROPERTY;
+        (*properties)[*index].base.name = DRM_XE_EU_STALL_EXTENSION_SET_PROPERTY;
         (*properties)[*index].base.pad = 0;
         (*properties)[*index].property = property;
         (*properties)[*index].value = value;
@@ -441,7 +443,7 @@ int init_eustall(device_info *devinfo)
         for_each_gt(devinfo->gt_info, gt)
         {
                 if (gt->type == DRM_XE_QUERY_GT_TYPE_MAIN) {
-                        xe_add_prop(&properties, &index, PRELIM_DRM_XE_EU_STALL_PROP_GT_ID, gt->gt_id);
+                        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_GT_ID, gt->gt_id);
                         found++;
                 }
         }
@@ -452,7 +454,7 @@ int init_eustall(device_info *devinfo)
         xe_print_props(properties);
         
         struct drm_xe_observation_param param = {
-                .observation_type = PRELIM_DRM_XE_OBSERVATION_TYPE_EU_STALL,
+                .observation_type = DRM_XE_OBSERVATION_TYPE_EU_STALL,
                 .observation_op = DRM_XE_OBSERVATION_OP_STREAM_OPEN,
                 .param = (__u64)properties,
                 .extensions = 0,

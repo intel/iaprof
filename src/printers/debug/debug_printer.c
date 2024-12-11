@@ -35,7 +35,9 @@ void print_debug_profile()
                 print_debug_binding(bind);
         });
 
+#ifndef XE_DRIVER
         debug_printf("Matched eustalls: %lu\n", eustall_info.matched);
         debug_printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
         debug_printf("Guessed eustalls: %lu\n", eustall_info.guessed);
+#endif
 }

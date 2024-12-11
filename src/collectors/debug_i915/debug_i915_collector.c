@@ -15,6 +15,11 @@
 #include <libelf.h>
 #include <elfutils/libdw.h>
 
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#endif
+
 #include "iaprof.h"
 #include "debug_i915_collector.h"
 #include "stores/buffer_profile.h"
@@ -93,9 +98,9 @@ void init_debug_i915(int i915_fd, int pid)
 
         /* Open the fd to begin debugging this PID */
 #ifdef XE_DRIVER
-        struct prelim_drm_xe_eudebug_connect open = {};
+        struct drm_xe_eudebug_connect open = {};
         open.pid = pid;
-        debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
+        debug_fd = ioctl(i915_fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
 #else
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
@@ -104,8 +109,8 @@ void init_debug_i915(int i915_fd, int pid)
 
         if (debug_fd < 0) {
                 fprintf(stderr,
-                        "Failed to open the debug interface for PID %d.\n",
-                        pid);
+                        "Failed to open the debug interface for PID %d: %d.\n",
+                        pid, debug_fd);
                 goto out;
         }
 
@@ -584,7 +589,7 @@ cleanup:
 }
 
 #ifdef XE_DRIVER
-void handle_event_uuid(int debug_fd, struct prelim_drm_xe_eudebug_event *event,
+void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event,
                        int pid_index)
 #else
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
@@ -596,10 +601,10 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         uint64_t size;
 
 #ifdef XE_DRIVER
-        struct prelim_drm_xe_eudebug_event_metadata *uuid;
-        struct prelim_drm_xe_eudebug_read_metadata read_uuid = {};
-        uuid = (struct prelim_drm_xe_eudebug_event_metadata *)event;
-        if (!(event->flags & PRELIM_DRM_XE_EUDEBUG_EVENT_CREATE)) {
+        struct drm_xe_eudebug_event_metadata *uuid;
+        struct drm_xe_eudebug_read_metadata read_uuid = {};
+        uuid = (struct drm_xe_eudebug_event_metadata *)event;
+        if (!(event->flags & DRM_XE_EUDEBUG_EVENT_CREATE)) {
                 return;
         }
         if (!uuid->len) {
@@ -609,7 +614,11 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         read_uuid.metadata_handle = uuid->metadata_handle;
         read_uuid.size = uuid->len;
         read_uuid.ptr = (uint64_t)malloc(uuid->len);
-        retval = ioctl(debug_fd, PRELIM_DRM_XE_EUDEBUG_EVENT_CREATE, &read_uuid);
+        read_uuid.flags = 0;
+        
+        errno = 0;
+        retval = ioctl(debug_fd, DRM_XE_EUDEBUG_IOCTL_READ_METADATA, &read_uuid);
+        
         data = (unsigned char *)read_uuid.ptr;
         size = read_uuid.size;
 #else
@@ -626,13 +635,16 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         read_uuid.handle = uuid->handle;
         read_uuid.payload_size = uuid->payload_size;
         read_uuid.payload_ptr = (uint64_t)malloc(uuid->payload_size);
+        
+        errno = 0;
         retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
+        
         data = (unsigned char *)read_uuid.payload_ptr;
         size = read_uuid.payload_size;
 #endif
 
         if (retval != 0) {
-                fprintf(stderr, "  Failed to read a UUID!\n");
+                fprintf(stderr, "  Failed to read metadata: %d!\n", errno);
                 goto cleanup;
         }
 
@@ -715,22 +727,25 @@ cleanup:
 int read_debug_i915_event(int fd, int pid_index)
 {
         int retval, ack_retval;
-        struct prelim_drm_xe_eudebug_ack_event ack_event = {};
+        struct drm_xe_eudebug_ack_event ack_event = {};
+        uint32_t size;
+        
+        size = sizeof(struct drm_xe_eudebug_event) + MAX_EVENT_SIZE;
 
         /* Prepare the event struct to be read */
-        __attribute__((aligned(__alignof__(struct prelim_drm_xe_eudebug_event))))
-        char event_buff[sizeof(struct prelim_drm_xe_eudebug_event) + MAX_EVENT_SIZE];
-        struct prelim_drm_xe_eudebug_event *event;
-        event = (struct prelim_drm_xe_eudebug_event *)event_buff;
+        __attribute__((aligned(__alignof__(struct drm_xe_eudebug_event))))
+        char event_buff[size];
+        struct drm_xe_eudebug_event *event;
+        event = (struct drm_xe_eudebug_event *)event_buff;
 
-        memset(event, 0,
-               sizeof(struct prelim_drm_xe_eudebug_event) + MAX_EVENT_SIZE);
+        memset(event, 0, size);
 
         /* Call ioctl */
-        event->len = MAX_EVENT_SIZE;
-        event->type = PRELIM_DRM_XE_EUDEBUG_IOCTL_READ_EVENT;
+        event->len = size;
+        event->type = DRM_XE_EUDEBUG_EVENT_READ;
         event->flags = 0;
-        retval = ioctl(fd, PRELIM_DRM_XE_EUDEBUG_IOCTL_READ_EVENT, event);
+        event->reserved = 0;
+        retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_READ_EVENT, event);
 
         if (retval != 0) {
                 if (errno == ETIMEDOUT || errno == EAGAIN) {
@@ -742,19 +757,19 @@ int read_debug_i915_event(int fd, int pid_index)
                 return 0;
         }
         /* Handle the event */
-        if (event->type == PRELIM_DRM_XE_EUDEBUG_EVENT_METADATA) {
+        if (event->type == DRM_XE_EUDEBUG_EVENT_METADATA) {
                 handle_event_uuid(fd, event, pid_index);
 #ifdef SLOW_MODE
-        } else if (event->type == PRELIM_DRM_XE_EUDEBUG_EVENT_VM_BIND) {
+        } else if (event->type == DRM_XE_EUDEBUG_EVENT_VM_BIND) {
                 handle_event_vm_bind(fd, event, pid_index);
 #endif
         }
 
         /* ACK the event, otherwise the workload will stall. */
-        if (event->flags & PRELIM_DRM_XE_EUDEBUG_EVENT_NEED_ACK) {
+        if (event->flags & DRM_XE_EUDEBUG_EVENT_NEED_ACK) {
                 ack_event.type = event->type;
                 ack_event.seqno = event->seqno;
-                ack_retval = ioctl(fd, PRELIM_DRM_XE_EUDEBUG_IOCTL_ACK_EVENT,
+                ack_retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_ACK_EVENT,
                                    &ack_event);
                 if (ack_retval != 0) {
                         fprintf(stderr, "  Failed to ACK event!\n");

@@ -207,7 +207,9 @@ cleanup:
 
         vm_bind_bpf_counter++;
 
+#ifndef XE_DRIVER
         wakeup_eustall_deferred_attrib_thread();
+#endif
 
         return 0;
 }
@@ -389,7 +391,9 @@ int handle_execbuf_end(void *data_arg)
 /*                 assert(iba == 0 && "iba is already set"); */
                 if (!iba) {
                         iba = parser.iba;
+#ifndef XE_DRIVER
                         wakeup_eustall_deferred_attrib_thread();
+#endif
                 }
         }
 

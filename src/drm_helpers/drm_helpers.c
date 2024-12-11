@@ -6,13 +6,15 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/sysmacros.h>
 #include <errno.h>
 #include <inttypes.h>
 
+#include <sys/types.h>
+
 #ifdef XE_DRIVER
-#include <drm/xe_drm.h>
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
 #else
 #include <drm/i915_drm_prelim.h>
 #endif

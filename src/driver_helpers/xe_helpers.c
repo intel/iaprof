@@ -8,7 +8,9 @@
 #include <search.h>
 #include <unistd.h>
 
-#include <drm/xe_drm_prelim.h>
+#include <stdbool.h>
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
 
 #include "xe_helpers.h"
 

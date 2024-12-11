@@ -1,26 +1,34 @@
 #!/bin/bash
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# User choices
 CLANG=${CLANG:-clang}
 CLANGPP=${CLANGPP:-clang++}
 LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
-OPT="-O0"
+OPT=${OPT:--O0}
+
+# Roll up the flags into CFLAGS
 CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 CFLAGS+=" -DDEBUG"
 
 export IAPROF_XE_DRIVER=1
 CFLAGS+=" -DXE_DRIVER"
 
-# EXTRA_CFLAGS="-DSLOW_MODE"
 LDFLAGS="${LSAN}"
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
 PREFIX="${DEPS_DIR}/install"
 LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
+
+# Find the proper kernel headers and copy them into the deps/ directory
+KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi}"
+mkdir -p ${DEPS_DIR}/kernel_headers
+cp -r ${KERNEL_HEADERS} ${DEPS_DIR}/kernel_headers/
+CFLAGS+=" -I${DEPS_DIR}/kernel_headers"
 
 # Get the git commit hash
 cd ${BASE_DIR}
@@ -132,21 +140,28 @@ cd ${COLLECTORS_DIR}/bpf_i915/bpf
 source build.sh
 cd ${BASE_DIR}
 
+IAPROF_COLLECTORS=""
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -std=c2x \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
   -o ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o "
 
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  ${COLLECTORS_DIR}/eustall/eustall_collector.c \
-  -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+if [ -z "$IAPROF_XE_DRIVER" ]; then
+  ${CC} ${COMMON_FLAGS} -c \
+        -I${PREFIX}/include \
+        ${COLLECTORS_DIR}/eustall/eustall_collector.c \
+        -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+  IAPROF_COLLECTORS+="${COLLECTORS_DIR}/eustall/eustall_collector.o "
+fi
 
 ####################
 #    PRINTERS      #
@@ -223,9 +238,7 @@ ${CXX} ${LDFLAGS} \
   ${STORES_DIR}/buffer_profile.o \
   ${STORES_DIR}/proto_flame.o \
   \
-  ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o \
-  ${COLLECTORS_DIR}/eustall/eustall_collector.o \
-  ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o \
+  ${IAPROF_COLLECTORS} \
   \
   ${PRINTERS_DIR}/printer.o \
   ${PRINTERS_DIR}/stack/stack_printer.o \
