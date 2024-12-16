@@ -274,8 +274,9 @@ ${CXX} ${LDFLAGS} \
   -L${PREFIX}/lib \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
-  -lelf -ldw -lz \
+  -lz \
   -lstdc++ \
+  ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \
   ${PREFIX}/lib/libiga64.a || exit $?
 echo ""
