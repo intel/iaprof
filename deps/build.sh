@@ -24,8 +24,10 @@ BPFTOOL_SRC_DIR=${BUILD_DEPS_DIR}/bpftool/src
 BPFTOOL_BUILD_LOG=${BUILD_DEPS_DIR}/bpftool.log
 cd ${BPFTOOL_SRC_DIR}
 
-echo "  Building libbpf and bpftool..."
-make &> ${BPFTOOL_BUILD_LOG}
+echo "  Building libbpf and bpftool with log ${BPFTOOL_BUILD_LOG}..."
+(
+make
+) 2>&1 > ${BPFTOOL_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
   echo "  ERROR: Building bpftool failed. Check ${BPFTOOL_BUILD_LOG}"
@@ -54,11 +56,13 @@ fi
 IGC_DIR="${BUILD_DEPS_DIR}/igc"
 IGC_BUILD_LOG="${BUILD_DEPS_DIR}/igc.log"
 
-echo "  Building IGC..."
+echo "  Building IGC with log ${IGC_BUILD_LOG}..."
 
 mkdir -p ${IGC_DIR}
 cd ${IGC_DIR}
-./build_igc.sh &> ${IGC_BUILD_LOG}
+(
+./build_igc.sh
+) 2>&1 > ${IGC_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
   echo "  ERROR: IGC failed to build."
@@ -75,11 +79,14 @@ ELFUTILS_SRC_DIR=${BUILD_DEPS_DIR}/elfutils
 ELFUTILS_BUILD_LOG=${BUILD_DEPS_DIR}/elfutils.log
 cd ${ELFUTILS_SRC_DIR}
 
-echo "  Building elfutils..."
+echo "  Building elfutils with log ${ELFUTILS_BUILD_LOG}..."
 
-autoreconf -i -f &> ${ELFUTILS_BUILD_LOG} && \
-./configure --enable-maintainer-mode --prefix=${PREFIX} &> ${ELFUTILS_BUILD_LOG} && \
-make &> ${ELFUTILS_BUILD_LOG} && \
-make install &> ${ELFUTILS_BUILD_LOG}
+(
+set -eu
+autoreconf -i -f
+./configure --enable-maintainer-mode --prefix=${PREFIX}
+make
+make install
+) 2>&1 > ${ELFUTILS_BUILD_LOG}
 
 echo "Done building dependencies. Installed to ${PREFIX}."
