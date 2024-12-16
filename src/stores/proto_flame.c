@@ -49,8 +49,8 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
 
         if (!bo) {
                 if (debug) {
-                        fprintf(stderr, "WARNING: Can't find a BO for file=0x%lx handle=%u\n",
-                                bind->file, bind->handle);
+                        WARN("Can't find a BO for file=0x%lx handle=%u\n",
+                             bind->file, bind->handle);
                 }
                 retval = -1;
                 goto out;
@@ -59,9 +59,8 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         /* If we don't have a copy, can't disassemble it! */
         if (!(bo->buff_sz)) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Don't have a copy of vm_id=%u gpu_addr=0x%lx so can't decode.\n",
-                                bind->vm_id, bind->gpu_addr);
+                        WARN("Don't have a copy of vm_id=%u gpu_addr=0x%lx so can't decode.\n",
+                             bind->vm_id, bind->gpu_addr);
                 }
                 retval = -1;
                 goto out;
@@ -70,8 +69,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         /* Paranoid check */
         if (offset >= bo->buff_sz) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Got an EU stall past the end of a buffer. ");
+                        WARN("Got an EU stall past the end of a buffer. ");
                         fprintf(stderr,
                                 "file=0x%lx handle=%u offset=0x%lx buff_sz=%lu\n",
                                 bo->file, bo->handle, offset, bo->buff_sz);
@@ -85,8 +83,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                 bind->kv = iga_init(bo->buff, bo->buff_sz);
                 if (!bind->kv) {
                         if (debug) {
-                                fprintf(stderr,
-                                        "WARNING: Failed to initialize IGA.\n");
+                                WARN("Failed to initialize IGA.\n");
                         }
                         retval = -1;
                         goto out;
@@ -98,7 +95,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        fprintf(stderr, "WARNING: Disassembly failed on file=0x%lx handle=%u\n", bo->file, bo->handle);
+                        WARN("Disassembly failed on file=0x%lx handle=%u\n", bo->file, bo->handle);
                 }
                 goto out;
         }

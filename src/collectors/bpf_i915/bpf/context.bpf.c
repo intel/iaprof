@@ -33,7 +33,6 @@ int BPF_PROG(i915_gem_context_create_ioctl,
         struct file_ctx_pair pair = {};
 
         if (retval) {
-                DEBUG_PRINTK("!!! context_create returned with an error");
                 return 0;
         }
 
@@ -137,8 +136,7 @@ int BPF_PROG(i915_gem_vm_create_ioctl, struct drm_device *dev, void *data,
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
         if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
+                ERR_PRINTK("vm_create_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;

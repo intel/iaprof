@@ -68,16 +68,16 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         vm = acquire_vm_profile(file, vm_id);
 
         if (!vm) {
-                fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u\n",
-                        vm_id);
+                WARN("associate_sample didn't find vm_id=%u\n",
+                     vm_id);
                 return -1;
         }
 
         bind = get_containing_binding(vm, gpu_addr);
 
         if (!bind) {
-                fprintf(stderr, "WARNING: associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
-                        vm_id, gpu_addr);
+                WARN("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
+                     vm_id, gpu_addr);
                 release_vm_profile(vm);
                 return -1;
         }
@@ -174,13 +174,11 @@ static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_dr
 
                 if ((addr - start) > MAX_BINARY_SIZE) {
                         if (debug) {
-                                fprintf(stderr,
-                                        "WARNING: eustall gpu_addr=0x%lx",
-                                        addr);
-                                fprintf(stderr, " lands in handle=%u,",
-                                        bind->handle);
-                                fprintf(stderr,
-                                        " which is bigger than MAX_BINARY_SIZE.\n");
+                                WARN("eustall gpu_addr=0x%lx"
+                                     " lands in handle=%u,"
+                                     " which is bigger than MAX_BINARY_SIZE.\n",
+                                     addr, bind->handle);
+
                         }
                 }
 
@@ -352,8 +350,7 @@ int init_eustall(device_info *devinfo)
                 }
         }
         if (found == 0) {
-                fprintf(stderr,
-                        "WARNING: Didn't find any PRELIM_I915_ENGINE_CLASS_COMPUTE engines.\n");
+                ERR("Didn't find any PRELIM_I915_ENGINE_CLASS_COMPUTE engines.\n");
                 return -1;
         }
 
@@ -368,15 +365,15 @@ int init_eustall(device_info *devinfo)
         /* Open the fd */
         fd = ioctl_do(devinfo->fd, DRM_IOCTL_I915_PERF_OPEN, &param);
         if (fd < 0) {
-                fprintf(stderr, "Failed to open the perf file descriptor.\n");
+                ERR("Failed to open the perf file descriptor.\n");
                 return -1;
         }
 
         /* Enable the fd */
         retval = ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
         if (retval < 0) {
-		        fprintf(stderr, "Failed to enable the perf file descriptor.\n");
-		        return -1;
+                ERR("Failed to enable the perf file descriptor.\n");
+                return -1;
         }
 
         /* Add the fd to the epoll_fd */

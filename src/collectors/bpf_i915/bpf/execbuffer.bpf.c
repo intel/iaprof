@@ -73,8 +73,7 @@ static long vm_callback(struct bpf_map *map, struct cpu_mapping *cmapping,
 
                         info = bpf_ringbuf_reserve(&rb, sizeof(struct batchbuffer_info), 0);
                         if (!info) {
-                                DEBUG_PRINTK(
-                                        "WARNING: vm_callback failed to reserve in the ringbuffer.");
+                                ERR_PRINTK("vm_callback failed to reserve in the ringbuffer.");
                                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                                 dropped_event = 1;
@@ -172,7 +171,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 cpu_addr = cmapping.addr;
                 size = cmapping.size;
         } else {
-                DEBUG_PRINTK("WARNING: execbuffer couldn't find a CPU mapping for vm_id=%u gpu_addr=0x%lx ctx_id=%u",
+                WARN_PRINTK("execbuffer couldn't find a CPU mapping for vm_id=%u gpu_addr=0x%lx ctx_id=%u",
                            vm_id, offset, ctx_id);
                 return 0;
         }
@@ -184,7 +183,8 @@ int BPF_PROG(i915_gem_do_execbuffer,
         vm_callback_ctx.bb_addr = offset;
         if (bpf_for_each_map_elem(&cpu_gpu_map, vm_callback, &vm_callback_ctx,
                                   0) < 0) {
-                DEBUG_PRINTK("ERROR in vm_callback");
+                ERR_PRINTK("ERROR in vm_callback");
+                dropped_event = 1;
                 return 0;
         }
 
@@ -195,8 +195,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
                 /* Reserve some space on the ringbuffer, into which we can copy things */
                 info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
                 if (!info) {
-                        DEBUG_PRINTK(
-                                "WARNING: execbuffer failed to reserve in the ringbuffer.");
+                        ERR_PRINTK("execbuffer failed to reserve in the ringbuffer.");
                         status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                         DEBUG_PRINTK("Unconsumed data: %lu", status);
                         dropped_event = 1;
@@ -207,13 +206,13 @@ int BPF_PROG(i915_gem_do_execbuffer,
 
                 stack_err = bpf_get_stack(ctx, &(info->kernel_stack.addrs), sizeof(info->kernel_stack.addrs), 3 & BPF_F_SKIP_FIELD_MASK);
                 if (stack_err < 0) {
-                        DEBUG_PRINTK("WARNING: execbuffer failed to get a kernel stack: %ld", stack_err);
+                        WARN_PRINTK("execbuffer failed to get a kernel stack: %ld", stack_err);
                 }
                 stack_err = bpf_get_stack(ctx, &(info->stack.addrs), sizeof(info->stack.addrs), BPF_F_USER_STACK);
                 if (stack_err < 0) {
-                        DEBUG_PRINTK("WARNING: execbuffer failed to get a user stack: %ld", stack_err);
+                        WARN_PRINTK("execbuffer failed to get a user stack: %ld", stack_err);
                 }
-                
+
                 /* execbuffer-specific stuff */
                 info->type = BPF_EVENT_TYPE_EXECBUF_END;
                 info->file = file_ptr;

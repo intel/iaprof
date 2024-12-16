@@ -56,10 +56,13 @@
 #include "main.h"
 #include "gpu_parsers/bb_parser_defs.h"
 
+#define ERR_PRINTK(...) bpf_printk("ERROR:   " __VA_ARGS__)
 #ifdef DEBUG
-#define DEBUG_PRINTK(...) bpf_printk(__VA_ARGS__)
+#define DEBUG_PRINTK(...) bpf_printk("         " __VA_ARGS__)
+#define WARN_PRINTK(...) bpf_printk("WARNING: " __VA_ARGS__)
 #else
 #define DEBUG_PRINTK(...) ;
+#define WARN_PRINTK(...) ;
 #endif
 
 /***************************************
@@ -182,7 +185,7 @@ char send_debug_area_info(struct gpu_mapping *gmapping, int stackid)
         /* Send a debug area event to userspace */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct debug_area_info), 0);
         if (!info) {
-                DEBUG_PRINTK("WARNING: send_debug_area failed to reserve in the ringbuffer.");
+                ERR_PRINTK("send_debug_area failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
@@ -215,7 +218,7 @@ int buffer_copy_add(void *addr, u64 size) {
 
         bcopy = bpf_ringbuf_reserve(&buffer_copy_rb, sizeof(*bcopy), 0);
         if (!bcopy) {
-                DEBUG_PRINTK("WARNING: buffer_copy_add failed to reserve in the ringbuffer.");
+                ERR_PRINTK("buffer_copy_add failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&buffer_copy_rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
@@ -226,7 +229,7 @@ int buffer_copy_add(void *addr, u64 size) {
 
         err = bpf_probe_read_user(bcopy->bytes, size, addr);
         if (err) {
-                DEBUG_PRINTK("WARNING: Failed to copy from cpu_addr=0x%lx, err=%d", addr, err);
+                WARN_PRINTK("Failed to copy from cpu_addr=0x%lx, err=%d", addr, err);
         }
 
         bpf_ringbuf_submit(bcopy, BPF_RB_FORCE_WAKEUP);

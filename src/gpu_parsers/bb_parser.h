@@ -441,11 +441,9 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
 
                 if (!find_jump_buffer(parser, parser->bbsp)) {
                         if (bb_debug) {
-                                fprintf(stderr,
-                                        "WARNING: Couldn't find a buffer ");
-                                fprintf(stderr,
-                                        " that encompasses the BBSP 0x%lx\n",
-                                        parser->bbsp);
+                                WARN("Couldn't find a buffer "
+                                     " that encompasses the BBSP 0x%lx\n",
+                                     parser->bbsp);
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
@@ -454,12 +452,10 @@ enum bb_parser_status mi_batch_buffer_start(struct bb_parser *parser,
                         /* We know we're supposed to jump *somewhere*,
 			 * but can't. */
                         if (bb_debug) {
-                                fprintf(stderr, "WARNING: A batch buffer was");
-                                fprintf(stderr,
-                                        " supposed to chain somewhere,");
-                                fprintf(stderr,
-                                        " but we don't have a copy of it. (vm_id=%u gpu_addr=0x%lx)\n",
-                                        parser->bind->vm_id, parser->bind->gpu_addr);
+                                WARN("A batch buffer was"
+                                     " supposed to chain somewhere,"
+                                     " but we don't have a copy of it. (vm_id=%u gpu_addr=0x%lx)\n",
+                                     parser->bind->vm_id, parser->bind->gpu_addr);
                         }
                         return BB_PARSER_STATUS_NOTFOUND;
                 }
@@ -522,9 +518,8 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
 
         parser->bo = acquire_buffer(parser->bind->file, parser->bind->handle);
         if (parser->bo == NULL) {
-                fprintf(stderr,
-                        "WARNING: can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
-                        parser->bind->vm_id, parser->bind->gpu_addr);
+                WARN("can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
+                     parser->bind->vm_id, parser->bind->gpu_addr);
                 retval = BB_PARSER_STATUS_NOTFOUND;
                 goto out;
         }
@@ -567,7 +562,7 @@ enum bb_parser_status bb_parser_parse(struct bb_parser *parser,
                 if ((parser->pc[parser->pc_depth] >= parser->primary_batch_buffer_end) &&
                     (parser->pc[parser->pc_depth] <  parser->primary_buffer_end)) {
                         if (bb_debug) {
-                                fprintf(stderr, "Stop because of batch_len.\n");
+                                debug_printf("Stop because of batch_len.\n");
                         }
                         retval = BB_PARSER_STATUS_OK;
                         goto out;
@@ -729,9 +724,8 @@ uint64_t bb_parser_find_addr(struct buffer_binding *bind, uint64_t addr)
 
         bo = acquire_buffer(bind->file, bind->handle);
         if (bo == NULL) {
-                fprintf(stderr,
-                        "WARNING: can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
-                        bind->vm_id, bind->gpu_addr);
+                WARN("can't parse vm_id=%u gpu_addr=0x%lx because we don't have a copy of it\n",
+                     bind->vm_id, bind->gpu_addr);
                 retval = BB_PARSER_STATUS_NOTFOUND;
                 goto out;
         }

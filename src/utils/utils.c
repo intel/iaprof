@@ -95,7 +95,7 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
         if (!src_sz || !src)
                 return -1;
         if (*dst == src) {
-                fprintf(stderr, "WARNING: Trying to copy a buffer into itself.\n");
+                WARN("Trying to copy a buffer into itself.\n");
                 return -1;
         }
 
@@ -120,7 +120,7 @@ int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu
         /* Allocate */
         *buf = realloc(*buf, size);
         if (!(*buf))  {
-                fprintf(stderr, "WARNING: Failed to allocate %zu bytes.\n", size);
+                WARN("Failed to allocate %zu bytes.\n", size);
                 return -1;
         }
 
@@ -170,8 +170,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
                         /* This file already exists, so go to the next filename */
                         fclose(tmpfile);
                         if (i == (MAX_DUPLICATES - 1)) {
-                                fprintf(stderr,
-                                        "WARNING: Hit MAX_DUPLICATES.\n");
+                                WARN("Hit MAX_DUPLICATES.\n");
                                 return;
                         }
                 } else {
@@ -182,7 +181,7 @@ void dump_buffer(unsigned char *kernel, uint64_t size, uint64_t id)
         debug_printf("Writing ID %lu to %s\n", id, filename);
         tmpfile = fopen(filename, "w");
         if (!tmpfile) {
-                fprintf(stderr, "WARNING: Failed to open %s\n", filename);
+                WARN("Failed to open %s\n", filename);
                 return;
         }
         fwrite(kernel, sizeof(unsigned char), size, tmpfile);
@@ -198,7 +197,7 @@ void print_map(pid_t pid)
         sprintf(filename, "/proc/%ld/maps", (long)pid);
         mem_file = fopen(filename, "r");
         if (!mem_file) {
-                fprintf(stderr, "Failed to open %s!\n", filename);
+                WARN("Failed to open %s!\n", filename);
                 return;
         }
 

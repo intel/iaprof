@@ -129,8 +129,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         struct i915_symbol_entry *entry;
 
         if (debug) {
-                fprintf(stderr, "Finding symbol for pid=%d addr=0x%lx\n", pid,
-                        addr);
+                fprintf(stderr, "Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
         }
 
         /* Find which index this PID relates to */
@@ -142,8 +141,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
                 }
         }
         if (pid_index == -1) {
-                fprintf(stderr, "WARNING: PID %d does not have GPU symbols.\n",
-                        pid);
+                WARN("PID %d does not have GPU symbols.\n", pid);
                 return -1;
         }
 
@@ -166,9 +164,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         }
 
         if (debug) {
-                fprintf(stderr,
-                        "WARNING: Couldn't find a symbol for addr=0x%lx\n",
-                        addr);
+                WARN("Couldn't find a symbol for addr=0x%lx\n", addr);
         }
 
         return -1;
@@ -383,7 +379,7 @@ hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
         dwarf = dwarf_begin_elf(elf, DWARF_C_READ, NULL);
 
         if (dwarf == NULL) {
-/*                 fprintf(stderr, "error opening dwarf from elf: %s\n", dwarf_errmsg(dwarf_errno())); */
+/*                 WARN("error opening dwarf from elf: %s\n", dwarf_errmsg(dwarf_errno())); */
                 goto out;
         }
 
@@ -490,7 +486,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         /* Initialize the ELF from the buffer */
         elf = elf_memory((char *)data, data_size);
         if (!elf) {
-                fprintf(stderr, "WARNING: Error reading an ELF file.\n");
+                WARN("Error reading an ELF file.\n");
                 return;
         }
 
@@ -500,28 +496,27 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         /* Get the ELF header */
         elf_header = elf64_getehdr(elf);
         if (elf_header == NULL) {
-                fprintf(stderr, "WARNING: Failed to get the ELF header.\n");
+                WARN("Failed to get the ELF header.\n");
                 goto cleanup;
         }
 
         /* Get the index of the string table section. */
         retval = elf_getshdrstrndx(elf, &string_table_index);
         if (retval != 0) {
-                fprintf(stderr,
-                        "WARNING: Failed to get the index of the ELF string table.\n");
+                WARN("Failed to get the index of the ELF string table.\n");
                 goto cleanup;
         }
 
 
         /* Iterate over ELF sections to find .symbtab sections */
         seen_symtab = 0;
+#if 0
         section = elf_nextscn(elf, NULL);
         while (section != NULL) {
                 /* Get the section header */
                 section_header = elf64_getshdr(section);
                 if (section_header == NULL) {
-                        fprintf(stderr,
-                                "WARNING: There was an error reading the ELF section headers.\n");
+                        WARN("There was an error reading the ELF section headers.\n");
                         goto cleanup;
                 }
 
@@ -542,6 +537,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 /* Next section */
                 section = elf_nextscn(elf, section);
         }
+#endif
 
         if (!seen_symtab) {
                 section = elf_nextscn(elf, NULL);
@@ -549,8 +545,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                         /* Get the section header */
                         section_header = elf64_getshdr(section);
                         if (section_header == NULL) {
-                                fprintf(stderr,
-                                        "WARNING: There was an error reading the ELF section headers.\n");
+                                WARN("There was an error reading the ELF section headers.\n");
                                 goto cleanup;
                         }
 
@@ -575,7 +570,7 @@ cleanup:
 
         retval = elf_end(elf);
         if (retval != 0) {
-                fprintf(stderr, "WARNING: Failed to cleanup ELF object.\n");
+                WARN("Failed to cleanup ELF object.\n");
         }
 
         /* If there are any existing buffer_bindings that match to a shader we've saved,

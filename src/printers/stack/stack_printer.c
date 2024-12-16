@@ -158,7 +158,7 @@ static hll_syms_map_t get_hll_syms(int pid) {
                 snprintf(tmpfile, sizeof(tmpfile), "/tmp/perf-%d.map", pid);
                 f = fopen(tmpfile, "r");
                 if (f == NULL) {
-                        fprintf(stderr, "WARNING error opening %s\n", tmpfile);
+/*                         WARN("error opening %s\n", tmpfile); */
 
                         /* Insert an empty map so we don't keep trying. */
                         goto insert;
@@ -293,9 +293,7 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
         }
 
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
-                fprintf(stderr,
-                        "Error grabbing the syms_cache_lock. Aborting.\n");
-                exit(1);
+                ERR("Error grabbing the syms_cache_lock. Aborting.\n");
         }
 
         if ((pid == 0) && is_user) {
@@ -319,10 +317,9 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
                 syms = syms_cache__get_syms(syms_cache, pid);
                 if (!syms) {
                         if (debug) {
-                                fprintf(stderr,
-                                        "WARNING: Failed to get syms for PID %" PRIu32
-                                        "\n",
-                                        pid);
+                                WARN("Failed to get syms for PID %" PRIu32
+                                     "\n",
+                                     pid);
                         }
                         stack_str = strdup("[unknown]");
                         goto insert;
@@ -365,7 +362,7 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
                         if (ksym != NULL) {
                                 sym_name = ksym->name;
                         } else {
-                                fprintf(stderr, "WARNING: Failed to get kernel symbol for 0x%llx\n", stack->addrs[i]);
+                                WARN("Failed to get kernel symbol for 0x%llx\n", stack->addrs[i]);
                         }
                 }
 
@@ -413,9 +410,7 @@ insert:
         hash_table_insert(stacks, *stack, stack_str);
 
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
-                fprintf(stderr,
-                        "Error unlocking the syms_cache_lock. Aborting.\n");
-                exit(1);
+                ERR("Error unlocking the syms_cache_lock. Aborting.\n");
         }
 
         return stack_str;

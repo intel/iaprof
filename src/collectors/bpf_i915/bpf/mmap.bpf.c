@@ -63,8 +63,8 @@ int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg, u64 vm_pgoff)
         retval =
                 bpf_map_update_elem(&mmap_wait_for_unmap, &foffset, &unmap_val, 0);
         if (retval < 0) {
-                DEBUG_PRINTK("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
-                           file, handle, addr);
+                WARN_PRINTK("mmap_wait_for_unmap_insert failed file=%p handle=%u cpu_addr=0x%lx",
+                            file, handle, addr);
                 return -1;
         }
 
@@ -182,8 +182,7 @@ int BPF_PROG(i915_gem_mmap,
         /* Get the handle from the previous i915_gem_mmap_offset_ioctl call. */
         lookup = bpf_map_lookup_elem(&mmap_offset_wait_for_mmap, &vm_pgoff);
         if (!lookup) {
-                DEBUG_PRINTK("i915_gem_mmap failed to see mmap_offset on vm_pgoff=0x%lx",
-                           vm_pgoff);
+                WARN_PRINTK("i915_gem_mmap failed to see mmap_offset on vm_pgoff=0x%lx", vm_pgoff);
                 return 0;
         }
         __builtin_memcpy(&offset_val, lookup,
@@ -197,8 +196,7 @@ int BPF_PROG(i915_gem_mmap,
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
         if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
+                ERR_PRINTK("mmap_ioctl_kretprobe failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
@@ -264,9 +262,7 @@ int BPF_PROG(i915_gem_userptr_ioctl,
                         bin = bpf_ringbuf_reserve(&rb, sizeof(struct userptr_info), 0);
                         if (!bin) {
                                 handle = BPF_CORE_READ(arg, handle);
-                                DEBUG_PRINTK(
-                                        "WARNING: userptr_ioctl failed to reserve in the ringbuffer for handle %u.",
-                                        handle);
+                                ERR_PRINTK("userptr_ioctl failed to reserve in the ringbuffer for handle %u.", handle);
                                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                                 dropped_event = 1;
@@ -353,16 +349,16 @@ int BPF_PROG(unmap_region,
                 save_gmapping.vm_id = gmapping->vm_id;
                 save_gmapping.file = gmapping->file;
                 if ((err = bpf_map_delete_elem(&gpu_cpu_map, gmapping))) {
-                        DEBUG_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map! err = %ld", gmapping->addr, err);
+                        WARN_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map! err = %ld", gmapping->addr, err);
                 }
         }
         gmapping = NULL;
         if ((err = bpf_map_delete_elem(&cpu_gpu_map, &cmapping))) {
-                DEBUG_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map! err = %ld", cpu_addr, err);
+                WARN_PRINTK("munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map! err = %ld", cpu_addr, err);
         }
 
         if (looks_like_batch_buffer((void*)cpu_addr, size)) {
-                DEBUG_PRINTK("unmap_region copying cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
+                WARN_PRINTK("unmap_region copying cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
 
                 if (buffer_copy_add((void*)cpu_addr, size)) {
 /*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", val->file, val->handle); */
@@ -370,9 +366,7 @@ int BPF_PROG(unmap_region,
                         /* Reserve some space on the ringbuffer */
                         bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
                         if (!bin) {
-                                DEBUG_PRINTK(
-                                        "WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.",
-                                        val->handle);
+                                ERR_PRINTK("munmap_tp failed to reserve in the ringbuffer for handle %u.", val->handle);
                                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                                 dropped_event = 1;

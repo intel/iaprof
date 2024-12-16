@@ -12,8 +12,8 @@ struct kv_t *iga_init(unsigned char *buff, size_t buff_len)
         kv = kv_create(IGA_XE_HPC, (void *)buff, buff_len, &status, NULL, 0, 0);
         if (status != IGA_SUCCESS) {
                 if (debug) {
-                        fprintf(stderr, "WARNING: IGA decoding error: '%s'.\n",
-                                iga_status_to_string(status));
+                        WARN("IGA decoding error: '%s'.\n",
+                             iga_status_to_string(status));
                 }
                 /* We're going to return kv anyway, since it could still disassemble
                    some insns successfully (and usually does!). */
@@ -38,8 +38,7 @@ char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text,
         status = iga_opspec_from_op(IGA_XE_HPC, opcode, &op);
         if (status != IGA_SUCCESS) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Failed to disassemble insn.\n");
+                        WARN("Failed to disassemble insn.\n");
                         fprintf(stderr, "Error was: '%s'\n",
                                 iga_status_to_string(status));
                 }
@@ -50,8 +49,7 @@ char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text,
         status = iga_opspec_mnemonic(op, NULL, &new_insn_text_len);
         if (status != IGA_SUCCESS) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Failed to disassemble insn.\n");
+                        WARN("Failed to disassemble insn.\n");
                         fprintf(stderr, "Error was: '%s'\n",
                                 iga_status_to_string(status));
                 }
@@ -67,8 +65,7 @@ char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text,
         status = iga_opspec_mnemonic(op, *insn_text, &new_insn_text_len);
         if (status != IGA_SUCCESS) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Failed to disassemble insn.\n");
+                        WARN("Failed to disassemble insn.\n");
                         fprintf(stderr, "Error was: '%s'\n",
                                 iga_status_to_string(status));
                 }

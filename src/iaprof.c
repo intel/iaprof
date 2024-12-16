@@ -93,10 +93,8 @@ void usage()
 void check_permissions()
 {
         if (geteuid() != 0) {
-                fprintf(stderr,
-                       "Tool currently needs superuser (root) permission. "
-                       "Please consider running with sudo. Exiting.\n");
-                exit(1);
+                ERR("Tool currently needs superuser (root) permission. "
+                    "Please consider running with sudo. Exiting.\n");
         }
 }
 
@@ -149,10 +147,7 @@ int read_opts(int argc, char **argv)
                 for (int i = optind; i < argc; i++) {
                         size += strlen(argv[i]) + 2; /* Make room for trailing space and NULL terminator. */
                 }
-                if (!(g_sidecar = malloc(size))) {
-                        fprintf(stderr, "ERROR: out of memory.\n");
-                        exit(2);
-                }
+                g_sidecar = malloc(size);
                 for (int i = optind, size = 0; i < argc; i++) {
                         size += sprintf(g_sidecar + size, "%s ", argv[i]);
                 }
@@ -269,9 +264,7 @@ void add_to_epoll_fd(int fd)
         e.events = EPOLLIN;
         e.data.fd = fd;
         if (epoll_ctl(bpf_info.epoll_fd, EPOLL_CTL_ADD, fd, &e) < 0) {
-                fprintf(stderr,
-                        "Failed to add to the ringbuffer's epoll instance. Aborting.\n");
-                exit(1);
+                ERR("Failed to add to the ringbuffer's epoll instance.\n");
         }
 }
 
@@ -282,19 +275,16 @@ void init_driver()
         /* We'll need the i915 driver for multiple collectors */
         retval = open_first_driver(&devinfo);
         if (retval != 0) {
-                fprintf(stderr, "Failed to open any drivers. Aborting.\n");
-                exit(1);
+                ERR("Failed to open any drivers.\n");
         }
 
         /* Get information about the device */
         if (get_drm_device_info(&devinfo) != 0) {
-                fprintf(stderr, "Failed to get device info. Aborting.\n");
-                exit(1);
+                ERR("Failed to get device info.\n");
         }
 
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
-                fprintf(stderr, "Failed to get engine info. Aborting.\n");
-                exit(1);
+                ERR("Failed to get engine info.\n");
         }
 
 }
@@ -342,15 +332,13 @@ void *eustall_collect_thread_main(void *a) {
         sigemptyset(&mask);
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-                fprintf(stderr, "Error blocking signal. Aborting.\n");
-                exit(1);
+                ERR("Error blocking signal.\n");
         }
 
         /* EU stall collector. Add to the epoll_fd that the bpf_i915
            collector created. */
         if (init_eustall(&devinfo)) {
-                fprintf(stderr, "Failed to configure EU stalls. Aborting!\n");
-                exit(1);
+                ERR("Failed to configure EU stalls.\n");
         }
 
         collect_threads_profiling += 1;
@@ -371,8 +359,7 @@ void *eustall_collect_thread_main(void *a) {
                                         errno = 0;
                                         goto next;
                                 default:
-                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        exit(1);
+                                        ERR("poll failed with fatal error %d.\n", errno);
                         }
                 }
 
@@ -406,8 +393,7 @@ void *bpf_collect_thread_main(void *a) {
         sigemptyset(&mask);
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-                fprintf(stderr, "Error blocking signal. Aborting.\n");
-                exit(1);
+                ERR("Error blocking signal.\n");
         }
 
         init_bpf_i915();
@@ -431,8 +417,7 @@ void *bpf_collect_thread_main(void *a) {
                                         n_ready = 0;
                                         break;
                                 default:
-                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        exit(1);
+                                        ERR("poll failed with fatal error %d.\n", errno);
                         }
                         errno = 0;
                 }
@@ -444,8 +429,7 @@ void *bpf_collect_thread_main(void *a) {
 
                         retval = ring_buffer__consume(bpf_info.rb);
                         if (retval < 0) {
-                                fprintf(stderr,
-                                        "WARNING: ring_buffer__consume failed.\n");
+                                WARN("ring_buffer__consume failed.\n");
                         }
                 } else {
                         if (main_thread_should_stop) {
@@ -475,8 +459,7 @@ void *debug_i915_collect_thread_main(void *a) {
         sigemptyset(&mask);
         sigaddset(&mask, SIGINT);
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-                fprintf(stderr, "Error blocking signal. Aborting.\n");
-                exit(1);
+                ERR("Error blocking signal.\n");
         }
 
         pollfds         = array_make(struct pollfd);
@@ -511,8 +494,7 @@ void *debug_i915_collect_thread_main(void *a) {
                                         n_ready = 0;
                                         break;
                                 default:
-                                        fprintf(stderr, "ERROR: poll failed with fatal error %d.\n", errno);
-                                        exit(1);
+                                        ERR("poll failed with fatal error %d.\n", errno);
                         }
                         errno = 0;
                 }
@@ -523,7 +505,7 @@ void *debug_i915_collect_thread_main(void *a) {
                         }
 
                         if (!debug_collector && debug) {
-                                fprintf(stderr, "WARNING: GPU symbols were disabled, but we got a debug_i915 event.\n");
+                                WARN("GPU symbols were disabled, but we got a debug_i915 event.\n");
                         }
 
 
@@ -553,60 +535,12 @@ void *debug_i915_collect_thread_main(void *a) {
         return NULL;
 }
 
-int start_bpf_collect_thread()
-{
+int start_thread(void *(*fn)(void*), pthread_t *out_pthread) {
         int retval;
 
-        retval = pthread_create(&bpf_collect_thread_id, NULL, &bpf_collect_thread_main,
-                                NULL);
+        retval = pthread_create(out_pthread, NULL, fn, NULL);
         if (retval != 0) {
-                fprintf(stderr,
-                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
-                return -1;
-        }
-
-        return 0;
-}
-
-int start_debug_i915_collect_thread()
-{
-        int retval;
-
-        retval = pthread_create(&debug_i915_collect_thread_id, NULL, &debug_i915_collect_thread_main,
-                                NULL);
-        if (retval != 0) {
-                fprintf(stderr,
-                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
-                return -1;
-        }
-
-        return 0;
-}
-
-int start_eustall_collect_thread()
-{
-        int retval;
-
-        retval = pthread_create(&eustall_collect_thread_id, NULL, &eustall_collect_thread_main,
-                                NULL);
-        if (retval != 0) {
-                fprintf(stderr,
-                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
-                return -1;
-        }
-
-        return 0;
-}
-
-int start_eustall_deferred_attrib_thread()
-{
-        int retval;
-
-        retval = pthread_create(&eustall_deferred_attrib_thread_id, NULL, &eustall_deferred_attrib_thread_main,
-                                NULL);
-        if (retval != 0) {
-                fprintf(stderr,
-                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
+                WARN("pthread_create failed.\n");
                 return -1;
         }
 
@@ -623,21 +557,6 @@ void *sidecar_thread_main(void *a)
         return NULL;
 }
 
-int start_sidecar_thread()
-{
-        int retval;
-
-        retval = pthread_create(&sidecar_thread_id, NULL, &sidecar_thread_main,
-                                NULL);
-        if (retval != 0) {
-                fprintf(stderr,
-                        "Failed to call pthread_create. Something is very wrong. Aborting.\n");
-                return -1;
-        }
-
-        return 0;
-}
-
 /*******************
 *       MAIN       *
 *******************/
@@ -646,8 +565,7 @@ void handle_sigint(int sig)
 {
         if (!main_thread_should_stop) {
             main_thread_should_stop = STOP_REQUESTED;
-            fprintf(stderr,
-                    "\nCollecting remaining eustalls... signal once more to stop now.\n");
+            fprintf(stderr, "\nCollecting remaining eustalls... signal once more to stop now.\n");
         } else {
             main_thread_should_stop = STOP_NOW;
         }
@@ -675,25 +593,17 @@ int main(int argc, char **argv)
                 print_header();
         }
 
-        if (start_bpf_collect_thread() != 0) {
-                fprintf(stderr,
-                        "Failed to start the collection thread. Aborting.\n");
-                exit(1);
+        if (start_thread(bpf_collect_thread_main, &bpf_collect_thread_id) != 0) {
+                ERR("Failed to start the BPF collection thread.\n");
         }
-        if (start_debug_i915_collect_thread() != 0) {
-                fprintf(stderr,
-                        "Failed to start the collection thread. Aborting.\n");
-                exit(1);
+        if (start_thread(debug_i915_collect_thread_main, &debug_i915_collect_thread_id) != 0) {
+                ERR("Failed to start the debug collection thread.\n");
         }
-        if (start_eustall_collect_thread() != 0) {
-                fprintf(stderr,
-                        "Failed to start the collection thread. Aborting.\n");
-                exit(1);
+        if (start_thread(eustall_collect_thread_main, &eustall_collect_thread_id) != 0) {
+                ERR("Failed to start the eustall collection thread.\n");
         }
-        if (start_eustall_deferred_attrib_thread() != 0) {
-                fprintf(stderr,
-                        "Failed to start the eustall deffered attribution thread. Aborting.\n");
-                exit(1);
+        if (start_thread(eustall_deferred_attrib_thread_main, &eustall_deferred_attrib_thread_id) != 0) {
+                ERR("Failed to start the eustall deffered attribution thread.\n");
         }
 
         /* Wait for the collection thread to start */
@@ -704,10 +614,8 @@ int main(int argc, char **argv)
 
         /* Start the sidecar */
         if (g_sidecar) {
-                if (start_sidecar_thread() != 0) {
-                        fprintf(stderr,
-                                "Failed to start the provided command. Aborting.\n");
-                        exit(1);
+                if (start_thread(sidecar_thread_main, &sidecar_thread_id) != 0) {
+                        ERR("Failed to start the provided command.\n");
                 }
         }
 
@@ -715,8 +623,7 @@ int main(int argc, char **argv)
         sa.sa_handler = handle_sigint;
         sigemptyset(&sa.sa_mask);
         if (sigaction(SIGINT, &sa, NULL) == -1) {
-                fprintf(stderr, "Error creating SIGINT handler. Aborting.\n");
-                exit(1);
+                ERR("Error creating SIGINT handler.\n");
         }
 
         gettimeofday(&tv, NULL);
@@ -738,8 +645,7 @@ int main(int argc, char **argv)
                         }
 
                         if (*bpf_info.dropped_event) {
-                                fprintf(stderr, "Dropped information in BPF... aborting.\n");
-                                exit(1);
+                                ERR("Dropped information in BPF... aborting.\n");
                         }
                 }
         }

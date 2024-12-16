@@ -50,8 +50,7 @@ static int handle_buffer_copy(void *ctx, void *data_arg, size_t data_sz) {
         bcopy = data_arg;
 
         if (handle_binary(bcopy_dst.addrp, bcopy->bytes, bcopy_dst.sizep, bcopy->size) != 0) {
-                fprintf(stderr,
-                        "WARNING: handle_binary() returned non-zero\n");
+                WARN("handle_binary() returned non-zero\n");
         }
 
 out:;
@@ -158,8 +157,8 @@ int handle_vm_bind(void *data_arg)
         vm = acquire_vm_profile(info->file, info->vm_id);
 
         if (!vm) {
-                fprintf(stderr, "WARNING: Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
-                        info->vm_id, info->gpu_addr);
+                WARN("Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
+                     info->vm_id, info->gpu_addr);
                 vm_bind_bpf_counter++;
                 goto cleanup;
         }
@@ -222,9 +221,8 @@ int handle_vm_unbind(void *data_arg)
         bind = get_binding(vm, info->gpu_addr);
         if (bind == NULL) {
                 if (debug) {
-                        fprintf(stderr,
-                                "WARNING: Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
-                                info->gpu_addr);
+                        WARN("Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
+                             info->gpu_addr);
                 }
                 goto cleanup;
         }
@@ -256,8 +254,7 @@ int handle_batchbuffer(void *data_arg)
         bind = get_binding(vm, info->gpu_addr);
         if (bind == NULL) {
                 if (debug ) {
-                        fprintf(stderr,
-                                "WARNING: couldn't find a buffer to store the batchbuffer in.\n");
+                        WARN("couldn't find a buffer to store the batchbuffer in.\n");
                 }
                 drop_buffer_from_bpf();
                 goto cleanup;
@@ -291,8 +288,7 @@ int handle_debug_area(void *data_arg)
         bind = get_binding(vm, info->gpu_addr);
         if (bind == NULL) {
                 if (debug ) {
-                        fprintf(stderr,
-                                "WARNING: couldn't find a buffer to store the debug area in.\n");
+                        WARN("couldn't find a buffer to store the debug area in.\n");
                 }
                 goto cleanup;
         }
@@ -336,9 +332,8 @@ int handle_execbuf_end(void *data_arg)
         vm = acquire_vm_profile(info->file, info->vm_id);
 
         if (vm == NULL) {
-                fprintf(stderr,
-                        "WARNING: Unable to find a vm_profile for vm_id=%u\n",
-                        info->vm_id);
+                WARN("Unable to find a vm_profile for vm_id=%u\n",
+                     info->vm_id);
                 drop_buffer_from_bpf();
                 goto cleanup;
         }
@@ -346,9 +341,8 @@ int handle_execbuf_end(void *data_arg)
         bind = get_binding(vm, info->bb_offset);
 
         if (bind == NULL) {
-                fprintf(stderr,
-                        "WARNING: Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
-                        info->vm_id, info->bb_offset);
+                WARN("Unable to find a buffer for vm_id=%u bb_offset=0x%llx\n",
+                     info->vm_id, info->bb_offset);
                 drop_buffer_from_bpf();
                 goto cleanup;
         }
@@ -359,7 +353,7 @@ int handle_execbuf_end(void *data_arg)
 
         if ((!bo->buff) || (!bo->buff_sz)) {
                 release_buffer(bo);
-                fprintf(stderr, "WARNING: execbuf_end didn't get a batchbuffer bb_offset=0x%llx.\n", info->bb_offset);
+                WARN("execbuf_end didn't get a batchbuffer bb_offset=0x%llx.\n", info->bb_offset);
                 goto cleanup;
         }
 
@@ -416,9 +410,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
                 case BPF_EVENT_TYPE_DEBUG_AREA:       return handle_debug_area(data_arg);
         }
 
-        fprintf(stderr,
-                "Unknown data type when handling a sample: %u\n",
-                type);
+        ERR("Unknown data type when handling a sample: %u\n", type);
         return -1;
 }
 
@@ -434,8 +426,7 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret)
         bpf_info.links = realloc(bpf_info.links, sizeof(struct bpf_link *) *
                                                          bpf_info.num_links);
         if (!bpf_info.links) {
-                fprintf(stderr,
-                        "Failed to allocate memory for the BPF links! Aborting.\n");
+                ERR("Failed to allocate memory for the BPF links! Aborting.\n");
                 return -1;
         }
 
@@ -450,9 +441,7 @@ int attach_kprobe(const char *func, struct bpf_program *prog, int ret)
         bpf_info.links[bpf_info.num_links - 1] =
                 bpf_program__attach_kprobe_opts(prog, func, &opts);
         if (libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
-                fprintf(stderr,
-                        "Failed to attach the BPF program to a kprobe: %s\n",
-                        func);
+                ERR("Failed to attach the BPF program to a kprobe: %s\n", func);
                 /* Set this pointer to NULL, since it's undefined what it will be */
                 bpf_info.links[bpf_info.num_links - 1] = NULL;
                 return -1;
@@ -475,9 +464,8 @@ int attach_tracepoint(const char *category, const char *func,
         bpf_info.links[bpf_info.num_links - 1] =
                 bpf_program__attach_tracepoint(prog, category, func);
         if (libbpf_get_error(bpf_info.links[bpf_info.num_links - 1])) {
-                fprintf(stderr,
-                        "Failed to attach the BPF program to a tracepoint: %s:%s\n",
-                        category, func);
+                ERR("Failed to attach the BPF program to a tracepoint: %s:%s\n",
+                    category, func);
                 /* Set this pointer to NULL, since it's undefined what it will be */
                 bpf_info.links[bpf_info.num_links - 1] = NULL;
                 return -1;
@@ -519,34 +507,30 @@ int init_bpf_i915()
 
         bpf_info.obj = main_bpf__open_and_load();
         if (!bpf_info.obj) {
-                fprintf(stderr, "ERROR: Failed to get BPF object.\n");
-                fprintf(stderr,
-                        "       Most likely, one of two things are true:\n");
-                fprintf(stderr, "       1. You're not root.\n");
-                fprintf(stderr,
-                        "       2. You don't have a kernel that supports BTF type information.\n");
+                ERR("Failed to get BPF object.\n"
+                    "       Most likely, one of two things are true:\n"
+                    "       1. You're not root.\n"
+                    "       2. You don't have a kernel that supports BTF type information.\n");
                 return -1;
         }
 
         err = main_bpf__attach(bpf_info.obj);
         if (err) {
-                fprintf(stderr, "ERROR: Failed to attach BPF programs.\n");
+                ERR("Failed to attach BPF programs.\n");
                 return -1;
         }
 
         bpf_info.rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.rb),
                                        handle_sample, NULL, NULL);
         if (!(bpf_info.rb)) {
-                fprintf(stderr,
-                        "Failed to create a new ring buffer. You're most likely not root.\n");
+                ERR("Failed to create a new ring buffer. You're most likely not root.\n");
                 return -1;
         }
 
         bpf_info.buffer_copy_rb = ring_buffer__new(bpf_map__fd(bpf_info.obj->maps.buffer_copy_rb),
                                        handle_buffer_copy, NULL, NULL);
         if (!(bpf_info.buffer_copy_rb)) {
-                fprintf(stderr,
-                        "Failed to create a new ring buffer. You're most likely not root.\n");
+                ERR("Failed to create a new ring buffer. You're most likely not root.\n");
                 return -1;
         }
 
