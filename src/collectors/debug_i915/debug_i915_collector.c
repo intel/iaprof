@@ -510,7 +510,6 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 
         /* Iterate over ELF sections to find .symbtab sections */
         seen_symtab = 0;
-#if 0
         section = elf_nextscn(elf, NULL);
         while (section != NULL) {
                 /* Get the section header */
@@ -537,7 +536,6 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 /* Next section */
                 section = elf_nextscn(elf, section);
         }
-#endif
 
         if (!seen_symtab) {
                 section = elf_nextscn(elf, NULL);
