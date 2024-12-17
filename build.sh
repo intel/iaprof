@@ -9,6 +9,7 @@ CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
 OPT=${OPT:--O0}
+BPFTOOL=${BPFTOOL:-bpftool}
 
 # Roll up the flags into CFLAGS
 CFLAGS="${CFLAGS} ${OPT} ${CSAN} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
@@ -68,6 +69,16 @@ for dep in ${LOCAL_DEPS[@]}; do
   LDFLAGS="${LDFLAGS} ${dep}"
 done
 
+# If not already in the PATH, use our locally-built bpftool
+# by setting the PATH. If the user specifies BPFTOOL, that
+# path will still be used regardless.
+if ! command -v ${BPFTOOL} &> /dev/null; then
+  export PATH="${PREFIX}/bin:${PATH}"
+  echo "  No system bpftool found! Setting the PATH to use the bpftool we just built."
+else
+  echo "  Using system bpftool."
+fi
+
 ####################
 #   DRM HELPERS    #
 ####################
@@ -105,12 +116,15 @@ BPF_HELPERS_DIR="${SRC_DIR}/bpf_helpers"
 echo "Building ${BPF_HELPERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/trace_helpers.c \
   -o ${BPF_HELPERS_DIR}/trace_helpers.o
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/uprobe_helpers.c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
 ${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.c \
   -o ${BPF_HELPERS_DIR}/bpf_map_helpers.o
 
