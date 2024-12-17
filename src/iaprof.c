@@ -64,7 +64,11 @@ enum {
 };
 static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
-static _Atomic char collect_threads_enabled = 3;
+#ifndef XE_DRIVER
+  static _Atomic char collect_threads_enabled = 3;
+#else
+  static _Atomic char collect_threads_enabled = 2;
+#endif
 static _Atomic char main_thread_should_stop = 0;
 
 /*******************
@@ -180,10 +184,6 @@ int read_opts(int argc, char **argv)
                 g_sidecar[--size] = '\0';
         }
         
-#ifndef XE_DRIVER
-        collect_threads_enabled--;
-        main_thread_should_stop |= EUSTALL_DONE;
-#endif
 
         return 0;
 }
@@ -687,6 +687,9 @@ void handle_sigint(int sig)
 {
         if (!main_thread_should_stop) {
             main_thread_should_stop = STOP_REQUESTED;
+            #ifdef XE_DRIVER
+              main_thread_should_stop |= EUSTALL_DONE;
+            #endif
             fprintf(stderr,
                     "\nCollecting remaining eustalls... signal once more to stop now.\n");
         } else {
