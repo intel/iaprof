@@ -6,6 +6,8 @@
 * back to userspace.
 ***************************************/
 
+#ifndef DISABLE_BPF
+
 #include "main.h"
 
 /* HACKY DECLARATIONS */
@@ -230,3 +232,5 @@ int BPF_PROG(xe_exec_ioctl, struct drm_device *dev, void *data, struct drm_file 
 
         return 0;
 }
+
+#endif

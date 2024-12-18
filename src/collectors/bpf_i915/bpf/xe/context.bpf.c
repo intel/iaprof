@@ -1,3 +1,5 @@
+#ifndef DISABLE_BPF
+
 /***************************************
 * Look for gem contexts getting created, in order to see the association
 * between VM ID and context ID.
@@ -45,11 +47,14 @@ int BPF_PROG(xe_exec_queue_create_ioctl,
         return 0;
 }
 
+#endif
+
 /* TODO: Exec queue and VM destruction. */
 
 /***************************************
 * Look for new virtual address spaces that userspace is creating.
 ***************************************/
+
 
 SEC("fexit/xe_vm_create_ioctl")
 int BPF_PROG(xe_vm_create_ioctl, struct drm_device *dev, void *data,
@@ -88,3 +93,4 @@ int BPF_PROG(xe_vm_create_ioctl, struct drm_device *dev, void *data,
 
         return 0;
 }
+

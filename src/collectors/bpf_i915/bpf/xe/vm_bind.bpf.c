@@ -4,6 +4,8 @@
 * Look for virtual addresses that userspace is trying to [un]bind.
 ***************************************/
 
+#ifndef DISABLE_BPF
+
 /* XXX: Remove once conflicts between bpftool-generated headers and uapi headers
    are fixed. */
 #define DRM_XE_VM_BIND_OP_MAP    0x0
@@ -202,4 +204,6 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
 
         return 0;
 }
+#endif
+
 #endif

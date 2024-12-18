@@ -7,6 +7,8 @@
 * copies of those buffers and send them back to userspace.
 ***************************************/
 
+#ifndef DISABLE_BPF
+
 #include "main.h"
 
 #define PAGE_SHIFT 12
@@ -348,3 +350,5 @@ int BPF_PROG(ttm_bo_vm_fault_reserved,
         
         return 0;
 }
+
+#endif
