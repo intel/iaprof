@@ -26,14 +26,13 @@ int print_execbuf_end(struct execbuf_end_info *einfo);
 
 int print_total_eustall(uint64_t num, unsigned long long time);
 int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
-                  uint64_t offset, uint32_t handle, uint16_t subslice,
+                  uint64_t offset, uint32_t handle,
                   unsigned long long time);
 int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
-                        uint64_t offset, uint16_t subslice,
-                        unsigned long long time);
+                        uint64_t offset, unsigned long long time);
 int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
-                       uint16_t subslice, unsigned long long time);
+                       unsigned long long time);
 int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
-                       uint16_t subslice, unsigned long long time);
+                        unsigned long long time);
 int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
-                             uint16_t subslice, unsigned long long time);
+                             unsigned long long time);

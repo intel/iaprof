@@ -22,6 +22,7 @@ typedef struct device_info {
         unsigned graphics_ver, graphics_rel;
 #ifdef XE_DRIVER
         struct drm_xe_query_gt_list *gt_info;
+        struct drm_xe_query_eu_stall *stall_info;
 #else
         struct drm_i915_query_engine_info *engine_info;
         struct drm_i915_query_memory_regions *memory_regions;

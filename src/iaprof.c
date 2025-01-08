@@ -304,6 +304,10 @@ void init_driver()
                 fprintf(stderr, "Failed to get GT info. Aborting.\n");
                 exit(1);
         }
+        if (xe_query_eu_stalls(devinfo.fd, &(devinfo.stall_info)) != 0) {
+                fprintf(stderr, "Failed to get GT info. Aborting.\n");
+                exit(1);
+        }
 #else
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
                 fprintf(stderr, "Failed to get engine info. Aborting.\n");

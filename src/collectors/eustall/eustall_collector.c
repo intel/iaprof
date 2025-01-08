@@ -59,9 +59,6 @@ static array_t eustall_waitlist_b;
 struct deferred_eustall {
         unsigned long long time;
         struct eustall_sample sample;
-        #ifndef XE_DRIVER
-        struct prelim_drm_i915_stall_cntr_info info;
-        #endif
         char satisfied;
 };
 
@@ -90,7 +87,7 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 
 int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
-                     uint16_t subslice, unsigned long long time)
+                     unsigned long long time)
 {
         struct offset_profile *found;
         struct offset_profile profile;
@@ -121,7 +118,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         }
 
         if (verbose) {
-                print_eustall(sample, gpu_addr, offset, bind->handle, subslice,
+                print_eustall(sample, gpu_addr, offset, bind->handle,
                               time);
         }
 
@@ -151,7 +148,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
 #ifdef XE_DRIVER
 static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
 #else
-static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
 #endif
         int found;
         uint64_t addr;
@@ -243,27 +240,26 @@ none_found:
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
                         if (verbose) {
-                                print_eustall_defer(sample, addr, info->subslice,
-                                                    time);
+                                print_eustall_defer(sample, addr, time);
                         }
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
-                                 info->subslice, time);
+                                 time);
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
                 /* We have to guess. Choose the last one that we've found. */
                 if (verbose) {
                         print_eustall_churn(sample, addr,
                                             first_found_offset,
-                                            info->subslice, time);
+                                            time);
                 }
 
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
-                                 info->subslice, time);
+                                 time);
                 eustall_info.guessed += num_stalls_in_sample(sample);
         }
 
@@ -277,30 +273,22 @@ int handle_eustall_samples(void *perf_buf, int len)
         unsigned long long time;
         int i;
         struct eustall_sample *sample;
-        int n;
-        void *start_addr, *end_addr;
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-        for (i = 0; i < len; i += jump_by) {
-                info   = perf_buf + i;
+        for (i = 0; i < len; i += record_size) {
+                sample = perf_buf + i;
                 
                 /* We're going to read from the end of the header until the end of these records */
-                start_addr = perf_buf + i + sizeof(*info);
-                end_addr = start_addr + info->num_records * info->record_size;
-                if (end_addr > perf_buf + len) {
+                if (sample > perf_buf + len) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
                         debug_printf("WARNING: EU stall reading would put us back the end of the buffer.\n");
                         break;
                 }
                 
-                for (n = 0; n < info->num_records * info->record_size; n += info->record_size) {
-                        sample = perf_buf + i + sizeof(*info) + n;
-                        handle_eustall_sample(sample, info, time, /* is_deferred = */ 0);
-                }
-                jump_by = sizeof(*info) + (info->num_records * info->record_size);
+                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
         }
 
         return EUSTALL_STATUS_OK;
@@ -321,7 +309,7 @@ int handle_eustall_samples(void *perf_buf, int len)
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
                 info   = perf_buf + i + 48;
-                handle_eustall_sample(sample, info, time, /* is_deferred = */ 0);
+                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
         }
 
         return EUSTALL_STATUS_OK;
@@ -357,7 +345,7 @@ void handle_deferred_eustalls() {
         /* Try to satisfy each pending eustall. */
         n_satisfied = 0;
         array_traverse(*working, stall) {
-                stall->satisfied = handle_eustall_sample(&stall->sample, &stall->info, stall->time, 1);
+                stall->satisfied = handle_eustall_sample(&stall->sample, stall->time, 1);
                 n_satisfied += !!stall->satisfied;
         }
 
@@ -404,6 +392,58 @@ void xe_add_prop(struct drm_xe_ext_set_property **properties, int *index, uint32
                 (*properties)[*index - 1].base.next_extension = (__u64)&((*properties)[*index]);
         }
         (*index)++;
+}
+
+init_eustall_xe(device_info *devinfo)
+{
+        struct drm_xe_gt *gt;
+        int fd, index, found;
+
+        #define PERF_OPEN_IOCTL DRM_IOCTL_XE_OBSERVATION
+        #define PERF_ENABLE_IOCTL DRM_XE_OBSERVATION_IOCTL_ENABLE
+        struct drm_xe_ext_set_property *properties;
+        
+        ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY
+        
+        index = 0;
+        properties = NULL;
+        xe_add_prop(&properties, &index, PROP_BUF_SZ, DEFAULT_BUF_SZ);
+        xe_add_prop(&properties, &index, PROP_SAMPLE_RATE, DEFAULT_SAMPLE_RATE);
+        xe_add_prop(&properties, &index, PROP_POLL_PERIOD, DEFAULT_POLL_PERIOD_NS);
+        xe_add_prop(&properties, &index, PROP_EVENT_REPORT_COUNT, DEFAULT_EVENT_COUNT);
+        
+        found = 0;
+        for_each_gt(devinfo->gt_info, gt)
+        {
+                if (gt->type == DRM_XE_QUERY_GT_TYPE_MAIN) {
+                        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_GT_ID, gt->gt_id);
+                        found++;
+                }
+        }
+        if (!found) {
+                fprintf(stderr, "Failed to find any GTs of type DRM_XE_QUERY_GT_TYPE_MAIN! Aborting.\n");
+                return -1;
+        }
+        xe_print_props(properties);
+        
+        struct drm_xe_observation_param param = {
+                .observation_type = DRM_XE_OBSERVATION_TYPE_EU_STALL,
+                .observation_op = DRM_XE_OBSERVATION_OP_STREAM_OPEN,
+                .param = (__u64)properties,
+                .extensions = 0,
+        };
+        
+        /* Open the fd */
+        fd = ioctl_do(devinfo->fd, PERF_OPEN_IOCTL, &param);
+        if (fd < 0) {
+                fprintf(stderr, "Failed to open the perf file descriptor.\n");
+                return -1;
+        }
+
+        /* Add the fd to the epoll_fd */
+        eustall_info.perf_fd = fd;
+
+        return 0;
 }
 
 int init_eustall(device_info *devinfo)
@@ -551,7 +591,7 @@ void handle_remaining_eustalls() {
         array_traverse(*eustall_waitlist, it) {
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
                 if (verbose) {
-                        print_eustall_drop(&it->sample, addr, it->info.subslice, time);
+                        print_eustall_drop(&it->sample, addr, time);
                 }
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
