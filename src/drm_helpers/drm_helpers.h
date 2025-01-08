@@ -19,6 +19,7 @@ typedef struct device_info {
         uint32_t id, ctx_id;
         char name[16];
         int fd;
+        uint64_t record_size;
         unsigned graphics_ver, graphics_rel;
 #ifdef XE_DRIVER
         struct drm_xe_query_gt_list *gt_info;

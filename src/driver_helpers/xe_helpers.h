@@ -26,7 +26,6 @@ static inline uint64_t CANONICAL(uint64_t offset);
 #define MI_INSTR(opcode, flags) \
         (__INSTR(INSTR_MI_CLIENT) | (opcode) << 23 | (flags))
 #define MI_BATCH_BUFFER_END MI_INSTR(0x0a, 0)
-#endif
 
 /*******************
 *     CONTEXT      *
@@ -42,3 +41,4 @@ static inline uint64_t CANONICAL(uint64_t offset);
 
 int xe_query_gts(int fd, struct drm_xe_query_gt_list **qg);
 int xe_query_eu_stalls(int fd, struct drm_xe_query_eu_stall **stall_info);
+int xe_init_eustall(struct device_info *devinfo);

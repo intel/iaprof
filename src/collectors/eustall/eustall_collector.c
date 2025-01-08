@@ -18,7 +18,7 @@
 #ifdef XE_DRIVER
 #include "driver_helpers/xe_helpers.h"
 #else
-#include "i915_helpers/i915_helpers.h"
+#include "driver_helpers/i915_helpers.h"
 #endif
 
 #include "stores/buffer_profile.h"
@@ -267,7 +267,7 @@ none_found:
 }
 
 #ifdef XE_DRIVER
-int handle_eustall_samples(void *perf_buf, int len)
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
         unsigned long long time;
@@ -278,11 +278,11 @@ int handle_eustall_samples(void *perf_buf, int len)
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-        for (i = 0; i < len; i += record_size) {
+        for (i = 0; i < len; i += devinfo->record_size) {
                 sample = perf_buf + i;
                 
                 /* We're going to read from the end of the header until the end of these records */
-                if (sample > perf_buf + len) {
+                if (sample > ((struct eustall_sample *)(perf_buf + len))) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
                         debug_printf("WARNING: EU stall reading would put us back the end of the buffer.\n");
                         break;
@@ -294,7 +294,7 @@ int handle_eustall_samples(void *perf_buf, int len)
         return EUSTALL_STATUS_OK;
 }
 #else
-int handle_eustall_samples(void *perf_buf, int len)
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
         unsigned long long time;
@@ -369,206 +369,25 @@ void init_eustall_waitlist() {
         eustall_waitlist   = &eustall_waitlist_a;
 }
 
-void xe_print_props(struct drm_xe_ext_set_property *properties)
-{
-        struct drm_xe_ext_set_property *proptr;
-        
-        proptr = properties;
-        while (proptr) {
-                fprintf(stderr, "Property: 0x%x Value: 0x%llx Next: 0x%llx\n", proptr->property, proptr->value, proptr->base.next_extension);
-                proptr = (struct drm_xe_ext_set_property *)proptr->base.next_extension;
-        }
-}
-
-void xe_add_prop(struct drm_xe_ext_set_property **properties, int *index, uint32_t property, uint64_t value)
-{
-        *properties = realloc(*properties, (*index + 1) * sizeof(struct drm_xe_ext_set_property));
-        (*properties)[*index].base.name = DRM_XE_EU_STALL_EXTENSION_SET_PROPERTY;
-        (*properties)[*index].base.pad = 0;
-        (*properties)[*index].property = property;
-        (*properties)[*index].value = value;
-        (*properties)[*index].pad = 0;
-        if (*index > 0) {
-                (*properties)[*index - 1].base.next_extension = (__u64)&((*properties)[*index]);
-        }
-        (*index)++;
-}
-
-init_eustall_xe(device_info *devinfo)
-{
-        struct drm_xe_gt *gt;
-        int fd, index, found;
-
-        #define PERF_OPEN_IOCTL DRM_IOCTL_XE_OBSERVATION
-        #define PERF_ENABLE_IOCTL DRM_XE_OBSERVATION_IOCTL_ENABLE
-        struct drm_xe_ext_set_property *properties;
-        
-        ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY
-        
-        index = 0;
-        properties = NULL;
-        xe_add_prop(&properties, &index, PROP_BUF_SZ, DEFAULT_BUF_SZ);
-        xe_add_prop(&properties, &index, PROP_SAMPLE_RATE, DEFAULT_SAMPLE_RATE);
-        xe_add_prop(&properties, &index, PROP_POLL_PERIOD, DEFAULT_POLL_PERIOD_NS);
-        xe_add_prop(&properties, &index, PROP_EVENT_REPORT_COUNT, DEFAULT_EVENT_COUNT);
-        
-        found = 0;
-        for_each_gt(devinfo->gt_info, gt)
-        {
-                if (gt->type == DRM_XE_QUERY_GT_TYPE_MAIN) {
-                        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_GT_ID, gt->gt_id);
-                        found++;
-                }
-        }
-        if (!found) {
-                fprintf(stderr, "Failed to find any GTs of type DRM_XE_QUERY_GT_TYPE_MAIN! Aborting.\n");
-                return -1;
-        }
-        xe_print_props(properties);
-        
-        struct drm_xe_observation_param param = {
-                .observation_type = DRM_XE_OBSERVATION_TYPE_EU_STALL,
-                .observation_op = DRM_XE_OBSERVATION_OP_STREAM_OPEN,
-                .param = (__u64)properties,
-                .extensions = 0,
-        };
-        
-        /* Open the fd */
-        fd = ioctl_do(devinfo->fd, PERF_OPEN_IOCTL, &param);
-        if (fd < 0) {
-                fprintf(stderr, "Failed to open the perf file descriptor.\n");
-                return -1;
-        }
-
-        /* Add the fd to the epoll_fd */
-        eustall_info.perf_fd = fd;
-
-        return 0;
-}
-
 int init_eustall(device_info *devinfo)
 {
-#ifdef XE_DRIVER
-        struct drm_xe_gt *gt;
-#else
-        struct i915_engine_class_instance *engine_class;
-        uint64_t *properties;
-        size_t properties_size;
-#endif
-        int fd, index, found;
-#ifndef XE_DRIVER
-        int retval;
-#endif
-
-
-#ifdef XE_DRIVER
-        #define PERF_OPEN_IOCTL DRM_IOCTL_XE_OBSERVATION
-        #define PERF_ENABLE_IOCTL DRM_XE_OBSERVATION_IOCTL_ENABLE
-        struct drm_xe_ext_set_property *properties;
-        
-        index = 0;
-        properties = NULL;
-        xe_add_prop(&properties, &index, PROP_BUF_SZ, DEFAULT_BUF_SZ);
-        xe_add_prop(&properties, &index, PROP_SAMPLE_RATE, DEFAULT_SAMPLE_RATE);
-        xe_add_prop(&properties, &index, PROP_POLL_PERIOD, DEFAULT_POLL_PERIOD_NS);
-        xe_add_prop(&properties, &index, PROP_EVENT_REPORT_COUNT, DEFAULT_EVENT_COUNT);
-        
-        found = 0;
-        for_each_gt(devinfo->gt_info, gt)
-        {
-                if (gt->type == DRM_XE_QUERY_GT_TYPE_MAIN) {
-                        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_GT_ID, gt->gt_id);
-                        found++;
-                }
-        }
-        if (!found) {
-                fprintf(stderr, "Failed to find any GTs of type DRM_XE_QUERY_GT_TYPE_MAIN! Aborting.\n");
-                return -1;
-        }
-        xe_print_props(properties);
-        
-        struct drm_xe_observation_param param = {
-                .observation_type = DRM_XE_OBSERVATION_TYPE_EU_STALL,
-                .observation_op = DRM_XE_OBSERVATION_OP_STREAM_OPEN,
-                .param = (__u64)properties,
-                .extensions = 0,
-        };
-#else
-        /* Fill in the array of "properties" that describes how we're
-           going to collect EU stalls. */
-        i = 0;
-        properties_size = sizeof(uint64_t) * 5 * 2;
-        properties = malloc(properties_size);
-
-        properties[i++] = PROP_BUF_SZ;
-        properties[i++] = DEFAULT_DSS_BUF_SIZE;
-
-        properties[i++] = PROP_SAMPLE_RATE;
-        properties[i++] = DEFAULT_SAMPLE_RATE;
-
-        properties[i++] = PROP_POLL_PERIOD;
-        properties[i++] = DEFAULT_POLL_PERIOD_NS;
-
-        properties[i++] = PROP_EVENT_REPORT_COUNT;
-        properties[i++] = DEFAULT_EVENT_COUNT;
-
-        properties[i++] = PROP_ENGINE_CLASS;
-        properties[i++] = DEFAULT_ENGINE_CLASS;
-        
-        found = 0;
-        for_each_engine(devinfo->engine_info, engine_class)
-        {
-                if (engine_class->engine_class ==
-                    ENGINE_CLASS_COMPUTE) {
-                        properties_size += (sizeof(uint64_t) * 2);
-                        properties = realloc(properties, properties_size);
-                        properties[i++] =
-                                PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE;
-                        properties[i++] = engine_class->engine_instance;
-                        found++;
-                }
-        }
-        if (found == 0) {
-                fprintf(stderr,
-                        "WARNING: Didn't find any CLASS_COMPUTE engines.\n");
-                return -1;
-        }
-        
-        #define PERF_OPEN_IOCTL DRM_IOCTL_I915_PERF_OPEN
-        #define PERF_ENABLE_IOCTL I915_PERF_IOCTL_ENABLE
-        struct drm_i915_perf_open_param param = {
-                .flags = I915_PERF_FLAG_FD_CLOEXEC |
-                         PRELIM_I915_PERF_FLAG_FD_EU_STALL |
-                         I915_PERF_FLAG_DISABLED,
-                .num_properties = properties_size / (sizeof(uint64_t) * 2),
-                .properties_ptr = (unsigned long long)properties,
-        };
-#endif
-
-        /* Open the fd */
-        fd = ioctl_do(devinfo->fd, PERF_OPEN_IOCTL, &param);
-        if (fd < 0) {
-                fprintf(stderr, "Failed to open the perf file descriptor.\n");
-                return -1;
-        }
-
-#ifndef XE_DRIVER
-        /* Enable the fd */
-        retval = ioctl(fd, PERF_ENABLE_IOCTL, NULL, 0);
-        if (retval < 0) {
-		        fprintf(stderr, "Failed to enable the perf file descriptor.\n");
-		        return -1;
-        }
-#endif
-
-        /* Add the fd to the epoll_fd */
-        eustall_info.perf_fd = fd;
-
-#ifndef XE_DRIVER
-        free(properties);
-#endif
-
-        return 0;
+  int fd;
+  
+  #ifdef XE_DRIVER
+  fd = xe_init_eustall(devinfo);
+  #else
+  fd = i915_init_eustall(devinfo);
+  #endif
+  
+  if (fd <= 0) {
+          fprintf(stderr, "Failed to initialize eustalls. Aborting.\n");
+          return -1;
+  }
+  
+  /* Add the fd to the epoll_fd */
+  eustall_info.perf_fd = fd;
+  
+  return 0;
 }
 
 void wakeup_eustall_deferred_attrib_thread() {

@@ -299,16 +299,7 @@ void init_driver()
                 exit(1);
         }
 
-#ifdef XE_DRIVER
-        if (xe_query_gts(devinfo.fd, &(devinfo.gt_info)) != 0) {
-                fprintf(stderr, "Failed to get GT info. Aborting.\n");
-                exit(1);
-        }
-        if (xe_query_eu_stalls(devinfo.fd, &(devinfo.stall_info)) != 0) {
-                fprintf(stderr, "Failed to get GT info. Aborting.\n");
-                exit(1);
-        }
-#else
+#ifndef XE_DRIVER
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
                 fprintf(stderr, "Failed to get engine info. Aborting.\n");
                 exit(1);
@@ -316,7 +307,7 @@ void init_driver()
 #endif
 }
 
-int handle_eustall_read(int fd)
+int handle_eustall_read(int fd, struct device_info *devinfo)
 {
         int len;
 
@@ -324,7 +315,7 @@ int handle_eustall_read(int fd)
         len = read(fd, eustall_info.perf_buf,
                    DEFAULT_USER_BUF_SIZE);
         if (len > 0) {
-                handle_eustall_samples(eustall_info.perf_buf, len);
+                handle_eustall_samples(eustall_info.perf_buf, len, devinfo);
         }
 
         store_interval_flames();
@@ -401,7 +392,7 @@ void *eustall_collect_thread_main(void *a) {
                         if (main_thread_should_stop != STOP_NOW) {
                                 main_thread_should_stop &= ~EUSTALL_DONE;
                         }
-                        handle_eustall_read(pollfd.fd);
+                        handle_eustall_read(pollfd.fd, &devinfo);
                 } else {
                         if (main_thread_should_stop) {
                                 main_thread_should_stop |= EUSTALL_DONE;

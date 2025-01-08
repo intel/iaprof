@@ -56,7 +56,7 @@ struct offset_profile;
 
 int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset, unsigned long long time);
-int handle_eustall_samples(void *perf_buf, int len);
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo);
 int init_eustall(device_info *devinfo);
 void wakeup_eustall_deferred_attrib_thread();
 void handle_deferred_eustalls();
