@@ -169,13 +169,11 @@ ${CC} ${COMMON_FLAGS} -c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
 IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o "
 
-if [ -z "$IAPROF_XE_DRIVER" ]; then
-  ${CC} ${COMMON_FLAGS} -c \
-        -I${PREFIX}/include \
-        ${COLLECTORS_DIR}/eustall/eustall_collector.c \
-        -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
-  IAPROF_COLLECTORS+="${COLLECTORS_DIR}/eustall/eustall_collector.o "
-fi
+${CC} ${COMMON_FLAGS} -c \
+      -I${PREFIX}/include \
+      ${COLLECTORS_DIR}/eustall/eustall_collector.c \
+      -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/eustall/eustall_collector.o "
 
 ####################
 #    PRINTERS      #

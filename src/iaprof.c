@@ -34,9 +34,7 @@
 #endif
 
 /* Collectors */
-#ifndef XE_DRIVER
 #include "collectors/eustall/eustall_collector.h"
-#endif
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/bpf_i915/bpf/main.h"
 #include "collectors/bpf_i915/bpf/main.skel.h"
@@ -64,11 +62,7 @@ enum {
 };
 static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
-#ifndef XE_DRIVER
-  static _Atomic char collect_threads_enabled = 3;
-#else
-  static _Atomic char collect_threads_enabled = 2;
-#endif
+static _Atomic char collect_threads_enabled = 3;
 static _Atomic char main_thread_should_stop = 0;
 
 /*******************
@@ -228,7 +222,6 @@ void print_table()
         fprintf(stderr, "|  Matched  |  Unmatched/Pending |  Guessed  |\n");
         fprintf(stderr, "|--------------------------------------------|\n");
         fprintf(stderr, "| ");
-#ifndef XE_DRIVER
         print_number(eustall_info.matched);
         fprintf(stderr, " |          ");
         pthread_mutex_lock(&eustall_waitlist_mtx);
@@ -236,7 +229,6 @@ void print_table()
         pthread_mutex_unlock(&eustall_waitlist_mtx);
         fprintf(stderr, " | ");
         print_number(eustall_info.guessed);
-#endif
         fprintf(stderr, " |\n");
         fprintf(stderr, "|--------------------------------------------|\n");
         fflush(stderr);
@@ -259,11 +251,7 @@ struct device_info devinfo = {};
 
 /* No thread race protection needed. Only accessed in bpf_collect_thread */
 struct bpf_info_t bpf_info = {};
-
-#ifndef XE_DRIVER
 struct eustall_info_t eustall_info = {};
-#endif
-
 
 #define MAX_EPOLL_EVENTS 64
 
@@ -324,7 +312,6 @@ void init_driver()
 #endif
 }
 
-#ifndef XE_DRIVER
 int handle_eustall_read(int fd)
 {
         int len;
@@ -424,7 +411,6 @@ next:;
 
         return NULL;
 }
-#endif
 
 void *bpf_collect_thread_main(void *a) {
         sigset_t mask;
@@ -622,7 +608,6 @@ int start_debug_i915_collect_thread()
         return 0;
 }
 
-#ifndef XE_DRIVER
 int start_eustall_collect_thread()
 {
         int retval;
@@ -652,7 +637,6 @@ int start_eustall_deferred_attrib_thread()
 
         return 0;
 }
-#endif
 
 /*******************
 *      SIDECAR     *
@@ -687,9 +671,6 @@ void handle_sigint(int sig)
 {
         if (!main_thread_should_stop) {
             main_thread_should_stop = STOP_REQUESTED;
-            #ifdef XE_DRIVER
-              main_thread_should_stop |= EUSTALL_DONE;
-            #endif
             fprintf(stderr,
                     "\nCollecting remaining eustalls... signal once more to stop now.\n");
         } else {
@@ -712,9 +693,7 @@ int main(int argc, char **argv)
 
         init_profiles();
         init_flames();
-#ifndef XE_DRIVER
         init_eustall_waitlist();
-#endif
         init_driver();
 
         if (verbose) {
@@ -731,7 +710,6 @@ int main(int argc, char **argv)
                         "Failed to start the collection thread. Aborting.\n");
                 exit(1);
         }
-#ifndef XE_DRIVER
         if (start_eustall_collect_thread() != 0) {
                 fprintf(stderr,
                         "Failed to start the collection thread. Aborting.\n");
@@ -742,7 +720,6 @@ int main(int argc, char **argv)
                         "Failed to start the eustall deffered attribution thread. Aborting.\n");
                 exit(1);
         }
-#endif
 
         /* Wait for the collection threads to start */
         while (collect_threads_profiling < collect_threads_enabled) {
@@ -802,11 +779,9 @@ int main(int argc, char **argv)
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
         pthread_join(debug_i915_collect_thread_id, NULL);
-#ifndef XE_DRIVER
         pthread_join(eustall_collect_thread_id, NULL);
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
-#endif
 
         /* Print the final profile */
         gettimeofday(&tv, NULL);

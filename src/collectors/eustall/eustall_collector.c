@@ -59,9 +59,7 @@ static array_t eustall_waitlist_b;
 struct deferred_eustall {
         unsigned long long time;
         struct eustall_sample sample;
-        #ifdef XE_DRIVER
-        struct drm_xe_eu_stall_data_header info;
-        #else
+        #ifndef XE_DRIVER
         struct prelim_drm_i915_stall_cntr_info info;
         #endif
         char satisfied;
@@ -151,7 +149,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
 }
 
 #ifdef XE_DRIVER
-static int handle_eustall_sample(struct eustall_sample *sample, struct drm_xe_eu_stall_data_header *info, unsigned long long time, int is_deferred) {
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
 #else
 static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
 #endif
@@ -238,7 +236,6 @@ none_found:
         if (found == 0) {
                 if (!is_deferred) {
                         deferred.sample    = *sample;
-                        deferred.info      = *info;
                         deferred.satisfied = 0;
 
                         pthread_mutex_lock(&eustall_waitlist_mtx);
@@ -278,18 +275,15 @@ int handle_eustall_samples(void *perf_buf, int len)
 {
         struct timespec spec;
         unsigned long long time;
-        int i, jump_by;
+        int i;
         struct eustall_sample *sample;
         int n;
-        struct drm_xe_eu_stall_data_header *info;
         void *start_addr, *end_addr;
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-        jump_by = 0;
-        
         for (i = 0; i < len; i += jump_by) {
                 info   = perf_buf + i;
                 
