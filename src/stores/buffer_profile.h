@@ -27,45 +27,6 @@ enum buffer_type {
         BUFFER_TYPE_DEBUG_AREA,
 };
 
-/* Stores information about a single buffer. We overwrite and accumulate
-   these interval after interval. */
-struct buffer_object {
-        uint64_t file;
-        uint32_t handle;
-
-        uint64_t buff_sz;
-        unsigned char *buff;
-
-        pthread_mutex_t lock;
-        _Atomic pthread_t lock_holder;
-};
-
-typedef struct buffer_object buffer_object_struct;
-typedef struct file_handle_pair file_handle_pair_struct;
-
-static inline int file_handle_pair_cmp(file_handle_pair_struct a, file_handle_pair_struct b) {
-        if (a.file < b.file) {
-                return -1;
-        }
-        if (a.file > b.file) {
-                return 1;
-        }
-        if (a.handle < b.handle) {
-                return -1;
-        }
-        if (a.handle > b.handle) {
-                return 1;
-        }
-
-        return 0;
-}
-
-
-use_tree_c(file_handle_pair_struct, buffer_object_struct, file_handle_pair_cmp);
-
-extern tree(file_handle_pair_struct, buffer_object_struct) buffer_objects;
-extern pthread_rwlock_t buffer_objects_lock;
-
 struct buffer_binding {
         enum buffer_type type;
 
@@ -150,15 +111,6 @@ struct vm_profile *acquire_ordered_vm_profile(uint64_t file, uint32_t vm_order);
 void release_vm_profile(struct vm_profile *vm);
 
 
-void lock_buffer(struct buffer_object *bo);
-void unlock_buffer(struct buffer_object *bo);
-struct buffer_object *create_buffer(uint64_t file, uint32_t handle);
-struct buffer_object *acquire_buffer(uint64_t file, uint32_t handle);
-void release_buffer(struct buffer_object *bo);
-
-
-
-
 #define FOR_VM(vm, ...)                                             \
 do {                                                                \
         tree_it(file_vm_pair_struct, vm_profile_ptr) _it;           \
@@ -199,20 +151,4 @@ do {                                                                \
 do {                                                                \
         unlock_vm_profile(tree_it_val(_vit));                       \
         pthread_rwlock_unlock(&vm_profiles_lock);                   \
-} while (0)
-
-#define FOR_BUFFER(bo, ...)                                         \
-do {                                                                \
-        tree_it(file_handle_pair_struct, buffer_object_struct) _it; \
-        pthread_rwlock_rdlock(&buffer_objects_lock);                \
-        tree_traverse(buffer_objects, _it) {                        \
-                (bo) = &tree_it_val(_it);                           \
-                __VA_ARGS__                                         \
-        }                                                           \
-        pthread_rwlock_unlock(&buffer_objects_lock);                \
-} while (0)
-
-#define FOR_BUFFER_CLEANUP()                                        \
-do {                                                                \
-        pthread_rwlock_unlock(&buffer_objects_lock);                \
 } while (0)

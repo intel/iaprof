@@ -9,9 +9,6 @@
 
 _Atomic uint64_t iba = 0;
 
-tree(file_handle_pair_struct, buffer_object_struct) buffer_objects;
-pthread_rwlock_t buffer_objects_lock = PTHREAD_RWLOCK_INITIALIZER;
-
 tree(file_vm_pair_struct, vm_profile_ptr) vm_profiles;
 pthread_rwlock_t vm_profiles_lock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -32,7 +29,6 @@ int file_vm_pair_cmp(struct file_vm_pair a, struct file_vm_pair b) {
 }
 
 void init_profiles() {
-        buffer_objects = tree_make(file_handle_pair_struct, buffer_object_struct);
         vm_profiles = tree_make(file_vm_pair_struct, vm_profile_ptr);
 }
 
@@ -275,83 +271,4 @@ struct vm_profile *acquire_vm_profile(uint64_t file ,uint32_t vm_id) {
 void release_vm_profile(struct vm_profile *vm) {
         unlock_vm_profile(vm);
         pthread_rwlock_unlock(&vm_profiles_lock);
-}
-
-
-void lock_buffer(struct buffer_object *bo) {
-        pthread_mutex_lock(&bo->lock);
-        bo->lock_holder = pthread_self();
-}
-
-void unlock_buffer(struct buffer_object *bo) {
-        assert(bo->lock_holder == pthread_self()
-                && "attempt to unlock a buffer_object by a thread that does not own the lock!");
-        bo->lock_holder = 0;
-        pthread_mutex_unlock(&bo->lock);
-}
-
-static struct buffer_object *_get_buffer(uint64_t file, uint32_t handle, int create) {
-        struct file_handle_pair pair;
-        tree_it(file_handle_pair_struct, buffer_object_struct) it;
-        struct buffer_object new_buffer;
-
-        pair.file = file;
-        pair.handle = handle;
-
-        it = tree_lookup(buffer_objects, pair);
-        if (tree_it_good(it)) {
-                goto found;
-        }
-
-        if (!create) {
-                return NULL;
-        }
-
-        memset(&new_buffer, 0, sizeof(new_buffer));
-
-        new_buffer.file = file;
-        new_buffer.handle = handle;
-        pthread_mutex_init(&new_buffer.lock, NULL);
-        it = tree_insert(buffer_objects, pair, new_buffer);
-
-found:;
-        return &tree_it_val(it);
-}
-
-struct buffer_object *create_buffer(uint64_t file, uint32_t handle) {
-        struct buffer_object *bo;
-
-        pthread_rwlock_wrlock(&buffer_objects_lock);
-        _get_buffer(file, handle, 1);
-        pthread_rwlock_unlock(&buffer_objects_lock);
-
-        pthread_rwlock_rdlock(&buffer_objects_lock);
-        bo = _get_buffer(file, handle, 0);
-
-        assert(bo != NULL && "failed to create buffer");
-
-        lock_buffer(bo);
-
-        return bo;
-}
-
-struct buffer_object *acquire_buffer(uint64_t file, uint32_t handle) {
-        struct buffer_object *bo;
-
-        pthread_rwlock_rdlock(&buffer_objects_lock);
-
-        bo = _get_buffer(file, handle, 0);
-
-        if (bo == NULL) {
-                pthread_rwlock_unlock(&buffer_objects_lock);
-        } else  {
-                lock_buffer(bo);
-        }
-
-        return bo;
-}
-
-void release_buffer(struct buffer_object *bo) {
-        unlock_buffer(bo);
-        pthread_rwlock_unlock(&buffer_objects_lock);
 }

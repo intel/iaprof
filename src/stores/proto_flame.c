@@ -41,38 +41,26 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
-        struct buffer_object *bo;
+        struct shader_binary *bin;
 
         retval = 0;
 
-        bo = acquire_buffer(bind->file, bind->handle);
+        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+        bin = get_shader_binary(bind->gpu_addr);
 
-        if (!bo) {
+        if (bin == NULL) {
                 if (debug) {
-                        WARN("Can't find a BO for file=0x%lx handle=%u\n",
-                             bind->file, bind->handle);
-                }
-                retval = -1;
-                goto out;
-        }
-
-        /* If we don't have a copy, can't disassemble it! */
-        if (!(bo->buff_sz)) {
-                if (debug) {
-                        WARN("Don't have a copy of vm_id=%u gpu_addr=0x%lx so can't decode.\n",
-                             bind->vm_id, bind->gpu_addr);
+                        WARN("Can't find a shader at 0x%lx\n", bind->gpu_addr);
                 }
                 retval = -1;
                 goto out;
         }
 
         /* Paranoid check */
-        if (offset >= bo->buff_sz) {
+        if (offset >= bin->size) {
                 if (debug) {
                         WARN("Got an EU stall past the end of a buffer. ");
-                        fprintf(stderr,
-                                "file=0x%lx handle=%u offset=0x%lx buff_sz=%lu\n",
-                                bo->file, bo->handle, offset, bo->buff_sz);
+                        fprintf(stderr, "offset=0x%lx size=%lu\n", offset, bin->size);
                 }
                 retval = -1;
                 goto out;
@@ -80,7 +68,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
 
         /* Initialize the kernel view */
         if (!bind->kv) {
-                bind->kv = iga_init(bo->buff, bo->buff_sz);
+                bind->kv = iga_init(bin->bytes, bin->size);
                 if (!bind->kv) {
                         if (debug) {
                                 WARN("Failed to initialize IGA.\n");
@@ -95,15 +83,13 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        WARN("Disassembly failed on file=0x%lx handle=%u\n", bo->file, bo->handle);
+                        WARN("Disassembly failed on shader at 0x%lx\n", bind->gpu_addr);
                 }
                 goto out;
         }
 
 out:;
-        if (bo != NULL) {
-                release_buffer(bo);
-        }
+        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
 
         return retval;
 }

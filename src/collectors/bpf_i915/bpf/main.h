@@ -8,7 +8,11 @@
 #define MAX_BUFFER_COPIES 256
 
 /* GEN binary copying maximums */
-#define MAX_BINARY_SIZE (2048 * 1024)
+#define MAX_BINARY_SIZE     (2048 * 1024)
+#define MAX_BB_DWORDS       (1024)
+#define MAX_BB_DWORDS_IDX   (MAX_BB_DWORDS - 1)
+#define MAX_BB_BYTES        (MAX_BB_DWORDS * sizeof(uint32_t))
+#define MAX_BB_COMMANDS     (4 * MAX_BB_DWORDS)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
@@ -19,27 +23,36 @@ struct file_handle_pair {
         __u32 handle;
 };
 
-struct buffer_copy {
-        uint64_t      size;
-        unsigned char bytes[MAX_BINARY_SIZE];
-};
-
 struct stack {
         __u64 addrs[MAX_STACK_DEPTH];
 };
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
-    BPF_EVENT_TYPE_MAPPING,
-    BPF_EVENT_TYPE_UNMAP,
     BPF_EVENT_TYPE_VM_CREATE,
     BPF_EVENT_TYPE_VM_BIND,
     BPF_EVENT_TYPE_VM_UNBIND,
-    BPF_EVENT_TYPE_EXECBUF_START,
-    BPF_EVENT_TYPE_EXECBUF_END,
-    BPF_EVENT_TYPE_BATCHBUFFER,
-    BPF_EVENT_TYPE_USERPTR,
     BPF_EVENT_TYPE_DEBUG_AREA,
+    BPF_EVENT_TYPE_EXECBUF,
+};
+
+struct execbuf_info {
+        __u8         type;
+
+        __u32        vm_id;
+        __u64        file;
+
+        __u64        iba;
+        __u64        sip;
+        __u64        ksp;
+        struct stack ustack;
+        struct stack kstack;
+
+        __u64        time;
+        __u32        pid;
+        __u32        tid;
+        __u32        cpu;
+        char         name[TASK_COMM_LEN];
 };
 
 /* Collected from an mmap */
@@ -106,68 +119,6 @@ struct vm_unbind_info {
         __u64 gpu_addr;
         __u64 size;
         __u64 offset;
-
-        __u32 pid, tid, cpu;
-        __u64 time;
-};
-
-/* Collected from the start of an execbuffer */
-struct execbuf_start_info {
-        __u8 type;
-
-        __u32 ctx_id, vm_id;
-        __u64 file;
-
-        __u64 batch_len;
-        __u32 batch_start_offset, batch_index, buffer_count;
-
-        /* The GPU address */
-        __u64 bb_offset;
-
-        char name[TASK_COMM_LEN];
-        __u32 cpu, pid, tid;
-        __u64 time;
-};
-
-/* Represents a copy of a batchbuffer */
-struct batchbuffer_info {
-        __u8 type;
-
-        __u32 pid, tid, cpu;
-        __u64 time;
-        __u64 gpu_addr;
-        __u32 vm_id;
-        __u64 file;
-};
-
-/* Collected from the end of an execbuffer */
-struct execbuf_end_info {
-        __u8 type;
-
-        __u32 ctx_id, vm_id;
-        __u64 file;
-
-        __u64 batch_len;
-        __u32 batch_start_offset, batch_index, buffer_count;
-
-        /* The GPU address */
-        __u64 bb_offset;
-
-        char name[TASK_COMM_LEN];
-        __u32 cpu, pid, tid;
-        __u64 time;
-        
-        struct stack stack;
-        struct stack kernel_stack;
-};
-
-/* Collected from the end of a call to i915_gem_userptr_ioctl */
-struct userptr_info {
-        __u8 type;
-
-        __u64 file;
-        __u32 handle;
-        __u64 cpu_addr;
 
         __u32 pid, tid, cpu;
         __u64 time;

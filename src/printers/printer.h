@@ -13,16 +13,11 @@
 #define TID_LEN 8
 
 int print_header();
-int print_mapping(struct mapping_info *info);
-int print_unmap(struct unmap_info *info);
-int print_userptr(struct userptr_info *info);
 int print_debug_area(struct debug_area_info *info);
 int print_vm_create(struct vm_create_info *info);
 int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter);
 int print_vm_unbind(struct vm_unbind_info *info);
-int print_batchbuffer(struct batchbuffer_info *info);
-int print_execbuf_buffer(struct buffer_binding *bind);
-int print_execbuf_end(struct execbuf_end_info *einfo);
+int print_execbuf(struct execbuf_info *info);
 
 int print_total_eustall(uint64_t num, unsigned long long time);
 int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,

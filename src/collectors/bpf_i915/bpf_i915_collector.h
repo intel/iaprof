@@ -30,15 +30,6 @@ extern _Atomic uint64_t iba;
 * which the BPF programs' ringbuffer can contain.
 ***************************************/
 
-/* int handle_mapping(void *data_arg); */
-int handle_unmap(void *data_arg);
-int handle_userptr(void *data_arg);
-int handle_vm_bind(void *data_arg);
-int handle_vm_create(void *data_arg);
-int handle_vm_unbind(void *data_arg);
-int handle_execbuf_end(void *data_arg);
-static int handle_sample(void *ctx, void *data_arg, size_t data_sz);
-
 /***************************************
 * BPF Setup
 **********************
@@ -53,8 +44,7 @@ int init_bpf_i915();
 struct bpf_info_t {
         struct main_bpf *obj;
         struct ring_buffer *rb;
-        struct ring_buffer *buffer_copy_rb;
-        int epoll_fd, rb_fd, buffer_copy_rb_fd;
+        int epoll_fd, rb_fd;
         struct bpf_map **map;
 
         /* Links to the BPF programs */

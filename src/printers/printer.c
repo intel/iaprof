@@ -22,55 +22,6 @@ int print_header()
         return 0;
 }
 
-int print_mapping(struct mapping_info *info)
-{
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "mmap");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-
-        /* ARGS */
-        fprintf(stderr, " file=0x%llx handle=%u cpu_addr=0x%llx size=%llu offset=%llu ",
-               info->file, info->handle, info->cpu_addr, info->size,
-               info->offset);
-        fprintf(stderr, "\n");
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
-int print_unmap(struct unmap_info *info)
-{
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "unmap");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-        fprintf(stderr, " file=0x%llx handle=%u cpu_addr=0x%llx size=%llu\n", info->file,
-               info->handle, info->cpu_addr, info->size);
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
-int print_userptr(struct userptr_info *info)
-{
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "userptr");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-        fprintf(stderr, " file=0x%llx handle=%u cpu_addr=0x%llx\n", info->file,
-               info->handle, info->cpu_addr);
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
 int print_debug_area(struct debug_area_info *info)
 {
         pthread_mutex_lock(&debug_print_lock);;
@@ -132,49 +83,15 @@ int print_vm_unbind(struct vm_unbind_info *info)
         return 0;
 }
 
-int print_batchbuffer(struct batchbuffer_info *info)
-{
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "batchbuffer");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-        fprintf(stderr, " vm_id=%u gpu_addr=0x%llx\n", info->vm_id,
-               info->gpu_addr);
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
-/* Prints buffers that an execbuffer referenced through its vm_id */
-int print_execbuf_buffer(struct buffer_binding *bind)
-{
-        pthread_mutex_lock(&debug_print_lock);;
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_bind");
-        fprintf(stderr, " %-*lu", TIME_LEN, bind->time);
-        fprintf(stderr, " %-*u", CPU_LEN, bind->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, bind->pid);
-        fprintf(stderr, " %-*u", TID_LEN, bind->tid);
-        fprintf(stderr, " ctx_id=%u", bind->ctx_id);
-        fprintf(stderr, " file=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx size=%lu\n",
-               bind->file, bind->handle, bind->vm_id, bind->gpu_addr,
-               bind->bind_size);
-        pthread_mutex_unlock(&debug_print_lock);;
-
-        return 0;
-}
-
-int print_execbuf_end(struct execbuf_end_info *einfo)
+int print_execbuf(struct execbuf_info *info)
 {
         static int counter;
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_end");
-        fprintf(stderr, " %-*llu", TIME_LEN, einfo->time);
-        fprintf(stderr, " %-*u", CPU_LEN, einfo->cpu);
-        fprintf(stderr, " %-*u", PID_LEN, einfo->pid);
-        fprintf(stderr, " %-*u", TID_LEN, einfo->tid);
-        fprintf(stderr, " ctx_id=%u gpu_addr=0x%llx buffer_count=%u, batch_start_offset=0x%x, counter=%d\n", einfo->ctx_id, einfo->bb_offset, einfo->buffer_count, einfo->batch_start_offset, counter);
+        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
+        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
+        fprintf(stderr, " %-*u", PID_LEN, info->pid);
+        fprintf(stderr, " %-*u", TID_LEN, info->tid);
         pthread_mutex_unlock(&debug_print_lock);
 
         counter++;

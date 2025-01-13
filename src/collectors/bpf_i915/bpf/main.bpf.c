@@ -94,11 +94,6 @@ struct {
         __uint(max_entries, RINGBUF_SIZE);
 } rb SEC(".maps");
 
-struct {
-        __uint(type, BPF_MAP_TYPE_RINGBUF);
-        __uint(max_entries, RINGBUF_SIZE);
-} buffer_copy_rb SEC(".maps");
-
 /***************************************
 * STACKMAP
 *
@@ -201,38 +196,6 @@ char send_debug_area_info(struct gpu_mapping *gmapping, int stackid)
         bpf_get_current_comm(info->name, sizeof(info->name));
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
-
-        return 1;
-}
-
-int buffer_copy_add(void *addr, u64 size) {
-        struct buffer_copy *bcopy;
-        void               *buff;
-        u64                 status;
-        int                 err;
-        char                one = 1;
-
-        if (size > MAX_BINARY_SIZE) {
-                size = MAX_BINARY_SIZE;
-        }
-
-        bcopy = bpf_ringbuf_reserve(&buffer_copy_rb, sizeof(*bcopy), 0);
-        if (!bcopy) {
-                ERR_PRINTK("buffer_copy_add failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&buffer_copy_rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
-        bcopy->size = size;
-
-        err = bpf_probe_read_user(bcopy->bytes, size, addr);
-        if (err) {
-                WARN_PRINTK("Failed to copy from cpu_addr=0x%lx, err=%d", addr, err);
-        }
-
-        bpf_ringbuf_submit(bcopy, BPF_RB_FORCE_WAKEUP);
 
         return 1;
 }

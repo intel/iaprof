@@ -477,11 +477,6 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         Elf64_Shdr *section_header;
         int retval;
         size_t string_table_index;
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-        struct shader_binary *shader_bin;
-        struct buffer_object *bo;
-
 
         /* Initialize the ELF from the buffer */
         elf = elf_memory((char *)data, data_size);
@@ -570,23 +565,6 @@ cleanup:
         if (retval != 0) {
                 WARN("Failed to cleanup ELF object.\n");
         }
-
-        /* If there are any existing buffer_bindings that match to a shader we've saved,
-         * let's create a buffer_object for it. Subsequent vm_binds that create new bindings
-         * will see the shaders at that point. */
-        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
-        FOR_BINDING(vm, bind, {
-                shader_bin = get_shader_binary(bind->gpu_addr);
-                if (shader_bin != NULL) {
-                        bo = acquire_buffer(bind->file, bind->handle);
-                        if (bo == NULL) {
-                                bo = create_buffer(bind->file, bind->handle);
-                                handle_binary(&(bo->buff), shader_bin->bytes, &(bo->buff_sz), shader_bin->size);
-                        }
-                        release_buffer(bo);
-                }
-        });
-        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
 }
 
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
