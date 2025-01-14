@@ -26,9 +26,9 @@ PREFIX="${DEPS_DIR}/install"
 LOCAL_DEPS=( "${PREFIX}/lib/libbpf.a" "${PREFIX}/lib/libiga64.a" )
 
 # Find the proper kernel headers and copy them into the deps/ directory
-KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi}"
-mkdir -p ${DEPS_DIR}/kernel_headers
-cp -r ${KERNEL_HEADERS} ${DEPS_DIR}/kernel_headers/
+KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
+mkdir -p ${DEPS_DIR}/kernel_headers/uapi
+cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
 CFLAGS+=" -I${DEPS_DIR}/kernel_headers"
 
 # Get the git commit hash
@@ -76,7 +76,12 @@ if ! command -v ${BPFTOOL} &> /dev/null; then
   export PATH="${PREFIX}/bin:${PATH}"
   echo "  No system bpftool found! Setting the PATH to use the bpftool we just built."
 else
-  echo "  Using system bpftool."
+  if ! ${BPFTOOL} --version &> /dev/null; then
+    echo " Your system bpftool appears to be broken! Setting the PATH to use our local bpftool."
+    export PATH="${PREFIX}/bin:${PATH}"
+  else
+    echo "  Using system bpftool."
+  fi
 fi
 
 ####################
