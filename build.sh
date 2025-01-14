@@ -221,6 +221,15 @@ ${CXX} ${COMMON_FLAGS} $(${LLVM_CONFIG} --cppflags) -c \
 #   GPU PARSERS    #
 ####################
 GPU_PARSERS_DIR="${SRC_DIR}/gpu_parsers"
+echo "Building ${GPU_PARSERS_DIR}..."
+
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -I${I915_HELPERS_DIR} \
+  -I${IGA_INCLUDE_DIR} \
+  ${GPU_PARSERS_DIR}/shader_decoder.c \
+  -o ${GPU_PARSERS_DIR}/shader_decoder.o
+
 
 ####################
 #     IAPROF       #
