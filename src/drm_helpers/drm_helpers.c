@@ -231,14 +231,14 @@ int get_drm_device_info(device_info *devinfo)
         fprintf(stderr, "Using device ID: 0x%x\n", devinfo->id);
         devinfo->graphics_ver = 0;
         devinfo->graphics_rel = 0;
-        for (i = 0; i < num_pvc_ids; i++) {
-                if (devinfo->id == pvc_ids[i]) {
+        for (i = 0; i < num_pci_ids; i++) {
+                if (devinfo->id == pci_ids[i]) {
                         devinfo->graphics_ver = 12;
                         devinfo->graphics_rel = 60;
                 }
         }
         if (devinfo->graphics_ver == 0) {
-                fprintf(stderr, "Only Ponte Vecchio is supported for now!\n");
+                fprintf(stderr, "Your device (PCI ID 0x%x) isn't supported.\n", devinfo->id);
                 return -1;
         }
 

@@ -31,9 +31,27 @@ typedef struct device_info {
 } device_info;
 
 #define IP_VER(ver, rel) ((ver) << 8 | (rel))
-static const int num_pvc_ids = 9;
-static const uint32_t pvc_ids[] = { 0x0b69, 0x0bd0, 0x0bd5, 0x0bd6, 0x0bd7,
-                                    0x0bd8, 0x0bd9, 0x0bda, 0x0bdb };
+static const int num_pci_ids = 15;
+static const uint32_t pci_ids[] = {
+        /* PVC */
+        0x0b69,
+        0x0bd0,
+        0x0bd5,
+        0x0bd6,
+        0x0bd7,
+        0x0bd8,
+        0x0bd9,
+        0x0bda,
+        0x0bdb,
+        0x0be0,
+        0x0be1,
+        0x0be5,
+        
+        /* LNL */
+        0x6420,
+        0x64a0,
+        0x64b0
+};
 
 void ioctl_err(int err);
 int ioctl_do(int fd, unsigned long request, void *arg);
