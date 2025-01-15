@@ -19,7 +19,7 @@
 #define DEFAULT_USER_BUF_SIZE (64 * DEFAULT_DSS_BUF_SIZE)
 #define DEFAULT_POLL_PERIOD_NS 1000000 /* userspace wakeup interval */
 #define DEFAULT_EVENT_COUNT \
-        1 /* aggregation: number of events to trigger poll read */
+        100 /* aggregation: number of events to trigger poll read */
 
 /******************************************************************************
 * eustall_info
@@ -55,9 +55,8 @@ struct eustall_sample;
 struct offset_profile;
 
 int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
-                     uint64_t gpu_addr, uint64_t offset,
-                     uint16_t subslice, unsigned long long time);
-int handle_eustall_samples(void *perf_buf, int len);
+                     uint64_t gpu_addr, uint64_t offset, unsigned long long time);
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo);
 int init_eustall(device_info *devinfo);
 void wakeup_eustall_deferred_attrib_thread();
 void handle_deferred_eustalls();

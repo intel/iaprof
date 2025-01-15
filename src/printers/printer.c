@@ -55,13 +55,10 @@ int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter)
 {
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "vm_bind");
-        fprintf(stderr, " %-*llu", TIME_LEN, info->time);
-        fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
         fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, info->tid);
-        fprintf(stderr, " file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx vm_bind_counter=%u size=%llu flags=0x%llx%s\n",
+        fprintf(stderr, " file=0x%llx handle=%u vm_id=%u gpu_addr=0x%llx vm_bind_counter=%u size=%llu\n",
                info->file, info->handle, info->vm_id, info->gpu_addr, vm_bind_counter,
-               info->size, info->flags, (info->flags & PRELIM_I915_GEM_VM_BIND_MAKE_RESIDENT) ? " (MAKE_RESIDENT)" : "");
+               info->size);
         pthread_mutex_unlock(&debug_print_lock);;
 
         return 0;
@@ -147,7 +144,7 @@ static int print_eustall_reason(struct eustall_sample *sample)
 }
 
 int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
-                  uint64_t offset, uint32_t handle, uint16_t subslice,
+                  uint64_t offset, uint32_t handle,
                   unsigned long long time)
 {
         pthread_mutex_lock(&debug_print_lock);;
@@ -156,8 +153,8 @@ int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
         fprintf(stderr, " %-*u", CPU_LEN, 0);
         fprintf(stderr, " %-*u", PID_LEN, 0);
         fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " handle=%u gpu_addr=0x%lx offset=0x%lx subslice=%" PRIu16 " ",
-               handle, gpu_addr, offset, subslice);
+        fprintf(stderr, " handle=%u gpu_addr=0x%lx offset=0x%lx ",
+               handle, gpu_addr, offset);
         print_eustall_reason(sample);
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;
@@ -166,7 +163,7 @@ int print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
 }
 
 int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
-                        uint64_t offset, uint16_t subslice,
+                        uint64_t offset,
                         unsigned long long time)
 {
         pthread_mutex_lock(&debug_print_lock);;
@@ -175,8 +172,8 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
         fprintf(stderr, " %-*u", CPU_LEN, 0);
         fprintf(stderr, " %-*u", PID_LEN, 0);
         fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " gpu_addr=0x%lx offset=0x%lx subslice=%" PRIu16 " ", gpu_addr,
-               offset, subslice);
+        fprintf(stderr, " gpu_addr=0x%lx offset=0x%lx ", gpu_addr,
+               offset);
         print_eustall_reason(sample);
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;
@@ -185,7 +182,7 @@ int print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
 }
 
 int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
-                       uint16_t subslice, unsigned long long time)
+                       unsigned long long time)
 {
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_drop");
@@ -193,7 +190,7 @@ int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
         fprintf(stderr, " %-*u", CPU_LEN, 0);
         fprintf(stderr, " %-*u", PID_LEN, 0);
         fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
+        fprintf(stderr, " gpu_addr=0x%lx ", gpu_addr);
         print_eustall_reason(sample);
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;
@@ -202,7 +199,7 @@ int print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
 }
 
 int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
-                        uint16_t subslice, unsigned long long time)
+                        unsigned long long time)
 {
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_defer");
@@ -210,7 +207,7 @@ int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
         fprintf(stderr, " %-*u", CPU_LEN, 0);
         fprintf(stderr, " %-*u", PID_LEN, 0);
         fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
+        fprintf(stderr, " gpu_addr=0x%lx ", gpu_addr);
         print_eustall_reason(sample);
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;
@@ -219,7 +216,7 @@ int print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
 }
 
 int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
-                             uint16_t subslice, unsigned long long time)
+                             unsigned long long time)
 {
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "eustall_multichurn");
@@ -227,7 +224,7 @@ int print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
         fprintf(stderr, " %-*u", CPU_LEN, 0);
         fprintf(stderr, " %-*u", PID_LEN, 0);
         fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " gpu_addr=0x%lx subslice=%" PRIu16 " ", gpu_addr, subslice);
+        fprintf(stderr, " gpu_addr=0x%lx ", gpu_addr);
         print_eustall_reason(sample);
         fprintf(stderr, "\n");
         pthread_mutex_unlock(&debug_print_lock);;

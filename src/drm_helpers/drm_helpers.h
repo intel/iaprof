@@ -1,8 +1,13 @@
 #pragma once
 
-#include <stdint.h>
 #include <stdbool.h>
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#else
+#include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
+#endif
 
 #include <i915_drm_prelim.h>
 
@@ -16,16 +21,39 @@ typedef struct device_info {
         uint32_t id, ctx_id;
         char name[16];
         int fd;
-        uint64_t min_freq, max_freq;
+        uint64_t record_size;
         unsigned graphics_ver, graphics_rel;
+#ifdef XE_DRIVER
+        struct drm_xe_query_gt_list *gt_info;
+        struct drm_xe_query_eu_stall *stall_info;
+#else
         struct drm_i915_query_engine_info *engine_info;
         struct drm_i915_query_memory_regions *memory_regions;
+#endif
 } device_info;
 
 #define IP_VER(ver, rel) ((ver) << 8 | (rel))
-static const int num_pvc_ids = 9;
-static const uint32_t pvc_ids[] = { 0x0b69, 0x0bd0, 0x0bd5, 0x0bd6, 0x0bd7,
-                                    0x0bd8, 0x0bd9, 0x0bda, 0x0bdb };
+static const int num_pci_ids = 15;
+static const uint32_t pci_ids[] = {
+        /* PVC */
+        0x0b69,
+        0x0bd0,
+        0x0bd5,
+        0x0bd6,
+        0x0bd7,
+        0x0bd8,
+        0x0bd9,
+        0x0bda,
+        0x0bdb,
+        0x0be0,
+        0x0be1,
+        0x0be5,
+        
+        /* LNL */
+        0x6420,
+        0x64a0,
+        0x64b0
+};
 
 void ioctl_err(int err);
 int ioctl_do(int fd, unsigned long request, void *arg);

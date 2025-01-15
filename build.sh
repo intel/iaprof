@@ -4,19 +4,22 @@ set -eu
 
 BASE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# User choices
 CLANG=${CLANG:-clang}
 CLANGPP=${CLANGPP:-clang++}
 LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
-# CSAN="-fsanitize=address"
-# LSAN="-fsanitize=address -static-libsan"
 OPT="-O3"
 CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 CFLAGS+=" -DDEBUG"
-# EXTRA_CFLAGS="-DSLOW_MODE"
 LDFLAGS="${LSAN:-}"
+
+BPFTOOL=${BPFTOOL:-bpftool}
+export IAPROF_XE_DRIVER=1
+CFLAGS+=" -DXE_DRIVER"
+
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
@@ -24,6 +27,12 @@ PREFIX="${DEPS_DIR}/install"
 IGA_INCLUDE_DIR="${IGA_INCLUDE_DIR:-${DEPS_DIR}/install/include}"
 LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
+
+# Find the proper kernel headers and copy them into the deps/ directory
+KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
+mkdir -p ${DEPS_DIR}/kernel_headers/uapi
+cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
+CFLAGS+=" -I${DEPS_DIR}/kernel_headers"
 
 # Get the git commit hash
 cd ${BASE_DIR}
@@ -66,25 +75,50 @@ for dep in "${ITEMS[@]}"; do
   LDFLAGS="${LDFLAGS} ${dep}"
 done
 
+# If not already in the PATH, use our locally-built bpftool
+# by setting the PATH. If the user specifies BPFTOOL, that
+# path will still be used regardless.
+if ! command -v ${BPFTOOL} &> /dev/null; then
+  export PATH="${PREFIX}/bin:${PATH}"
+  echo "  No system bpftool found! Setting the PATH to use the bpftool we just built."
+else
+  if ! ${BPFTOOL} --version &> /dev/null; then
+    echo " Your system bpftool appears to be broken! Setting the PATH to use our local bpftool."
+    export PATH="${PREFIX}/bin:${PATH}"
+  else
+    echo "  Using system bpftool."
+  fi
+fi
 
 ####################
-#   I915 HELPERS    #
+#   DRM HELPERS    #
 ####################
-I915_HELPERS_DIR="${SRC_DIR}/i915_helpers"
-echo "Building ${I915_HELPERS_DIR}..."
-
-I915_DKMS_SRC_DIR=$(find /usr/src -maxdepth 1 -name "intel-i915-dkms*" | tail -n 1)
-
-cat "${I915_DKMS_SRC_DIR}/i915-include/uapi/drm/i915_drm_prelim.h" |
-    sed 's/#include "i915_drm.h"/#include <drm\/i915_drm.h>/' |
-    sed '/define __I915_PMU_OTHER/i#ifndef __I915_PMU_OTHER' |
-    sed '/define __I915_PMU_OTHER/a#endif' > "${I915_HELPERS_DIR}/i915_drm_prelim.h"
+DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
+echo "Building ${DRM_HELPERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
-  -I${I915_HELPERS_DIR} \
-  ${I915_HELPERS_DIR}/i915_helpers.c \
-  -o ${I915_HELPERS_DIR}/i915_helpers.o
+  ${DRM_HELPERS_DIR}/drm_helpers.c \
+  -o ${DRM_HELPERS_DIR}/drm_helpers.o
 
+####################
+#  DRIVER HELPERS  #
+####################
+DRIVER_HELPERS_DIR="${SRC_DIR}/driver_helpers"
+echo "Building ${DRIVER_HELPERS_DIR}..."
+if [ -z ${IAPROF_XE_DRIVER} ]; then
+        ${CC} ${COMMON_FLAGS} -c \
+        ${DRIVER_HELPERS_DIR}/i915_helpers.c \
+        -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
+        
+        DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/i915_helpers.o"
+else
+        
+        ${CC} ${COMMON_FLAGS} -c \
+        ${DRIVER_HELPERS_DIR}/xe_helpers.c \
+        -o ${DRIVER_HELPERS_DIR}/xe_helpers.o
+        
+        DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/xe_helpers.o"
+fi
 
 ####################
 #   DRM HELPERS    #
@@ -147,24 +181,28 @@ cd ${COLLECTORS_DIR}/bpf_i915/bpf
 source build.sh
 cd ${BASE_DIR}
 
+IAPROF_COLLECTORS=""
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
   -std=c2x \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
   -o ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${I915_HELPERS_DIR} \
   ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
-  ${COLLECTORS_DIR}/eustall/eustall_collector.c \
-  -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+      -I${PREFIX}/include \
+      ${COLLECTORS_DIR}/eustall/eustall_collector.c \
+      -o ${COLLECTORS_DIR}/eustall/eustall_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/eustall/eustall_collector.o "
 
 ####################
 #    PRINTERS      #
@@ -235,7 +273,7 @@ ${CC} ${COMMON_FLAGS} -c \
 
 ${CXX} ${LDFLAGS} \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
-  ${I915_HELPERS_DIR}/i915_helpers.o \
+  ${DRIVER_HELPER_FLAGS} \
   \
   ${BPF_HELPERS_DIR}/trace_helpers.o \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
@@ -244,9 +282,7 @@ ${CXX} ${LDFLAGS} \
   ${STORES_DIR}/buffer_profile.o \
   ${STORES_DIR}/proto_flame.o \
   \
-  ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o \
-  ${COLLECTORS_DIR}/eustall/eustall_collector.o \
-  ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o \
+  ${IAPROF_COLLECTORS} \
   \
   ${PRINTERS_DIR}/printer.o \
   ${PRINTERS_DIR}/stack/stack_printer.o \

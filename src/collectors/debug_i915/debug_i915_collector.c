@@ -15,6 +15,11 @@
 #include <libelf.h>
 #include <elfutils/libdw.h>
 
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#endif
+
 #include "iaprof.h"
 #include "debug_i915_collector.h"
 #include "stores/buffer_profile.h"
@@ -92,14 +97,20 @@ void init_debug_i915(int i915_fd, int pid)
         pthread_rwlock_unlock(&debug_i915_info_lock);
 
         /* Open the fd to begin debugging this PID */
+#ifdef XE_DRIVER
+        struct drm_xe_eudebug_connect open = {};
+        open.pid = pid;
+        debug_fd = ioctl(i915_fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
+#else
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
         debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+#endif
 
         if (debug_fd < 0) {
                 fprintf(stderr,
-                        "Failed to open the debug interface for PID %d.\n",
-                        pid);
+                        "Failed to open the debug interface for PID %d: %d.\n",
+                        pid, debug_fd);
                 goto out;
         }
 
@@ -567,45 +578,72 @@ cleanup:
         }
 }
 
+#ifdef XE_DRIVER
+void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event,
+                       int pid_index)
+#else
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
                        int pid_index)
+#endif
 {
-        struct prelim_drm_i915_debug_event_uuid *uuid;
-        struct prelim_drm_i915_debug_read_uuid read_uuid = {};
-        char uuid_str[37];
         int retval;
         unsigned char *data;
+        uint64_t size;
 
+#ifdef XE_DRIVER
+        struct drm_xe_eudebug_event_metadata *uuid;
+        struct drm_xe_eudebug_read_metadata read_uuid = {};
+        uuid = (struct drm_xe_eudebug_event_metadata *)event;
+        if (!(event->flags & DRM_XE_EUDEBUG_EVENT_CREATE)) {
+                return;
+        }
+        if (!uuid->len) {
+                return;
+        }
+        read_uuid.client_handle = uuid->client_handle;
+        read_uuid.metadata_handle = uuid->metadata_handle;
+        read_uuid.size = uuid->len;
+        read_uuid.ptr = (uint64_t)malloc(uuid->len);
+        read_uuid.flags = 0;
+        
+        errno = 0;
+        retval = ioctl(debug_fd, DRM_XE_EUDEBUG_IOCTL_READ_METADATA, &read_uuid);
+        
+        data = (unsigned char *)read_uuid.ptr;
+        size = read_uuid.size;
+#else
+        struct prelim_drm_i915_debug_event_uuid *uuid;
+        struct prelim_drm_i915_debug_read_uuid read_uuid = {};
         uuid = (struct prelim_drm_i915_debug_event_uuid *)event;
-
-        /* Only look at UUIDs being created with a nonzero size */
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
         if (!uuid->payload_size) {
                 return;
         }
-
         read_uuid.client_handle = uuid->client_handle;
         read_uuid.handle = uuid->handle;
         read_uuid.payload_size = uuid->payload_size;
         read_uuid.payload_ptr = (uint64_t)malloc(uuid->payload_size);
+        
+        errno = 0;
         retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
+        
+        data = (unsigned char *)read_uuid.payload_ptr;
+        size = read_uuid.payload_size;
+#endif
 
         if (retval != 0) {
-                fprintf(stderr, "  Failed to read a UUID!\n");
+                fprintf(stderr, "  Failed to read metadata: %d!\n", errno);
                 goto cleanup;
         }
 
-        memcpy(uuid_str, read_uuid.uuid, 37);
-        data = (unsigned char *)read_uuid.payload_ptr;
-
         /* Check for the ELF magic bytes */
         if (*((uint32_t *)data) == 0x464c457f) {
-                handle_elf(data, read_uuid.payload_size, pid_index);
+                handle_elf(data, size, pid_index);
         }
 cleanup:
-        free((void *)read_uuid.payload_ptr);
+        free((void *)data);
         return;
 }
 
@@ -674,6 +712,64 @@ cleanup:
 }
 #endif
 
+#ifdef XE_DRIVER
+/* Returns whether an event was actually read. */
+int read_debug_i915_event(int fd, int pid_index)
+{
+        int retval, ack_retval;
+        struct drm_xe_eudebug_ack_event ack_event = {};
+        uint32_t size;
+        
+        size = sizeof(struct drm_xe_eudebug_event) + MAX_EVENT_SIZE;
+
+        /* Prepare the event struct to be read */
+        __attribute__((aligned(__alignof__(struct drm_xe_eudebug_event))))
+        char event_buff[size];
+        struct drm_xe_eudebug_event *event;
+        event = (struct drm_xe_eudebug_event *)event_buff;
+
+        memset(event, 0, size);
+
+        /* Call ioctl */
+        event->len = size;
+        event->type = DRM_XE_EUDEBUG_EVENT_READ;
+        event->flags = 0;
+        event->reserved = 0;
+        retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_READ_EVENT, event);
+
+        if (retval != 0) {
+                if (errno == ETIMEDOUT || errno == EAGAIN) {
+                        /* No more events. */
+                } else {
+                        fprintf(stderr, "read_event failed with: %d, errno=%d\n", retval, errno);
+                }
+                errno = 0;
+                return 0;
+        }
+        /* Handle the event */
+        if (event->type == DRM_XE_EUDEBUG_EVENT_METADATA) {
+                handle_event_uuid(fd, event, pid_index);
+#ifdef SLOW_MODE
+        } else if (event->type == DRM_XE_EUDEBUG_EVENT_VM_BIND) {
+                handle_event_vm_bind(fd, event, pid_index);
+#endif
+        }
+
+        /* ACK the event, otherwise the workload will stall. */
+        if (event->flags & DRM_XE_EUDEBUG_EVENT_NEED_ACK) {
+                ack_event.type = event->type;
+                ack_event.seqno = event->seqno;
+                ack_retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_ACK_EVENT,
+                                   &ack_event);
+                if (ack_retval != 0) {
+                        fprintf(stderr, "  Failed to ACK event!\n");
+                        return 1;
+                }
+        }
+
+        return 1;
+}
+#else
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
 {
@@ -728,6 +824,7 @@ int read_debug_i915_event(int fd, int pid_index)
 
         return 1;
 }
+#endif
 
 void read_debug_i915_events(int fd, int pid_index)
 {

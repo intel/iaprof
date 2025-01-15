@@ -42,13 +42,6 @@ cp bpftool ${PREFIX}/bin/bpftool
 cp libbpf/libbpf.a ${PREFIX}/lib/libbpf.a
 cp -r libbpf/include/* ${PREFIX}/include/
 
-if ! command -v ${BPFTOOL} &> /dev/null; then
-  export PATH="${PREFIX}/bin:${PATH}"
-  echo "  No system bpftool found! Setting the PATH to use the bpftool we just built."
-else
-  echo "  Using system bpftool."
-fi
-
 ###################################################################
 #                 Intel Graphics Compiler (IGC)
 ###################################################################

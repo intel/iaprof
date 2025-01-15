@@ -76,6 +76,7 @@ mkdir -p build
 cd build
 cmake \
   -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+  -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull" \
   -DIGC_OPTION__LLVM_MODE=Source \
   -DIGC_OPTION__LLVM_SOURCES_DIR=${BASEDIR}/llvm-project \
   -DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \

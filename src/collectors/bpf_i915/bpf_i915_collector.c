@@ -104,7 +104,9 @@ cleanup:
 
         vm_bind_bpf_counter++;
 
+#ifndef XE_DRIVER
         wakeup_eustall_deferred_attrib_thread();
+#endif
 
         return 0;
 }
