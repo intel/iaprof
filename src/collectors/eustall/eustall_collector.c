@@ -3,33 +3,24 @@
 #include <sys/ioctl.h>
 #include <poll.h>
 
+#include "iaprof.h"
+#include "drm_helpers/drm_helpers.h"
+#include "stores/buffer_profile.h"
+#include "collectors/eustall/eustall_collector.h"
+#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "gpu_parsers/shader_decoder.h"
+#include "printers/printer.h"
+
+/* Driver-specific stuff */
 #ifdef XE_DRIVER
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #include <uapi/drm/xe_drm_eudebug.h>
-#else
-#include <drm/i915_drm_prelim.h>
-#endif
-
-#include "iaprof.h"
-
-#include <i915_drm_prelim.h>
-#include "drm_helpers/drm_helpers.h"
-
-#ifdef XE_DRIVER
 #include "driver_helpers/xe_helpers.h"
 #else
+#include <drm/i915_drm_prelim.h>
 #include "driver_helpers/i915_helpers.h"
 #endif
-
-#include "stores/buffer_profile.h"
-
-#include "collectors/eustall/eustall_collector.h"
-#include "collectors/bpf_i915/bpf_i915_collector.h"
-
-#include "gpu_parsers/shader_decoder.h"
-
-#include "printers/printer.h"
 
 #ifdef XE_DRIVER
 #define PROP_BUF_SZ DRM_XE_EU_STALL_PROP_BUF_SZ

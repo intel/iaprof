@@ -82,7 +82,6 @@ int print_vm_unbind(struct vm_unbind_info *info)
 
 int print_execbuf(struct execbuf_info *info)
 {
-        static int counter;
         pthread_mutex_lock(&debug_print_lock);;
         fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "execbuf_end");
         fprintf(stderr, " %-*llu", TIME_LEN, info->time);
@@ -90,8 +89,6 @@ int print_execbuf(struct execbuf_info *info)
         fprintf(stderr, " %-*u", PID_LEN, info->pid);
         fprintf(stderr, " %-*u", TID_LEN, info->tid);
         pthread_mutex_unlock(&debug_print_lock);
-
-        counter++;
 
         return 0;
 }

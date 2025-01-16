@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #ifdef XE_DRIVER
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
@@ -8,8 +9,6 @@
 #include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
 #endif
-
-#include <i915_drm_prelim.h>
 
 /*******************
 *    DISCOVERY     *
@@ -21,7 +20,7 @@ typedef struct device_info {
         uint32_t id, ctx_id;
         char name[16];
         int fd;
-        uint64_t record_size;
+        uint64_t record_size, va_bits;
         unsigned graphics_ver, graphics_rel;
 #ifdef XE_DRIVER
         struct drm_xe_query_gt_list *gt_info;
@@ -64,3 +63,5 @@ bool read_sysfs(int sysfs_dir_fd, const char *file_path, uint64_t *out_value);
 int get_drm_device_info(device_info *devinfo);
 uint32_t get_drm_device_id(device_info *devinfo);
 void free_driver(device_info *devinfo);
+
+#define DRM_CANONICALIZE(addr) ((((uint64_t)(addr)) << (64 - devinfo.va_bits)) >> (64 - devinfo.va_bits))

@@ -18,7 +18,6 @@
 #include <drm/i915_drm_prelim.h>
 #endif
 
-#include <i915_drm_prelim.h>
 #include "drm_helpers/drm_helpers.h"
 
 void ioctl_err(int err)
@@ -208,8 +207,10 @@ int get_drm_device_info(device_info *devinfo)
                 }
                 
                 fprintf(stderr, "Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
+                fprintf(stderr, "VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
                 
                 devinfo->id = qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID] & 0xffff;
+                devinfo->va_bits = qc->info[DRM_XE_QUERY_CONFIG_VA_BITS];
                 free(qc);
 #else
         uint32_t devid = 0;

@@ -131,7 +131,6 @@ int BPF_PROG(drm_gem_ttm_mmap,
         u64 vm_pgoff, vm_start, vm_end, status;
         void *lookup;
         struct mmap_offset_wait_for_mmap_val offset_val;
-        struct mapping_info *info;
         struct file_handle_pair pair = {};
         u32 zero = 0;
 
@@ -155,33 +154,7 @@ int BPF_PROG(drm_gem_ttm_mmap,
         pair.file = offset_val.file;
         bpf_map_update_elem(&file_handle_mapping, &pair, &vm_start, 0);
 
-        /* Reserve some space on the ringbuffer */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct mapping_info), 0);
-        if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: drm_gem_ttm_mmap failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
-        /* mapping specific values */
-        info->type = BPF_EVENT_TYPE_MAPPING;
-        info->file = offset_val.file;
-        info->handle = offset_val.handle;
-        info->cpu_addr = vm_start;
-        info->size = vm_end - vm_start;
-        info->offset = 0;
-
-        info->cpu = bpf_get_smp_processor_id();
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-        info->tid = bpf_get_current_pid_tgid();
-        info->time = bpf_ktime_get_ns();
-        
-        DEBUG_PRINTK("drm_gem_ttm_mmap cpu_addr=0x%lx handle=%u file=0x%lx size=%lu", vm_start, offset_val.handle, pair.file, info->size);
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        DEBUG_PRINTK("drm_gem_ttm_mmap cpu_addr=0x%lx handle=%u file=0x%lx", vm_start, offset_val.handle, pair.file);
 
         mmap_wait_for_unmap_insert(offset_val.file, offset_val.handle,
                                    vm_start, vm_pgoff);
@@ -207,7 +180,6 @@ int BPF_PROG(ttm_bo_vm_close,
         struct ttm_buffer_object *bo;
         struct fake_offset_pointer foffset = {};
         struct file_handle_pair *val;
-        struct unmap_info *bin;
         struct cpu_mapping cmapping = {};
         struct gpu_mapping *gmapping;
         struct gpu_mapping save_gmapping = {};
@@ -256,44 +228,6 @@ int BPF_PROG(ttm_bo_vm_close,
         gmapping = NULL;
         if (!bpf_map_delete_elem(&cpu_gpu_map, &cmapping)) {
                 DEBUG_PRINTK("WARNING: munmap failed to delete cpu_addr=0x%lx from the cpu_gpu_map!", cpu_addr);
-        }
-
-        if (looks_like_batch_buffer((void*)cpu_addr, size)) {
-                DEBUG_PRINTK("unmap_region copying cpu_addr=0x%lx size=%lu fake_offset=0x%lx", cpu_addr, size, fake_offset);
-                
-                fault_count = bpf_map_lookup_elem(&fault_count_map, &cpu_addr);
-                if (fault_count) {
-                        size = 4096 * *fault_count;
-                }
-
-                if (buffer_copy_add((void*)cpu_addr, size)) {
-/*                         DEBUG_PRINTK("!!! BB 0 0 0x%lx %u", val->file, val->handle); */
-
-                        /* Reserve some space on the ringbuffer */
-                        bin = bpf_ringbuf_reserve(&rb, sizeof(struct unmap_info), 0);
-                        if (!bin) {
-                                DEBUG_PRINTK(
-                                        "WARNING: munmap_tp failed to reserve in the ringbuffer for handle %u.",
-                                        val->handle);
-                                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                                dropped_event = 1;
-                                return 0;
-                        }
-
-                        bin->type = BPF_EVENT_TYPE_UNMAP;
-                        bin->file = val->file;
-                        bin->handle = val->handle;
-                        bin->cpu_addr = cpu_addr;
-                        bin->size = size;
-
-                        bin->cpu = bpf_get_smp_processor_id();
-                        bin->pid = bpf_get_current_pid_tgid() >> 32;
-                        bin->tid = bpf_get_current_pid_tgid();
-                        bin->time = bpf_ktime_get_ns();
-
-                        bpf_ringbuf_submit(bin, BPF_RB_FORCE_WAKEUP);
-                }
         }
 
         return 0;

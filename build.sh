@@ -40,7 +40,7 @@ GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 GIT_COMMIT_HASH=$(git rev-parse HEAD)
 
 SRC_DIR="${BASE_DIR}/src"
-COMMON_FLAGS="${CFLAGS} -I${SRC_DIR} ${EXTRA_CFLAGS:-}"
+COMMON_FLAGS="${CFLAGS} -I${SRC_DIR}"
 
 # Commandline arguments
 DO_DEPS=false
@@ -127,7 +127,6 @@ DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
 echo "Building ${DRM_HELPERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
-  -I${I915_HELPERS_DIR} \
   ${DRM_HELPERS_DIR}/drm_helpers.c \
   -o ${DRM_HELPERS_DIR}/drm_helpers.o
 
@@ -159,13 +158,11 @@ echo "Building ${STORES_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   -I${IGA_INCLUDE_DIR} \
   ${STORES_DIR}/buffer_profile.c \
   -o ${STORES_DIR}/buffer_profile.o
 
 ${CC} ${COMMON_FLAGS} -c \
-  -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
   ${STORES_DIR}/proto_flame.c \
@@ -184,7 +181,6 @@ cd ${BASE_DIR}
 IAPROF_COLLECTORS=""
 
 ${CC} ${COMMON_FLAGS} -c \
-  -I${I915_HELPERS_DIR} \
   -I${PREFIX}/include \
   -std=c2x \
   ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
@@ -193,7 +189,6 @@ IAPROF_COLLECTORS+="${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
   -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
 IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o "
@@ -211,25 +206,21 @@ PRINTERS_DIR="${SRC_DIR}/printers"
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/printer.c \
   -o ${PRINTERS_DIR}/printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
   -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/debug/debug_printer.c \
   -o ${PRINTERS_DIR}/debug/debug_printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
 
@@ -241,7 +232,6 @@ echo "Building ${UTILS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${UTILS_DIR}/utils.c \
   -o ${UTILS_DIR}/utils.o
 
@@ -263,7 +253,6 @@ echo "Building ${GPU_PARSERS_DIR}..."
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
@@ -276,7 +265,6 @@ ${CC} ${COMMON_FLAGS} -c \
 ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
-  -I${I915_HELPERS_DIR} \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
 
@@ -312,6 +300,7 @@ ${CXX} ${LDFLAGS} \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
   -lz \
+  -lzstd \
   -lstdc++ \
   ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \

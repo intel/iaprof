@@ -81,9 +81,7 @@ int BPF_PROG(xe_vm_bind_ioctl,
         info->gpu_addr = args->bind.addr;
         info->size = args->bind.range;
         if (args->bind.op == DRM_XE_VM_BIND_OP_MAP_USERPTR) {
-                if (buffer_copy_add((void*)args->bind.userptr, info->size)) {
-                        info->userptr = 1;
-                }
+                info->userptr = 1;
                 info->offset = args->bind.userptr;
         } else {
                 info->userptr = 0;

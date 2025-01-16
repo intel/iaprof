@@ -210,28 +210,29 @@ void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *
 
 void debug_i915_add_shader_binary(Elf_Scn *section) {
         Elf64_Shdr *shdr;
+        uint64_t address;
         tree_it(uint64_t, shader_binary_ptr) it;
         struct shader_binary *bin;
         Elf_Data *data;
-        uint64_t offset;
 
         shdr = elf64_getshdr(section);
 
-        it = tree_lookup(shader_binaries, shdr->sh_addr);
+        address = DRM_CANONICALIZE(shdr->sh_addr);
+
+        it = tree_lookup(shader_binaries, address);
         if (tree_it_good(it)) {
                 free(tree_it_val(it));
-                tree_delete(shader_binaries, shdr->sh_addr);
+                tree_delete(shader_binaries, address);
         }
         bin = malloc(sizeof(struct shader_binary) + shdr->sh_size);
         memset(bin, 0, sizeof(*bin));
 
-        bin->start = shdr->sh_addr;
+        bin->start = address;
         bin->size = shdr->sh_size;
 
         data = elf_getdata(section, NULL);
-        offset = bin->start - shdr->sh_addr;
 
-        memcpy(bin->bytes, data->d_buf + offset, bin->size);
+        memcpy(bin->bytes, data->d_buf, bin->size);
 
         pthread_mutex_lock(&debug_i915_shader_binaries_lock);
         tree_insert(shader_binaries, bin->start, bin);
@@ -243,6 +244,7 @@ void debug_i915_add_shader_binary(Elf_Scn *section) {
 void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                         int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
+        uint64_t address;
         char *name;
         char *filename;
         int linenum;
@@ -250,6 +252,7 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         Debug_Info *info;
         Elf_Scn *section;
 
+        address = DRM_CANONICALIZE(symbol->st_value);
         name = elf_strptr(elf, string_table_index, symbol->st_name);
         filename = NULL;
         linenum = 0;
@@ -273,10 +276,10 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                 filename = strdup("<unknown>");
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", symbol->st_value,
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, symbol->st_value, symbol->st_size, filename, linenum, pid_index);
+        debug_i915_add_sym(name, address, symbol->st_size, filename, linenum, pid_index);
 
         section = elf_getscn(elf, symbol->st_shndx);
         debug_i915_add_shader_binary(section);
@@ -433,6 +436,7 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
 }
 
 void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table) {
+        uint64_t    address;
         char       *name;
         int         len;
         char       *seek;
@@ -440,6 +444,8 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
         int         linenum;
         char       *demangled;
         Debug_Info *info;
+
+        address = DRM_CANONICALIZE(section_header->sh_addr);
 
         name = elf_strptr(elf, string_table_index, section_header->sh_name);
         len  = strlen(name);
@@ -471,10 +477,10 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
                 filename = strdup("<unknown>");
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", section_header->sh_addr,
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, section_header->sh_addr, section_header->sh_size, filename, linenum, pid_index);
+        debug_i915_add_sym(name, address, section_header->sh_size, filename, linenum, pid_index);
         debug_i915_add_shader_binary(section);
 }
 
