@@ -73,6 +73,7 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         total += sample->sbid;
         total += sample->sync;
         total += sample->inst_fetch;
+        total += sample->tdr;
 
         return total;
 }
@@ -132,6 +133,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         found->sbid       += sample->sbid;
         found->sync       += sample->sync;
         found->inst_fetch += sample->inst_fetch;
+        found->tdr        += sample->tdr;
 
         release_vm_profile(vm);
         return 0;

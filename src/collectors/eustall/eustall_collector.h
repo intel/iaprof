@@ -97,6 +97,7 @@ enum {
         STALL_TYPE_SYNC,
         STALL_TYPE_INST_FETCH,
         STALL_TYPE_OTHER,
+        STALL_TYPE_TDR,
         NR_STALL_TYPES,
 };
 
@@ -112,6 +113,7 @@ struct offset_profile {
                         unsigned int sync;
                         unsigned int inst_fetch;
                         unsigned int other;
+                        unsigned int tdr;
                 };
                 unsigned int counts[NR_STALL_TYPES];
         };
@@ -135,6 +137,24 @@ struct offset_profile {
   * 85 to 92  sync count
   * 93 to 100  inst_fetch count
 ***************************************/
+#ifdef XE_DRIVER
+struct __attribute__((__packed__)) eustall_sample {
+        unsigned int ip : 29;
+        unsigned short tdr : 8;
+        unsigned short other : 8;
+        unsigned short control : 8;
+        unsigned short pipestall : 8;
+        unsigned short send : 8;
+        unsigned short dist_acc : 8;
+        unsigned short sbid : 8;
+        unsigned short sync : 8;
+        unsigned short inst_fetch : 8;
+        unsigned short active : 8;
+        unsigned short ex_id : 8;
+        unsigned short end_flag : 1;
+        unsigned short unused_bits : 15;
+};
+#else
 struct __attribute__((__packed__)) eustall_sample {
         unsigned int ip : 29;
         unsigned short active : 8;
@@ -147,5 +167,6 @@ struct __attribute__((__packed__)) eustall_sample {
         unsigned short sync : 8;
         unsigned short inst_fetch : 8;
 };
+#endif
 
 void handle_remaining_eustalls();
