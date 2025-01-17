@@ -111,12 +111,14 @@ struct {
 * Used for grabbing stacks in all BPF sub-programs.
 ***************************************/
 
+#if 0
 struct {
         __uint(type, BPF_MAP_TYPE_STACK_TRACE);
         __uint(key_size, sizeof(u32));
         __uint(value_size, MAX_STACK_DEPTH * sizeof(u64));
         __uint(max_entries, 1<<14);
 } stackmap SEC(".maps");
+#endif
 
 /***************************************
 * GPU->CPU Map

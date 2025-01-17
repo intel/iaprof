@@ -30,7 +30,7 @@
 #ifdef XE_DRIVER
 #include "driver_helpers/xe_helpers.h"
 #else
-#include "i915_helpers/i915_helpers.h"
+#include "driver_helpers/i915_helpers.h"
 #endif
 
 /* Collectors */

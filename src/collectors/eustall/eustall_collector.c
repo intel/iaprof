@@ -22,24 +22,6 @@
 #include "driver_helpers/i915_helpers.h"
 #endif
 
-#ifdef XE_DRIVER
-#define PROP_BUF_SZ DRM_XE_EU_STALL_PROP_BUF_SZ
-#define PROP_SAMPLE_RATE DRM_XE_EU_STALL_PROP_SAMPLE_RATE
-#define PROP_POLL_PERIOD DRM_XE_EU_STALL_PROP_POLL_PERIOD
-#define PROP_EVENT_REPORT_COUNT DRM_XE_EU_STALL_PROP_EVENT_REPORT_COUNT
-#define PROP_ENGINE_CLASS DRM_XE_EU_STALL_PROP_GT_ID
-#define DEFAULT_BUF_SZ 0x20000
-#define ENGINE_CLASS_COMPUTE DRM_XE_ENGINE_CLASS_COMPUTE
-#else
-#define PROP_BUF_SZ PRELIM_DRM_I915_EU_STALL_PROP_BUF_SZ
-#define PROP_SAMPLE_RATE PRELIM_DRM_I915_EU_STALL_PROP_SAMPLE_RATE
-#define PROP_POLL_PERIOD PRELIM_DRM_I915_EU_STALL_PROP_POLL_PERIOD
-#define PROP_EVENT_REPORT_COUNT PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT
-#define PROP_ENGINE_CLASS PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS
-#define DEFAULT_ENGINE_CLASS 4
-#define ENGINE_CLASS_COMPUTE PRELIM_I915_ENGINE_CLASS_COMPUTE
-#endif
-
 pthread_cond_t eustall_deferred_attrib_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t eustall_deferred_attrib_cond_mtx = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t eustall_waitlist_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -73,7 +55,9 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         total += sample->sbid;
         total += sample->sync;
         total += sample->inst_fetch;
+#ifdef XE_DRIVER
         total += sample->tdr;
+#endif
 
         return total;
 }
@@ -133,7 +117,9 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         found->sbid       += sample->sbid;
         found->sync       += sample->sync;
         found->inst_fetch += sample->inst_fetch;
+#ifdef XE_DRIVER
         found->tdr        += sample->tdr;
+#endif
 
         release_vm_profile(vm);
         return 0;
@@ -293,7 +279,6 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
         unsigned long long time;
         int i;
         struct eustall_sample *sample;
-        struct prelim_drm_i915_stall_cntr_info *info;
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
@@ -301,7 +286,6 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
         
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
-                info   = perf_buf + i + 48;
                 handle_eustall_sample(sample, time, /* is_deferred = */ 0);
         }
 

@@ -44,7 +44,7 @@ int init_bpf_i915();
 struct bpf_info_t {
         struct main_bpf *obj;
         struct ring_buffer *rb;
-        int epoll_fd, rb_fd;
+        int epoll_fd, rb_fd, stackmap_fd;
         struct bpf_map **map;
 
         /* Links to the BPF programs */

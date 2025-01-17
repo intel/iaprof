@@ -301,7 +301,7 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
                 goto insert;
         }
 
-        sfd = bpf_map__fd(bpf_info.obj->maps.stackmap);
+        sfd = bpf_info.stackmap_fd;
         if (sfd <= 0) {
                 fprintf(stderr, "Failed to get stackmap.\n");
                 stack_str = strdup("[unknown]");

@@ -5,6 +5,7 @@
 * BB command constants defined in
 * gpu_parsers/bb_parser_defs.h
 ***************************************/
+#pragma once
 
 #ifdef XE_DRIVER
 #include "xe.h"
@@ -306,7 +307,7 @@ int parse_next(struct parse_cxt *cxt) {
                         cxt->level -= 1;
                         lvl = cxt->level;
 
-                } else if ((op == COMPUTE_WALKER) && (which_dword == 20)) {
+                } else if ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD)) {
                         cxt->ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
                         BB_PRINTK("  KSP: 0x%llx", cxt->ksp);
 

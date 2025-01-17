@@ -60,6 +60,7 @@
  *   command type.
  */
 
+#ifdef XE_DRIVER
 #define LIST_COMMANDS(X)                                                                                \
 /*        NAME,                              TYPE,        OPCODE,                         NUM_DWORDS */ \
         X(NOOP,                              CMD_MI,        0x00,                                  1)   \
@@ -92,6 +93,41 @@
         X(STATE_CONTEXT_DATA_BASE_ADDRESS,   CMD_GFXPIPE,   OP_GFXPIPE(0X00, 0X01, 0X0b),          3)   \
         X(CFE_STATE,                         CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x00),          6)   \
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
+#define COMPUTE_WALKER_KSP_DWORD 20
+#else
+#define LIST_COMMANDS(X)                                                                                \
+/*        NAME,                              TYPE,        OPCODE,                         NUM_DWORDS */ \
+        X(NOOP,                              CMD_MI,        0x00,                                  1)   \
+        X(BATCH_BUFFER_START,                CMD_MI,        0x31,                                  3)   \
+        X(PRT_BATCH_BUFFER_START,            CMD_MI,        0x39,                                  3)   \
+        X(CONDITIONAL_BATCH_BUFFER_END,      CMD_MI,        0x36,                                  4)   \
+        X(BATCH_BUFFER_END,                  CMD_MI,        0x0a,                                  1)   \
+        X(SEMAPHORE_WAIT,                    CMD_MI,        0x1c,                                  5)   \
+        X(PREDICATE,                         CMD_MI,        0x0c,                                  1)   \
+        X(STORE_REGISTER_MEM,                CMD_MI,        0x24,                                  4)   \
+        X(STORE_DATA_IMM,                    CMD_MI,        0x20,                                  5)   \
+        X(LOAD_REGISTER_IMM,                 CMD_MI,        0x22,                                  3)   \
+        X(LOAD_REGISTER_MEM,                 CMD_MI,        0x29,                                  4)   \
+        X(LOAD_REGISTER_REG,                 CMD_MI,        0x2a,                                  3)   \
+        X(FLUSH_DW,                          CMD_MI,        0x26,                                  5)   \
+        X(ARB_CHECK,                         CMD_MI,        0x05,                                  1)   \
+        X(ARB_ON_OFF,                        CMD_MI,        0x08,                                  1)   \
+        X(URB_ATOMIC_ALLOC,                  CMD_MI,        0x09,                                  1)   \
+        X(MEM_COPY,                          CMD_XY,        0x5a,                                 10)   \
+        X(MEM_SET,                           CMD_XY,        0x5b,                                  7)   \
+        X(PIPE_CONTROL,                      CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x02, 0x00),          6)   \
+        X(PIPELINE_SELECT,                   CMD_GFXPIPE,   OP_GFXPIPE(0x01, 0x01, 0x04),          1)   \
+        X(COMPUTE_WALKER,                    CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x08),         39)   \
+        X(GPGPU_WALKER,                      CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x01, 0x05),         15)   \
+        X(STATE_BASE_ADDRESS,                CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x01),         22)   \
+        X(STATE_COMPUTE_MODE,                CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x05),          2)   \
+        X(STATE_SIP,                         CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x02),          3)   \
+        X(STATE_PREFETCH,                    CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x00, 0x03),          4)   \
+        X(STATE_SYSTEM_MEM_FENCE_ADDRESS,    CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x09),          3)   \
+        X(CFE_STATE,                         CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x00),          6)   \
+        X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
+#define COMPUTE_WALKER_KSP_DWORD 19
+#endif
 
 enum {
 #define E(name, type, opcode, num_dwords) name = opcode,
