@@ -17,8 +17,8 @@ CFLAGS+=" -DDEBUG"
 LDFLAGS="${LSAN:-}"
 
 BPFTOOL=${BPFTOOL:-bpftool}
-export IAPROF_XE_DRIVER=1
-CFLAGS+=" -DXE_DRIVER"
+export IAPROF_XE_DRIVER=""
+#CFLAGS+=" -DXE_DRIVER"
 
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
@@ -91,31 +91,38 @@ else
 fi
 
 ####################
-#   DRM HELPERS    #
-####################
-DRM_HELPERS_DIR="${SRC_DIR}/drm_helpers"
-echo "Building ${DRM_HELPERS_DIR}..."
-
-${CC} ${COMMON_FLAGS} -c \
-  ${DRM_HELPERS_DIR}/drm_helpers.c \
-  -o ${DRM_HELPERS_DIR}/drm_helpers.o
-
-####################
 #  DRIVER HELPERS  #
 ####################
 DRIVER_HELPERS_DIR="${SRC_DIR}/driver_helpers"
 echo "Building ${DRIVER_HELPERS_DIR}..."
 if [ -z ${IAPROF_XE_DRIVER} ]; then
+
+        # If applicable, find the i915 prelim headers from the DKMS version
+        # of i915. Copy them locally, fix them up, and include them where necessary.
+        I915_DKMS_SRC_DIR=$(find /usr/src -maxdepth 1 -name "intel-i915-dkms*" | tail -n 1)
+        if [ ! -z ${I915_DKMS_SRC_DIR} ]; then
+          mkdir -p ${DRIVER_HELPERS_DIR}/drm
+          cat "${I915_DKMS_SRC_DIR}/i915-include/uapi/drm/i915_drm_prelim.h" |
+            sed 's/#include "i915_drm.h"/#include <drm\/i915_drm.h>/' |
+            sed '/define __I915_PMU_OTHER/i#ifndef __I915_PMU_OTHER' |
+            sed '/define __I915_PMU_OTHER/a#endif' > "${DRIVER_HELPERS_DIR}/drm/i915_drm_prelim.h"
+          COMMON_FLAGS+=" -I${DRIVER_HELPERS_DIR}"
+        else
+          echo " WARNING: Couldn't find the intel-i915-dkms directory in /usr/src."
+          echo " We use this to get a copy of i915_drm_prelim.h. Proceeding without."
+        fi
+
+        # Build the i915 helpers
         ${CC} ${COMMON_FLAGS} -c \
-        ${DRIVER_HELPERS_DIR}/i915_helpers.c \
-        -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
+          ${DRIVER_HELPERS_DIR}/i915_helpers.c \
+          -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
         
         DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/i915_helpers.o"
 else
         
         ${CC} ${COMMON_FLAGS} -c \
-        ${DRIVER_HELPERS_DIR}/xe_helpers.c \
-        -o ${DRIVER_HELPERS_DIR}/xe_helpers.o
+          ${DRIVER_HELPERS_DIR}/xe_helpers.c \
+          -o ${DRIVER_HELPERS_DIR}/xe_helpers.o
         
         DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/xe_helpers.o"
 fi
