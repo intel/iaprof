@@ -23,6 +23,7 @@ void print_debug_profile()
 {
         struct vm_profile *vm;
         struct buffer_binding *bind;
+        uint64_t tot;
 
         if (!debug) {
                 return;
@@ -35,7 +36,10 @@ void print_debug_profile()
                 print_debug_binding(bind);
         });
 
-        debug_printf("Matched eustalls: %lu\n", eustall_info.matched);
-        debug_printf("Unmatched eustalls: %lu\n", eustall_info.unmatched);
-        debug_printf("Guessed eustalls: %lu\n", eustall_info.guessed);
+
+        tot = eustall_info.matched + eustall_info.unmatched + eustall_info.guessed;
+
+        debug_printf("Matched eustalls: %lu (%.2f%%)\n", eustall_info.matched, tot > 0 ? (((double)eustall_info.matched) / ((double)tot) * 100.0) : 0);
+        debug_printf("Unmatched eustalls: %lu (%.2f%%)\n", eustall_info.unmatched, tot > 0 ? (((double)eustall_info.unmatched) / ((double)tot) * 100.0) : 0);
+        debug_printf("Guessed eustalls: %lu (%.2f%%)\n", eustall_info.guessed, tot > 0 ? (((double)eustall_info.guessed) / ((double)tot) * 100.0) : 0);
 }
