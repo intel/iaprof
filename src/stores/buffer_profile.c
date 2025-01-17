@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <assert.h>
+#include <stdbool.h>
 
 #include "iaprof.h"
 #include "buffer_profile.h"

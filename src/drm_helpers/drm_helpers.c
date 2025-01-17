@@ -6,12 +6,18 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/sysmacros.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <sys/types.h>
 
-#include <i915_drm_prelim.h>
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#else
+#include <drm/i915_drm_prelim.h>
+#endif
+
 #include "drm_helpers/drm_helpers.h"
 
 void ioctl_err(int err)
@@ -55,10 +61,11 @@ int ioctl_do(int fd, unsigned long request, void *arg)
         return ret;
 }
 
+#define MAX_DRIVER_CHARS 16
 int open_first_driver(device_info *devinfo)
 {
         int i, fd;
-        char filename[80], name[16] = "";
+        char filename[80], name[MAX_DRIVER_CHARS] = "";
         drm_version_t version;
 
         /* Loop until we successfully open a device */
@@ -73,7 +80,7 @@ int open_first_driver(device_info *devinfo)
 
                 /* Read in the name/version of the device */
                 memset(&version, 0, sizeof(version));
-                memset(name, 0, sizeof(name));
+                memset(name, 0, MAX_DRIVER_CHARS);
                 version.name_len = sizeof(name) - 1;
                 version.name = name;
                 if (ioctl_do(fd, DRM_IOCTL_VERSION, &version)) {
@@ -85,10 +92,10 @@ int open_first_driver(device_info *devinfo)
                 }
 
                 /* If the driver name isn't "i915", go to the next one. */
-                if (strcmp(version.name, "i915") != 0) {
+                if ((strcmp(version.name, "i915") != 0) && (strcmp(version.name, "xe") != 0)) {
                         fprintf(stderr,
-                                "Found a driver called '%s', but it's not supported.\n",
-                                version.name);
+                                "Found a driver called '%s' on device %s, but it's not supported.\n",
+                                version.name, filename);
                         close(fd);
                         fd = -1;
                         continue;
@@ -169,7 +176,6 @@ bool read_sysfs(int sysfs_dir_fd, const char *file_path, uint64_t *out_value)
 int get_drm_device_info(device_info *devinfo)
 {
         int sysfs_dir_fd, i;
-        uint32_t devid = 0;
 
         sysfs_dir_fd = open_sysfs_dir(devinfo->fd);
         if (sysfs_dir_fd < 0) {
@@ -177,16 +183,37 @@ int get_drm_device_info(device_info *devinfo)
                 return -1;
         }
 
-        if (!read_sysfs(sysfs_dir_fd, "gt_min_freq_mhz",
-                        &(devinfo->min_freq)) ||
-            !read_sysfs(sysfs_dir_fd, "gt_max_freq_mhz",
-                        &(devinfo->max_freq))) {
-                fprintf(stderr,
-                        "Failed to read the minimum and maximum frequencies. Aborting.\n");
-                close(sysfs_dir_fd);
-                return -1;
-        }
-
+#ifdef XE_DRIVER
+        if (strcmp(devinfo->name, "xe") == 0) {
+                struct drm_xe_device_query dq;
+                struct drm_xe_query_config *qc;
+                
+                /* Get the size that we need to allocate */
+                memset(&dq, 0, sizeof(dq));
+                dq.query = DRM_XE_DEVICE_QUERY_CONFIG;
+                if(ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY, &dq)) {
+                        fprintf(stderr, "Failed to get the size of the device config! Aborting.\n");
+                        ioctl_err(errno);
+                        return -1;
+                }
+                
+                /* Fill in qc */
+                qc = malloc(dq.size);
+                dq.data = (uint64_t)qc;
+                if(ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY, &dq)) {
+                        fprintf(stderr, "Failed to get the device config! Aborting.\n");
+                        ioctl_err(errno);
+                        return -1;
+                }
+                
+                fprintf(stderr, "Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
+                fprintf(stderr, "VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
+                
+                devinfo->id = qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID] & 0xffff;
+                devinfo->va_bits = qc->info[DRM_XE_QUERY_CONFIG_VA_BITS];
+                free(qc);
+#else
+        uint32_t devid = 0;
         if (strcmp(devinfo->name, "i915") == 0) {
                 struct drm_i915_getparam gp;
                 memset(&gp, 0, sizeof(gp));
@@ -194,6 +221,7 @@ int get_drm_device_info(device_info *devinfo)
                 gp.value = (int *)&devid;
                 ioctl(devinfo->fd, DRM_IOCTL_I915_GETPARAM, &gp, sizeof(gp));
                 devinfo->id = devid;
+#endif
         } else {
                 fprintf(stderr,
                         "The DRM driver '%s' is not supported. Aborting.\n",
@@ -201,16 +229,17 @@ int get_drm_device_info(device_info *devinfo)
                 return -1;
         }
 
+        fprintf(stderr, "Using device ID: 0x%x\n", devinfo->id);
         devinfo->graphics_ver = 0;
         devinfo->graphics_rel = 0;
-        for (i = 0; i < num_pvc_ids; i++) {
-                if (devinfo->id == pvc_ids[i]) {
+        for (i = 0; i < num_pci_ids; i++) {
+                if (devinfo->id == pci_ids[i]) {
                         devinfo->graphics_ver = 12;
                         devinfo->graphics_rel = 60;
                 }
         }
         if (devinfo->graphics_ver == 0) {
-                fprintf(stderr, "Only Ponte Vecchio is supported for now!\n");
+                fprintf(stderr, "Your device (PCI ID 0x%x) isn't supported.\n", devinfo->id);
                 return -1;
         }
 
@@ -220,6 +249,10 @@ int get_drm_device_info(device_info *devinfo)
 void free_driver(device_info *devinfo)
 {
         close(devinfo->fd);
+#ifdef XE_DRIVER
+        free(devinfo->gt_info);
+#else
         free(devinfo->engine_info);
+#endif
         free(devinfo);
 }

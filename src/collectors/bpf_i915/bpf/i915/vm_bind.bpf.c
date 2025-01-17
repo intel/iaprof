@@ -73,12 +73,7 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
         info->gpu_addr = gpu_addr;
         info->size = size;
         info->offset = BPF_CORE_READ(args, offset);
-        info->flags = BPF_CORE_READ(args, flags);
-
-        info->cpu = bpf_get_smp_processor_id();
         info->pid = bpf_get_current_pid_tgid() >> 32;
-        info->tid = bpf_get_current_pid_tgid();
-        info->time = bpf_ktime_get_ns();
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 

@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <assert.h>
+#include <fcntl.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -104,7 +105,9 @@ cleanup:
 
         vm_bind_bpf_counter++;
 
+#ifndef XE_DRIVER
         wakeup_eustall_deferred_attrib_thread();
+#endif
 
         return 0;
 }
@@ -284,8 +287,25 @@ int deinit_bpf_i915()
 
 int init_bpf_i915()
 {
-        int err;
-
+        int err, stack_limit;
+        FILE *file;
+        
+        /* Check the value of kernel.perf_event_max_stack */
+        stack_limit = 127;
+        file = fopen("/proc/sys/kernel/perf_event_max_stack", "r");
+        if (file) {
+                /* If we're able to read it from /proc, set it to that
+                   value. To be safe, just default to a typical value that
+                   we've seen (127). */
+                fscanf(file, "%d", &stack_limit);
+                fclose(file);
+        }
+        fprintf(stderr, "Stack limit is now: %d\n", stack_limit);
+        
+        bpf_info.stackmap_fd = bpf_map_create(BPF_MAP_TYPE_STACK_TRACE,
+                                 "stackmap", 4, sizeof(uintptr_t) * stack_limit,
+                                 1<<14, 0);
+        
         bpf_info.obj = main_bpf__open_and_load();
         if (!bpf_info.obj) {
                 ERR("Failed to get BPF object.\n"

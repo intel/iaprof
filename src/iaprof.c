@@ -27,7 +27,11 @@
 
 /* Helpers */
 #include "drm_helpers/drm_helpers.h"
-#include "i915_helpers/i915_helpers.h"
+#ifdef XE_DRIVER
+#include "driver_helpers/xe_helpers.h"
+#else
+#include "driver_helpers/i915_helpers.h"
+#endif
 
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
@@ -45,6 +49,21 @@
 #include "gpu_parsers/shader_decoder.h"
 
 #include "utils/array.h"
+
+/******************
+ * GLOBALS        *
+ ******************/
+enum {
+    STOP_REQUESTED  = (1 << 0),
+    EUSTALL_DONE    = (1 << 1),
+    BPF_DONE        = (1 << 2),
+    DEBUG_i915_DONE = (1 << 3),
+    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_i915_DONE),
+};
+static _Atomic char collect_threads_should_stop = 0;
+static _Atomic char collect_threads_profiling = 0;
+static _Atomic char collect_threads_enabled = 3;
+static _Atomic char main_thread_should_stop = 0;
 
 /*******************
 * COMMANDLINE ARGS *
@@ -105,7 +124,7 @@ int read_opts(int argc, char **argv)
 
         while (1) {
                 option_index = 0;
-                c = getopt_long(argc, argv, "dbghqv", long_options,
+                c = getopt_long(argc, argv, "dbghqve", long_options,
                                 &option_index);
                 if (c == -1) {
                         break;
@@ -153,6 +172,7 @@ int read_opts(int argc, char **argv)
                 }
                 g_sidecar[--size] = '\0';
         }
+        
 
         return 0;
 }
@@ -226,21 +246,11 @@ struct device_info devinfo = {};
 
 /* No thread race protection needed. Only accessed in bpf_collect_thread */
 struct bpf_info_t bpf_info = {};
-
 struct eustall_info_t eustall_info = {};
-
 
 #define MAX_EPOLL_EVENTS 64
 
 /* Thread and interval */
-
-enum {
-    STOP_REQUESTED  = (1 << 0),
-    EUSTALL_DONE    = (1 << 1),
-    BPF_DONE        = (1 << 2),
-    DEBUG_i915_DONE = (1 << 3),
-    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_i915_DONE),
-};
 
 pthread_t bpf_collect_thread_id;
 pthread_t debug_i915_collect_thread_id;
@@ -248,9 +258,6 @@ pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
 pthread_t sidecar_thread_id;
 timer_t interval_timer;
-static _Atomic char collect_threads_should_stop = 0;
-static _Atomic char collect_threads_profiling = 0;
-static _Atomic char main_thread_should_stop = 0;
 
 void stop_collect_threads()
 {
@@ -283,13 +290,14 @@ void init_driver()
                 ERR("Failed to get device info.\n");
         }
 
+#ifndef XE_DRIVER
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
                 ERR("Failed to get engine info.\n");
         }
-
+#endif
 }
 
-int handle_eustall_read(int fd)
+int handle_eustall_read(int fd, struct device_info *devinfo)
 {
         int len;
 
@@ -297,7 +305,7 @@ int handle_eustall_read(int fd)
         len = read(fd, eustall_info.perf_buf,
                    DEFAULT_USER_BUF_SIZE);
         if (len > 0) {
-                handle_eustall_samples(eustall_info.perf_buf, len);
+                handle_eustall_samples(eustall_info.perf_buf, len, devinfo);
         }
 
         store_interval_flames();
@@ -340,6 +348,10 @@ void *eustall_collect_thread_main(void *a) {
         if (init_eustall(&devinfo)) {
                 ERR("Failed to configure EU stalls.\n");
         }
+        
+        if (debug) {
+                fprintf(stderr, "Initialized EU stall collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
@@ -367,7 +379,7 @@ void *eustall_collect_thread_main(void *a) {
                         if (main_thread_should_stop != STOP_NOW) {
                                 main_thread_should_stop &= ~EUSTALL_DONE;
                         }
-                        handle_eustall_read(pollfd.fd);
+                        handle_eustall_read(pollfd.fd, &devinfo);
                 } else {
                         if (main_thread_should_stop) {
                                 main_thread_should_stop |= EUSTALL_DONE;
@@ -398,6 +410,10 @@ void *bpf_collect_thread_main(void *a) {
 
         init_bpf_i915();
         errno = 0;
+        
+        if (debug) {
+                fprintf(stderr, "Initialized BPF collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
@@ -464,6 +480,10 @@ void *debug_i915_collect_thread_main(void *a) {
 
         pollfds         = array_make(struct pollfd);
         pollfds_indices = array_make(int);
+        
+        if (debug) {
+                fprintf(stderr, "Initialized debug collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
@@ -606,8 +626,8 @@ int main(int argc, char **argv)
                 ERR("Failed to start the eustall deffered attribution thread.\n");
         }
 
-        /* Wait for the collection thread to start */
-        while (collect_threads_profiling < 3) {
+        /* Wait for the collection threads to start */
+        while (collect_threads_profiling < collect_threads_enabled) {
                 nanosleep(&request, &leftover);
         }
         print_status("Profiling, Ctrl-C to exit...\n");

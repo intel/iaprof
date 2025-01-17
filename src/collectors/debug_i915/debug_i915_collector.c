@@ -15,6 +15,11 @@
 #include <libelf.h>
 #include <elfutils/libdw.h>
 
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#endif
+
 #include "iaprof.h"
 #include "debug_i915_collector.h"
 #include "stores/buffer_profile.h"
@@ -92,14 +97,20 @@ void init_debug_i915(int i915_fd, int pid)
         pthread_rwlock_unlock(&debug_i915_info_lock);
 
         /* Open the fd to begin debugging this PID */
+#ifdef XE_DRIVER
+        struct drm_xe_eudebug_connect open = {};
+        open.pid = pid;
+        debug_fd = ioctl(i915_fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
+#else
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
         debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+#endif
 
         if (debug_fd < 0) {
                 fprintf(stderr,
-                        "Failed to open the debug interface for PID %d.\n",
-                        pid);
+                        "Failed to open the debug interface for PID %d: %d.\n",
+                        pid, debug_fd);
                 goto out;
         }
 
@@ -199,28 +210,29 @@ void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *
 
 void debug_i915_add_shader_binary(Elf_Scn *section) {
         Elf64_Shdr *shdr;
+        uint64_t address;
         tree_it(uint64_t, shader_binary_ptr) it;
         struct shader_binary *bin;
         Elf_Data *data;
-        uint64_t offset;
 
         shdr = elf64_getshdr(section);
 
-        it = tree_lookup(shader_binaries, shdr->sh_addr);
+        address = DRM_CANONICALIZE(shdr->sh_addr);
+
+        it = tree_lookup(shader_binaries, address);
         if (tree_it_good(it)) {
                 free(tree_it_val(it));
-                tree_delete(shader_binaries, shdr->sh_addr);
+                tree_delete(shader_binaries, address);
         }
         bin = malloc(sizeof(struct shader_binary) + shdr->sh_size);
         memset(bin, 0, sizeof(*bin));
 
-        bin->start = shdr->sh_addr;
+        bin->start = address;
         bin->size = shdr->sh_size;
 
         data = elf_getdata(section, NULL);
-        offset = bin->start - shdr->sh_addr;
 
-        memcpy(bin->bytes, data->d_buf + offset, bin->size);
+        memcpy(bin->bytes, data->d_buf, bin->size);
 
         pthread_mutex_lock(&debug_i915_shader_binaries_lock);
         tree_insert(shader_binaries, bin->start, bin);
@@ -232,6 +244,7 @@ void debug_i915_add_shader_binary(Elf_Scn *section) {
 void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                         int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
+        uint64_t address;
         char *name;
         char *filename;
         int linenum;
@@ -239,6 +252,7 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         Debug_Info *info;
         Elf_Scn *section;
 
+        address = DRM_CANONICALIZE(symbol->st_value);
         name = elf_strptr(elf, string_table_index, symbol->st_name);
         filename = NULL;
         linenum = 0;
@@ -262,10 +276,10 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
                 filename = strdup("<unknown>");
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", symbol->st_value,
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, symbol->st_value, symbol->st_size, filename, linenum, pid_index);
+        debug_i915_add_sym(name, address, symbol->st_size, filename, linenum, pid_index);
 
         section = elf_getscn(elf, symbol->st_shndx);
         debug_i915_add_shader_binary(section);
@@ -422,6 +436,7 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
 }
 
 void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table) {
+        uint64_t    address;
         char       *name;
         int         len;
         char       *seek;
@@ -429,6 +444,8 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
         int         linenum;
         char       *demangled;
         Debug_Info *info;
+
+        address = DRM_CANONICALIZE(section_header->sh_addr);
 
         name = elf_strptr(elf, string_table_index, section_header->sh_name);
         len  = strlen(name);
@@ -460,10 +477,10 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
                 filename = strdup("<unknown>");
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", section_header->sh_addr,
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, section_header->sh_addr, section_header->sh_size, filename, linenum, pid_index);
+        debug_i915_add_sym(name, address, section_header->sh_size, filename, linenum, pid_index);
         debug_i915_add_shader_binary(section);
 }
 
@@ -567,45 +584,72 @@ cleanup:
         }
 }
 
+#ifdef XE_DRIVER
+void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event,
+                       int pid_index)
+#else
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
                        int pid_index)
+#endif
 {
-        struct prelim_drm_i915_debug_event_uuid *uuid;
-        struct prelim_drm_i915_debug_read_uuid read_uuid = {};
-        char uuid_str[37];
         int retval;
         unsigned char *data;
+        uint64_t size;
 
+#ifdef XE_DRIVER
+        struct drm_xe_eudebug_event_metadata *uuid;
+        struct drm_xe_eudebug_read_metadata read_uuid = {};
+        uuid = (struct drm_xe_eudebug_event_metadata *)event;
+        if (!(event->flags & DRM_XE_EUDEBUG_EVENT_CREATE)) {
+                return;
+        }
+        if (!uuid->len) {
+                return;
+        }
+        read_uuid.client_handle = uuid->client_handle;
+        read_uuid.metadata_handle = uuid->metadata_handle;
+        read_uuid.size = uuid->len;
+        read_uuid.ptr = (uint64_t)malloc(uuid->len);
+        read_uuid.flags = 0;
+        
+        errno = 0;
+        retval = ioctl(debug_fd, DRM_XE_EUDEBUG_IOCTL_READ_METADATA, &read_uuid);
+        
+        data = (unsigned char *)read_uuid.ptr;
+        size = read_uuid.size;
+#else
+        struct prelim_drm_i915_debug_event_uuid *uuid;
+        struct prelim_drm_i915_debug_read_uuid read_uuid = {};
         uuid = (struct prelim_drm_i915_debug_event_uuid *)event;
-
-        /* Only look at UUIDs being created with a nonzero size */
         if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
                 return;
         }
         if (!uuid->payload_size) {
                 return;
         }
-
         read_uuid.client_handle = uuid->client_handle;
         read_uuid.handle = uuid->handle;
         read_uuid.payload_size = uuid->payload_size;
         read_uuid.payload_ptr = (uint64_t)malloc(uuid->payload_size);
+        
+        errno = 0;
         retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
+        
+        data = (unsigned char *)read_uuid.payload_ptr;
+        size = read_uuid.payload_size;
+#endif
 
         if (retval != 0) {
-                fprintf(stderr, "  Failed to read a UUID!\n");
+                fprintf(stderr, "  Failed to read metadata: %d!\n", errno);
                 goto cleanup;
         }
 
-        memcpy(uuid_str, read_uuid.uuid, 37);
-        data = (unsigned char *)read_uuid.payload_ptr;
-
         /* Check for the ELF magic bytes */
         if (*((uint32_t *)data) == 0x464c457f) {
-                handle_elf(data, read_uuid.payload_size, pid_index);
+                handle_elf(data, size, pid_index);
         }
 cleanup:
-        free((void *)read_uuid.payload_ptr);
+        free((void *)data);
         return;
 }
 
@@ -674,6 +718,64 @@ cleanup:
 }
 #endif
 
+#ifdef XE_DRIVER
+/* Returns whether an event was actually read. */
+int read_debug_i915_event(int fd, int pid_index)
+{
+        int retval, ack_retval;
+        struct drm_xe_eudebug_ack_event ack_event = {};
+        uint32_t size;
+        
+        size = sizeof(struct drm_xe_eudebug_event) + MAX_EVENT_SIZE;
+
+        /* Prepare the event struct to be read */
+        __attribute__((aligned(__alignof__(struct drm_xe_eudebug_event))))
+        char event_buff[size];
+        struct drm_xe_eudebug_event *event;
+        event = (struct drm_xe_eudebug_event *)event_buff;
+
+        memset(event, 0, size);
+
+        /* Call ioctl */
+        event->len = size;
+        event->type = DRM_XE_EUDEBUG_EVENT_READ;
+        event->flags = 0;
+        event->reserved = 0;
+        retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_READ_EVENT, event);
+
+        if (retval != 0) {
+                if (errno == ETIMEDOUT || errno == EAGAIN) {
+                        /* No more events. */
+                } else {
+                        fprintf(stderr, "read_event failed with: %d, errno=%d\n", retval, errno);
+                }
+                errno = 0;
+                return 0;
+        }
+        /* Handle the event */
+        if (event->type == DRM_XE_EUDEBUG_EVENT_METADATA) {
+                handle_event_uuid(fd, event, pid_index);
+#ifdef SLOW_MODE
+        } else if (event->type == DRM_XE_EUDEBUG_EVENT_VM_BIND) {
+                handle_event_vm_bind(fd, event, pid_index);
+#endif
+        }
+
+        /* ACK the event, otherwise the workload will stall. */
+        if (event->flags & DRM_XE_EUDEBUG_EVENT_NEED_ACK) {
+                ack_event.type = event->type;
+                ack_event.seqno = event->seqno;
+                ack_retval = ioctl(fd, DRM_XE_EUDEBUG_IOCTL_ACK_EVENT,
+                                   &ack_event);
+                if (ack_retval != 0) {
+                        fprintf(stderr, "  Failed to ACK event!\n");
+                        return 1;
+                }
+        }
+
+        return 1;
+}
+#else
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
 {
@@ -728,6 +830,7 @@ int read_debug_i915_event(int fd, int pid_index)
 
         return 1;
 }
+#endif
 
 void read_debug_i915_events(int fd, int pid_index)
 {

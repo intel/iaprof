@@ -4,19 +4,23 @@
 #include <poll.h>
 
 #include "iaprof.h"
-
-#include <i915_drm_prelim.h>
 #include "drm_helpers/drm_helpers.h"
-#include "i915_helpers/i915_helpers.h"
-
 #include "stores/buffer_profile.h"
-
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
-
 #include "gpu_parsers/shader_decoder.h"
-
 #include "printers/printer.h"
+
+/* Driver-specific stuff */
+#ifdef XE_DRIVER
+#include <sys/capability.h>
+#include <uapi/drm/xe_drm.h>
+#include <uapi/drm/xe_drm_eudebug.h>
+#include "driver_helpers/xe_helpers.h"
+#else
+#include <drm/i915_drm_prelim.h>
+#include "driver_helpers/i915_helpers.h"
+#endif
 
 pthread_cond_t eustall_deferred_attrib_cond = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t eustall_deferred_attrib_cond_mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -29,7 +33,6 @@ static array_t eustall_waitlist_b;
 struct deferred_eustall {
         unsigned long long time;
         struct eustall_sample sample;
-        struct prelim_drm_i915_stall_cntr_info info;
         char satisfied;
 };
 
@@ -52,13 +55,16 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         total += sample->sbid;
         total += sample->sync;
         total += sample->inst_fetch;
+#ifdef XE_DRIVER
+        total += sample->tdr;
+#endif
 
         return total;
 }
 
 int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
                      uint64_t gpu_addr, uint64_t offset,
-                     uint16_t subslice, unsigned long long time)
+                     unsigned long long time)
 {
         struct offset_profile *found;
         struct offset_profile profile;
@@ -89,7 +95,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         }
 
         if (verbose) {
-                print_eustall(sample, gpu_addr, offset, bind->handle, subslice,
+                print_eustall(sample, gpu_addr, offset, bind->handle,
                               time);
         }
 
@@ -111,12 +117,19 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         found->sbid       += sample->sbid;
         found->sync       += sample->sync;
         found->inst_fetch += sample->inst_fetch;
+#ifdef XE_DRIVER
+        found->tdr        += sample->tdr;
+#endif
 
         release_vm_profile(vm);
         return 0;
 }
 
-static int handle_eustall_sample(struct eustall_sample *sample, struct prelim_drm_i915_stall_cntr_info *info, unsigned long long time, int is_deferred) {
+#ifdef XE_DRIVER
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
+#else
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
+#endif
         int found;
         uint64_t addr;
         uint64_t start;
@@ -199,7 +212,6 @@ none_found:
         if (found == 0) {
                 if (!is_deferred) {
                         deferred.sample    = *sample;
-                        deferred.info      = *info;
                         deferred.satisfied = 0;
 
                         pthread_mutex_lock(&eustall_waitlist_mtx);
@@ -207,55 +219,79 @@ none_found:
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
                         if (verbose) {
-                                print_eustall_defer(sample, addr, info->subslice,
-                                                    time);
+                                print_eustall_defer(sample, addr, time);
                         }
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
-                                 info->subslice, time);
+                                 time);
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
                 /* We have to guess. Choose the last one that we've found. */
                 if (verbose) {
                         print_eustall_churn(sample, addr,
                                             first_found_offset,
-                                            info->subslice, time);
+                                            time);
                 }
 
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
-                                 info->subslice, time);
+                                 time);
                 eustall_info.guessed += num_stalls_in_sample(sample);
         }
 
         return found > 0;
 }
 
-int handle_eustall_samples(void *perf_buf, int len)
+#ifdef XE_DRIVER
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
         unsigned long long time;
         int i;
         struct eustall_sample *sample;
-        struct prelim_drm_i915_stall_cntr_info *info;
-
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
-        for (i = 0; i < len; i += 64) {
+        for (i = 0; i < len; i += devinfo->record_size) {
                 sample = perf_buf + i;
-                info   = perf_buf + i + 48;
-
-                handle_eustall_sample(sample, info, time, /* is_deferred = */ 0);
+                
+                /* We're going to read from the end of the header until the end of these records */
+                if (sample > ((struct eustall_sample *)(perf_buf + len))) {
+                        /* Reading all of these samples would put us past the end of the buffer that we read */
+                        debug_printf("WARNING: EU stall reading would put us back the end of the buffer.\n");
+                        break;
+                }
+                
+                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
         }
 
         return EUSTALL_STATUS_OK;
 }
+#else
+int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
+{
+        struct timespec spec;
+        unsigned long long time;
+        int i;
+        struct eustall_sample *sample;
+
+        /* Get the timestamp */
+        clock_gettime(CLOCK_MONOTONIC, &spec);
+        time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
+        
+        for (i = 0; i < len; i += 64) {
+                sample = perf_buf + i;
+                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
+        }
+
+        return EUSTALL_STATUS_OK;
+}
+#endif
 
 void handle_deferred_eustalls() {
         array_t *working;
@@ -286,7 +322,7 @@ void handle_deferred_eustalls() {
         /* Try to satisfy each pending eustall. */
         n_satisfied = 0;
         array_traverse(*working, stall) {
-                stall->satisfied = handle_eustall_sample(&stall->sample, &stall->info, stall->time, 1);
+                stall->satisfied = handle_eustall_sample(&stall->sample, stall->time, 1);
                 n_satisfied += !!stall->satisfied;
         }
 
@@ -312,75 +348,22 @@ void init_eustall_waitlist() {
 
 int init_eustall(device_info *devinfo)
 {
-        struct i915_engine_class_instance *engine_class;
-        int i, fd, found, retval;
-        uint64_t *properties;
-        size_t properties_size;
-
-        i = 0;
-        properties_size = sizeof(uint64_t) * 5 * 2;
-        properties = malloc(properties_size);
-
-        properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_BUF_SZ;
-        properties[i++] = DEFAULT_DSS_BUF_SIZE;
-
-        properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_SAMPLE_RATE;
-        properties[i++] = DEFAULT_SAMPLE_RATE;
-
-        properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_POLL_PERIOD;
-        properties[i++] = DEFAULT_POLL_PERIOD_NS;
-
-        properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_EVENT_REPORT_COUNT;
-        properties[i++] = DEFAULT_EVENT_COUNT;
-
-        properties[i++] = PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_CLASS;
-        properties[i++] = 4;
-
-        found = 0;
-        for_each_engine(devinfo->engine_info, engine_class)
-        {
-                if (engine_class->engine_class ==
-                    PRELIM_I915_ENGINE_CLASS_COMPUTE) {
-                        properties_size += (sizeof(uint64_t) * 2);
-                        properties = realloc(properties, properties_size);
-                        properties[i++] =
-                                PRELIM_DRM_I915_EU_STALL_PROP_ENGINE_INSTANCE;
-                        properties[i++] = engine_class->engine_instance;
-                        found++;
-                }
-        }
-        if (found == 0) {
-                ERR("Didn't find any PRELIM_I915_ENGINE_CLASS_COMPUTE engines.\n");
+        int fd;
+        
+        #ifdef XE_DRIVER
+        fd = xe_init_eustall(devinfo);
+        #else
+        fd = i915_init_eustall(devinfo);
+        #endif
+        
+        if (fd <= 0) {
+                fprintf(stderr, "Failed to initialize eustalls. Aborting.\n");
                 return -1;
         }
-
-        struct drm_i915_perf_open_param param = {
-                .flags = I915_PERF_FLAG_FD_CLOEXEC |
-                         PRELIM_I915_PERF_FLAG_FD_EU_STALL |
-                         I915_PERF_FLAG_DISABLED,
-                .num_properties = properties_size / (sizeof(uint64_t) * 2),
-                .properties_ptr = (unsigned long long)properties,
-        };
-
-        /* Open the fd */
-        fd = ioctl_do(devinfo->fd, DRM_IOCTL_I915_PERF_OPEN, &param);
-        if (fd < 0) {
-                ERR("Failed to open the perf file descriptor.\n");
-                return -1;
-        }
-
-        /* Enable the fd */
-        retval = ioctl(fd, I915_PERF_IOCTL_ENABLE, NULL, 0);
-        if (retval < 0) {
-                ERR("Failed to enable the perf file descriptor.\n");
-                return -1;
-        }
-
+        
         /* Add the fd to the epoll_fd */
         eustall_info.perf_fd = fd;
-
-        free(properties);
-
+        
         return 0;
 }
 
@@ -404,7 +387,7 @@ void handle_remaining_eustalls() {
         array_traverse(*eustall_waitlist, it) {
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
                 if (verbose) {
-                        print_eustall_drop(&it->sample, addr, it->info.subslice, time);
+                        print_eustall_drop(&it->sample, addr, time);
                 }
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
