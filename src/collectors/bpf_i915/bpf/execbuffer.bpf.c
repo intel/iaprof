@@ -189,6 +189,10 @@ int parse_next(struct parse_cxt *cxt) {
 
                 which_dword = cmd_len - to_consume;
 
+                if (op == NOOP) {
+                    return 1;
+                }
+
 
                 if ((op == BATCH_BUFFER_START) && (which_dword == 0)) {
                         cxt->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(dword);
@@ -200,10 +204,10 @@ int parse_next(struct parse_cxt *cxt) {
                         bbsp = (((u64)dword) << 32) | last_dword;
                         BB_PRINTK("  BBSP: 0x%llx", bbsp);
 
-                        if (bbsp == cxt->stop_addr) {
-                                BB_PRINTK("  Jump back to ring. Stopping.");
-                                return 1;
-                        }
+/*                         if (bbsp == cxt->stop_addr) { */
+/*                                 BB_PRINTK("  Jump back to ring. Stopping."); */
+/*                                 return 1; */
+/*                         } */
 
                         if (!!cxt->bb2l && (lvl < 2)) {
                                 cxt->level += 1;
@@ -245,6 +249,8 @@ int parse_next(struct parse_cxt *cxt) {
         return 0;
 }
 
+__u64 counter;
+
 static int parse_batchbuffer(u64 primary_bb_cpu_base, u64 primary_bb_gpu_base, u64 primary_bb_size, u64 initial_ip, struct execbuf_info *info) {
         u64                  size;
         int                  i;
@@ -280,7 +286,8 @@ static int parse_batchbuffer(u64 primary_bb_cpu_base, u64 primary_bb_gpu_base, u
 
         bpf_probe_read_user(buff->dwords, size, (void*)(primary_bb_cpu_base + (initial_ip - primary_bb_gpu_base)));
 
-        BB_PRINTK("BB Parsing @ 0x%llx", cxt.ips[0]);
+        BB_PRINTK("BB %llu Parsing @ 0x%llx", counter, cxt.ips[0]);
+        counter += 1;
 
         stop = 0;
         for (i = 0; i < MAX_BB_COMMANDS && stop == 0; i += 1) {
