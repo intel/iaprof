@@ -88,6 +88,7 @@ int print_execbuf(struct execbuf_info *info)
         fprintf(stderr, " %-*u", CPU_LEN, info->cpu);
         fprintf(stderr, " %-*u", PID_LEN, info->pid);
         fprintf(stderr, " %-*u", TID_LEN, info->tid);
+        fprintf(stderr, " ksp=%llx\n", info->ksp);
         pthread_mutex_unlock(&debug_print_lock);
 
         return 0;
