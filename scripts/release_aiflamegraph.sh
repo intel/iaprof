@@ -5,7 +5,8 @@ function die() {
    exit 1
 }
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+readonly SCRIPT="${BASH_SOURCE[0]}"
+readonly DIR="${SCRIPT%/*}"
 
 FILTER_CPYTHON=true
 
@@ -22,9 +23,16 @@ PROFILE_NAME="aiflamegraph-$(uname -n)-$(date '+%Y%m%d-%H%M')"
 
 rm -f /tmp/${PROFILE_NAME}.stackcollapse
 
-echo "Running profile... (ctrl-c when ready to stop)"
+for f in /sys/class/drm/card*/prelim_enable_eu_debug; do echo 1 | sudo tee "$f"; done
+export ZET_ENABLE_PROGRAM_DEBUGGING=1
+export NEOReadDebugKeys=1
+export ONEDNN_JIT_PROFILE=6
+sysctl kernel.perf_event_max_stack=512
+sysctl kernel.perf_event_max_contexts_per_stack=64
+
+printf "Running profile... (ctrl-c when ready to stop)\n"
 ${DIR}/iaprof -q > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iaprof."
-echo "Building flame graph (this can take a minute)..."
+printf "Building flame graph (this can take a minute)...\n"
 
 SEDSTR=""
 if [[ "${FILTER_CPYTHON}" == "true" ]]; then
@@ -41,6 +49,6 @@ fi
 sed -E "${SEDSTR}" < /tmp/${PROFILE_NAME}.stackcollapse |
     ${DIR}/deps/flamegraph/flamegraph.pl --colors=gpu > ${PROFILE_NAME}.svg || die "Error generating flame graph."
 
-echo "  ${PROFILE_NAME}.svg"
+printf "  ${PROFILE_NAME}.svg\n"
 
 rm -f /tmp/${PROFILE_NAME}.stackcollapse
