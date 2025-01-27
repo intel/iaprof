@@ -19,6 +19,7 @@
 
 #include "main.h"
 
+
 /* #define BB_DEBUG */
 
 #define BB_PRINTK(...) ;
@@ -315,6 +316,10 @@ int parse_next(struct parse_cxt *cxt) {
                 } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
                         cxt->iba = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFF000);
                         BB_PRINTK("  IBA: 0x%llx", cxt->iba);
+
+                } else if ((op == STATE_SIP) && (which_dword == 2)) {
+                        cxt->sip = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFFFF0);
+                        BB_PRINTK("  SIP: 0x%llx", cxt->sip);
                 }
 
                 cxt->ips[lvl & 3]     += sizeof(u32);
