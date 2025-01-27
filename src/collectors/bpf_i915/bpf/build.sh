@@ -41,7 +41,7 @@ if [ -z ${IAPROF_XE_DRIVER} ]; then
     echo "    I can't find the BTF information for i915! Bailing out."
     exit 1
   fi
-  
+
 else
 
   # Also get xe's BTF information
@@ -58,7 +58,7 @@ else
     echo "    I can't find the BTF information for xe! Bailing out."
     exit 1
   fi
-  
+
 fi
 
 ${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h

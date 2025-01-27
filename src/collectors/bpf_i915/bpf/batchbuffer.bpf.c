@@ -19,7 +19,7 @@
 
 #include "main.h"
 
-#define BB_DEBUG
+/* #define BB_DEBUG */
 
 #define BB_PRINTK(...) ;
 
@@ -37,12 +37,22 @@ struct {
         __type(key, u32);
         __type(value, const char *);
 } bb_cmd_names SEC(".maps");
+
+#define ELEM(name, type, opcode, num_dwords) const char op_name_##name[] = #name;
+        LIST_COMMANDS(ELEM)
+#undef ELEM
+
 #endif
 
 struct batch_buffer {
-        u64 size;
+        u64 cpu_base;
         u64 gpu_base;
         u32 dwords[MAX_BB_DWORDS];
+};
+
+struct address_range {
+        u64 start;
+        u64 end;
 };
 
 struct {
@@ -62,28 +72,80 @@ struct callback_cxt {
     u64 bbsp;
     u64 gpu_base;
     u64 cpu_base;
-    u64 size;
 };
 
-static __u64 find_batchbuffer(struct bpf_map *map, struct gpu_mapping *gmapping, struct cpu_mapping *cmapping, struct callback_cxt *cxt) {
+static __u64 _find_batchbuffer(struct bpf_map *map, struct gpu_mapping *gmapping, struct cpu_mapping *cmapping, struct callback_cxt *cxt) {
         if (gmapping->addr <= cxt->bbsp && cxt->bbsp < gmapping->addr + cmapping->size) {
                 cxt->gpu_base = gmapping->addr;
                 cxt->cpu_base = cmapping->addr;
-                cxt->size     = cmapping->size;
                 return 1;
         }
         return 0;
 }
 
 struct parse_cxt {
-        u32 level;
+        u64 eb_id;
         u64 ips[4]; /* 4 because we use a bitmask trick to soothe the verifier. Level 4 is not used. */
-        u64 stop_addr;
+        u64 cpu_ips[4];
+        u32 level;
         u8  bb2l;
         u64 iba;
         u64 sip;
         u64 ksp;
 };
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_BB_DEFERRED);
+        __type(key, u64);
+        __type(value, struct parse_cxt);
+} deferred_parse SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+        __uint(max_entries, MAX_BB_KSP);
+        __type(key, u64);
+        __type(value, char);
+} bb_ksps SEC(".maps");
+
+
+static __u64 _clear_one_ksp(struct bpf_map *map, u64 *key, char *val, void *cxt) {
+        (void)cxt;
+        bpf_map_delete_elem(map, key);
+        return 0;
+}
+
+static void clear_ksps(void) {
+        bpf_for_each_map_elem(&bb_ksps, _clear_one_ksp, NULL, 0);
+}
+
+static __u64 _send_ksp(struct bpf_map *map, u64 *key, char *val, u64 *eb_id) {
+        struct ksp_info *ksp_info;
+        u64              status;
+
+        ksp_info = bpf_ringbuf_reserve(&rb, sizeof(struct ksp_info), 0);
+        if (!ksp_info) {
+                ERR_PRINTK("_send_ksp failed to reserve in the ringbuffer.");
+                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                DEBUG_PRINTK("Unconsumed data: %lu", status);
+                dropped_event = 1;
+                return 1;
+        }
+        ksp_info->type  = BPF_EVENT_TYPE_KSP;
+        ksp_info->eb_id = *eb_id;
+        ksp_info->addr  = *key;
+        bpf_ringbuf_submit(ksp_info, BPF_RB_FORCE_WAKEUP);
+
+        return 0;
+}
+
+static void send_ksps(struct parse_cxt *cxt) {
+        u64 eb_id;
+
+        eb_id = cxt->eb_id;
+        bpf_for_each_map_elem(&bb_ksps, _send_ksp, &eb_id, 0);
+}
+
 
 __attribute__((noinline))
 u32 dword_to_op(u32 dword) {
@@ -103,23 +165,28 @@ int read_batch_buffer(u64 bbsp, struct batch_buffer *buff) {
                 .bbsp     = bbsp,
                 .gpu_base = 0,
                 .cpu_base = 0,
-                .size     = 0
         };
 
         if (buff == NULL) { return -1; }
 
-        bpf_for_each_map_elem(&gpu_cpu_map, find_batchbuffer, &data, 0);
+        bpf_for_each_map_elem(&gpu_cpu_map, _find_batchbuffer, &data, 0);
 
         if (data.gpu_base == 0 || data.cpu_base == 0) { return -1; }
 
-        if (data.size > MAX_BB_BYTES) { data.size = MAX_BB_BYTES; }
+        buff->cpu_base = data.cpu_base + (bbsp - data.gpu_base);
 
-        bpf_probe_read_user(buff->dwords, data.size, (void*)(data.cpu_base + (bbsp - data.gpu_base)));
+        bpf_probe_read_user(buff->dwords, MAX_BB_BYTES, (void*)buff->cpu_base);
 
         buff->gpu_base = bbsp;
 
         return 0;
 }
+
+
+#define NORMAL_STOP    (1)
+#define DATA_NOT_READY (2)
+
+#define BB_BUFF_CONTAINS_IP(_buff, _ip) ((_buff)->gpu_base <= (_ip) && (_ip) < ((_buff)->gpu_base + MAX_BB_BYTES))
 
 __attribute__((noinline))
 int parse_next(struct parse_cxt *cxt) {
@@ -136,8 +203,9 @@ int parse_next(struct parse_cxt *cxt) {
         u8                    which_dword;
         u64                   bbsp;
         u64                   size;
+        u64                   ksp;
+        char                  one = 1;
 #ifdef BB_DEBUG
-        const char           *op_name;
         const char          **op_name_lookup;
 #endif
 
@@ -163,8 +231,12 @@ int parse_next(struct parse_cxt *cxt) {
                 cur_ip    = cxt->ips[lvl & 3];
                 dword_off = (cur_ip - buff->gpu_base) / sizeof(u32);
                 if (dword_off > MAX_BB_DWORDS_IDX) {
-                        ERR_PRINTK("exceeded the maximum number of DWORDS");
-                        return -1;
+                        buff->gpu_base = cur_ip;
+                        buff->cpu_base = cxt->cpu_ips[lvl & 3];
+
+                        bpf_probe_read_user(buff->dwords, MAX_BB_BYTES, (void*)buff->cpu_base);
+
+                        dword_off = 0;
                 }
 
                 dword = buff->dwords[dword_off & MAX_BB_DWORDS_IDX];
@@ -184,12 +256,10 @@ int parse_next(struct parse_cxt *cxt) {
 #ifdef BB_DEBUG
                         op_name_lookup = bpf_map_lookup_elem(&bb_cmd_names, &op);
                         if (op_name_lookup == NULL) {
-                                op_name = "???";
+                                BB_PRINTK("BB 0x%llx: ??? (%u dwords)", cur_ip, cmd_len);
                         } else {
-                                op_name = *op_name_lookup;
+                                BB_PRINTK("BB 0x%llx: %s (%u dwords)", cur_ip, *op_name_lookup, cmd_len);
                         }
-
-                        BB_PRINTK("BB 0x%llx: %s (%u dwords)", cur_ip, op_name, cmd_len);
 #endif
                 }
 
@@ -198,7 +268,7 @@ int parse_next(struct parse_cxt *cxt) {
 
 
                 if (op == NOOP) {
-                    return 1;
+                    return DATA_NOT_READY;
                 }
 
 
@@ -206,31 +276,28 @@ int parse_next(struct parse_cxt *cxt) {
                         cxt->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(dword);
 
                 } else if ((op == BATCH_BUFFER_START) && (which_dword == 2)) {
-                        if (cxt->stop_addr == 0) {
-                                cxt->stop_addr = cur_ip + sizeof(u32);
-                        }
                         bbsp = (((u64)dword) << 32) | last_dword;
                         BB_PRINTK("  BBSP: 0x%llx", bbsp);
-
-/*                         if (bbsp == cxt->stop_addr) { */
-/*                                 BB_PRINTK("  Jump back to ring. Stopping."); */
-/*                                 return 1; */
-/*                         } */
 
                         if (!!cxt->bb2l && (lvl < 2)) {
                                 cxt->level += 1;
                                 lvl = cxt->level;
                         }
 
-                        buff = bpf_map_lookup_elem(&bb_parse_buffers, &lvl);
-                        if (buff == NULL) { return -1; }
+                        if (BB_BUFF_CONTAINS_IP(buff, bbsp)) {
+                                bpf_map_update_elem(&bb_parse_buffers, &lvl, buff, 0);
+                        } else {
+                                buff = bpf_map_lookup_elem(&bb_parse_buffers, &lvl);
+                                if (buff == NULL) { return -1; }
 
-                        if (read_batch_buffer(bbsp, buff) != 0) {
-                                ERR_PRINTK("failed to look up batch buffer address 0x%llx", bbsp);
-                                return -1;
+                                if (read_batch_buffer(bbsp, buff) != 0) {
+                                        ERR_PRINTK("failed to look up batch buffer address 0x%llx", bbsp);
+                                        return -1;
+                                }
                         }
 
-                        cxt->ips[lvl & 3] = bbsp - sizeof(u32); /* Will be advanced back to bbsp at bottom of dword loop. */
+                        cxt->ips[lvl & 3]     = bbsp - sizeof(u32); /* Will be advanced back to bbsp at bottom of dword loop. */
+                        cxt->cpu_ips[lvl & 3] = (buff->cpu_base + (bbsp - buff->gpu_base)) - sizeof(u32);
 
                         BB_PRINTK("  Jumping to new buffer.");
 
@@ -240,7 +307,9 @@ int parse_next(struct parse_cxt *cxt) {
                         lvl = cxt->level;
 
                 } else if ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD)) {
-                        cxt->ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
+                        ksp      = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
+                        cxt->ksp = ksp;
+                        bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
                         BB_PRINTK("  KSP: 0x%llx", cxt->ksp);
 
                 } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
@@ -248,7 +317,8 @@ int parse_next(struct parse_cxt *cxt) {
                         BB_PRINTK("  IBA: 0x%llx", cxt->iba);
                 }
 
-                cxt->ips[lvl & 3] += sizeof(u32);
+                cxt->ips[lvl & 3]     += sizeof(u32);
+                cxt->cpu_ips[lvl & 3] += sizeof(u32);
 
                 to_consume -= 1;
                 if (to_consume == 0) { break; }
@@ -257,59 +327,150 @@ int parse_next(struct parse_cxt *cxt) {
         return 0;
 }
 
-static int parse_batchbuffer(u64 primary_bb_cpu_base, u64 primary_bb_gpu_base, u64 primary_bb_size, u64 initial_ip, struct execbuf_info *info) {
-        u64                  size;
-        int                  i;
-        int                  stop;
+static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
+        u64                  initial_ip;
+        u64                  initial_cpu_ip;
         struct batch_buffer *buff;
-#ifdef BB_DEBUG
-        u32                  op_code;
-        const char          *op_name;
-#endif
+        int                  stop;
+        int                  i;
+        u64                  status;
+        struct iba_info     *iba_info;
+        struct ksp_info     *ksp_info;
+        struct sip_info     *sip_info;
 
-
 #ifdef BB_DEBUG
-#define ELEM(name, type, opcode, num_dwords)                           \
-            op_code = name;                                            \
-            op_name = #name;                                           \
-            bpf_map_update_elem(&bb_cmd_names, &op_code, &op_name, 0);
+        u32 op_code;
+
+#define ELEM(name, type, opcode, num_dwords)                                 \
+            op_code = name;                                                  \
+            bpf_map_update_elem(&bb_cmd_names, &op_code, &op_name_##name, 0);
 
             LIST_COMMANDS(ELEM)
 #undef ELEM
 #endif
 
-        size = primary_bb_size;
-        if (size > MAX_BB_BYTES) { size = MAX_BB_BYTES; }
+        clear_ksps();
 
-        struct parse_cxt cxt = {};
-        cxt.ips[0] = initial_ip;
+        initial_ip     = cxt->ips[cxt->level & 3];
+        initial_cpu_ip = cxt->cpu_ips[cxt->level & 3];
 
-        buff = bpf_map_lookup_elem(&bb_parse_buffers, &cxt.level);
+        if (from_deferred) {
+                BB_PRINTK("DEFERRED");
+        }
+        BB_PRINTK("BB Parsing @ 0x%llx (level %u)", initial_ip, cxt->level);
+
+
+        buff = bpf_map_lookup_elem(&bb_parse_buffers, &cxt->level);
         if (buff == NULL) { return -1; }
-        cxt.level = 0; /* Just invalidated. */
 
-        buff->gpu_base = initial_ip;
+        /* Can we reuse a chunk from the last batch buffer? Maybe it was
+         * written sequentially. Won't work for deferred parsing since we
+         * need the data to be fresh. */
+        if (from_deferred || !BB_BUFF_CONTAINS_IP(buff, initial_ip)) {
+                buff->gpu_base = initial_ip;
+                buff->cpu_base = initial_cpu_ip;
 
-        bpf_probe_read_user(buff->dwords, size, (void*)(primary_bb_cpu_base + (initial_ip - primary_bb_gpu_base)));
-
-        BB_PRINTK("BB Parsing @ 0x%llx", cxt.ips[0]);
+                bpf_probe_read_user(buff->dwords, MAX_BB_BYTES, (void*)initial_cpu_ip);
+        }
 
         stop = 0;
         for (i = 0; i < MAX_BB_COMMANDS && stop == 0; i += 1) {
-                stop = parse_next(&cxt);
+                stop = parse_next(cxt);
         }
 
         if (stop == 0) {
                 ERR_PRINTK("exceeded the maximum number of batch buffer commands");
+                dropped_event = 1;
                 return -1;
         } else if (stop < 0) {
                 /* Some error condition occurred. */
+                dropped_event = 1;
                 return -1;
         }
 
-        info->iba = cxt.iba;
-        info->sip = cxt.sip;
-        info->ksp = cxt.ksp;
+        if (cxt->iba) {
+                iba_info = bpf_ringbuf_reserve(&rb, sizeof(struct iba_info), 0);
+                if (!iba_info) {
+                        ERR_PRINTK("parse_batchbuffer failed to reserve in the ringbuffer.");
+                        status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                        DEBUG_PRINTK("Unconsumed data: %lu", status);
+                        dropped_event = 1;
+                        return -1;
+                }
+                iba_info->type  = BPF_EVENT_TYPE_IBA;
+                iba_info->eb_id = cxt->eb_id;
+                iba_info->addr  = cxt->iba;
+                bpf_ringbuf_submit(iba_info, BPF_RB_FORCE_WAKEUP);
+
+                cxt->iba = 0;
+        }
+
+        if (cxt->ksp) {
+                send_ksps(cxt);
+
+                cxt->ksp = 0;
+        }
+
+        if (cxt->sip) {
+                sip_info = bpf_ringbuf_reserve(&rb, sizeof(struct sip_info), 0);
+                if (!sip_info) {
+                        ERR_PRINTK("parse_batchbuffer failed to reserve in the ringbuffer.");
+                        status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                        DEBUG_PRINTK("Unconsumed data: %lu", status);
+                        dropped_event = 1;
+                        return -1;
+                }
+                sip_info->type  = BPF_EVENT_TYPE_SIP;
+                sip_info->eb_id = cxt->eb_id;
+                sip_info->addr  = cxt->sip;
+                bpf_ringbuf_submit(sip_info, BPF_RB_FORCE_WAKEUP);
+
+                cxt->sip = 0;
+        }
+
+        return stop;
+}
+
+static void defer_batchbuffer_parse(struct parse_cxt *parse_cxt) {
+        u64 ip;
+
+        ip = parse_cxt->ips[parse_cxt->level & 3];
+
+        if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
+                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
+                dropped_event = 1;
+        }
+}
+
+static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, struct address_range *range) {
+        struct execbuf_end_info *end_info;
+        u64                      status;
+
+        if (range != NULL && (*ip < range->start || *ip >= range->end)) {
+                return 0;
+        }
+
+        if (parse_batchbuffer(parse_cxt, 1) == DATA_NOT_READY) {
+                WARN_PRINTK("deferred batch buffer still not ready");
+        } else {
+                end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
+                if (!end_info) {
+                        ERR_PRINTK("_try_parse_deferred_batchbuffer failed to reserve in the ringbuffer.");
+                        status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                        DEBUG_PRINTK("Unconsumed data: %lu", status);
+                        dropped_event = 1;
+                        return 0;
+                }
+                end_info->type  = BPF_EVENT_TYPE_EXECBUF_END;
+                end_info->eb_id = parse_cxt->eb_id;
+                bpf_ringbuf_submit(end_info, BPF_RB_FORCE_WAKEUP);
+
+                bpf_map_delete_elem(map, ip);
+        }
 
         return 0;
+}
+
+static void try_parse_deferred_batchbuffers(struct address_range *range) {
+        bpf_for_each_map_elem(&deferred_parse, _try_parse_deferred_batchbuffer, range, 0);
 }

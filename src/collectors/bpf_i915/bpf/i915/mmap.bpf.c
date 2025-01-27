@@ -225,6 +225,7 @@ int BPF_PROG(unmap_region,
         u64 fake_offset, size, cpu_addr, status;
         char one = 1;
         long err;
+        struct address_range range = {};
 
         mmo = (struct i915_mmap_offset *)BPF_CORE_READ(vma, vm_private_data);
         cpu_addr = BPF_CORE_READ(vma, vm_start);
@@ -255,10 +256,15 @@ int BPF_PROG(unmap_region,
         save_gmapping.vm_id = 0;
         save_gmapping.file = 0;
         if (gmapping) {
+                range.start = gmapping->addr;
+                range.end   = gmapping->addr + size;
+                try_parse_deferred_batchbuffers(&range);
+
+                DEBUG_PRINTK("  removing 0x%lx from the gpu_cpu_map", gmapping->addr);
                 save_gmapping.addr = gmapping->addr;
                 save_gmapping.vm_id = gmapping->vm_id;
                 save_gmapping.file = gmapping->file;
-                if ((err = bpf_map_delete_elem(&gpu_cpu_map, gmapping))) {
+                if ((err = bpf_map_delete_elem(&gpu_cpu_map, gmapping)) && err != -2) {
                         WARN_PRINTK("munmap failed to delete gpu_addr=0x%lx from the gpu_cpu_map! err = %ld", gmapping->addr, err);
                 }
         }
