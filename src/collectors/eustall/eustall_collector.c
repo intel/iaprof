@@ -185,16 +185,6 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 /*                         bind->handle, bind->vm_id, */
 /*                         bind->gpu_addr, iba); */
 
-                if ((addr - start) > MAX_BINARY_SIZE) {
-                        if (debug) {
-                                WARN("eustall gpu_addr=0x%lx"
-                                     " lands in handle=%u,"
-                                     " which is bigger than MAX_BINARY_SIZE.\n",
-                                     addr, bind->handle);
-
-                        }
-                }
-
                 found++;
 
                 if (found == 1) {
@@ -259,14 +249,14 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 
         for (i = 0; i < len; i += devinfo->record_size) {
                 sample = perf_buf + i;
-                
+
                 /* We're going to read from the end of the header until the end of these records */
                 if (sample > ((struct eustall_sample *)(perf_buf + len))) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
                         debug_printf("WARNING: EU stall reading would put us back the end of the buffer.\n");
                         break;
                 }
-                
+
                 handle_eustall_sample(sample, time, /* is_deferred = */ 0);
         }
 
@@ -283,7 +273,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
-        
+
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
                 handle_eustall_sample(sample, time, /* is_deferred = */ 0);
@@ -349,21 +339,21 @@ void init_eustall_waitlist() {
 int init_eustall(device_info *devinfo)
 {
         int fd;
-        
+
         #ifdef XE_DRIVER
         fd = xe_init_eustall(devinfo);
         #else
         fd = i915_init_eustall(devinfo);
         #endif
-        
+
         if (fd <= 0) {
                 fprintf(stderr, "Failed to initialize eustalls. Aborting.\n");
                 return -1;
         }
-        
+
         /* Add the fd to the epoll_fd */
         eustall_info.perf_fd = fd;
-        
+
         return 0;
 }
 

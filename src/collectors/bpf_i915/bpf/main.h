@@ -8,14 +8,12 @@
 #define PAGE_SIZE 4096
 #define PAGE_MASK ~(0xfff)
 
-/* GEN binary copying maximums */
-#define MAX_BINARY_SIZE     (2048 * 1024)
 #define MAX_BB_DWORDS       (1024)
 #define MAX_BB_DWORDS_IDX   (MAX_BB_DWORDS - 1)
 #define MAX_BB_BYTES        (MAX_BB_DWORDS * sizeof(uint32_t))
-#define MAX_BB_COMMANDS     (8 * MAX_BB_DWORDS)
-#define MAX_BB_DEFERRED     (32)
-#define MAX_BB_KSP          (256)
+#define MAX_BB_COMMANDS     (8192)
+#define MAX_BB_DEFERRED     (8)
+#define MAX_BB_KSP          (128)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
@@ -174,17 +172,6 @@ struct vm_unbind_info {
 
         __u32 pid, tid, cpu;
         __u64 time;
-};
-
-/* Tells userspace that this vm/addr is a debug area. */
-struct debug_area_info {
-        __u8 type;
-
-        __u32 pid, vm_id;
-        __u64 file;
-        __u64 gpu_addr;
-        int stackid;
-        char name[TASK_COMM_LEN];
 };
 
 #endif

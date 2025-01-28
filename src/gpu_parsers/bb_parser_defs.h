@@ -95,6 +95,10 @@
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
 #define COMPUTE_WALKER_KSP_DWORD 20
 #else
+
+/* Note about MI_MATH: the actual length in DWORDS of the command is encoded in the last 3 bits of the
+ * DWORD. It's encoded as 1 in this table, but care should be taken in parsing code to account for this. */
+
 #define LIST_COMMANDS(X)                                                                                \
 /*        NAME,                              TYPE,        OPCODE,                         NUM_DWORDS */ \
         X(NOOP,                              CMD_MI,        0x00,                                  1)   \
@@ -113,6 +117,7 @@
         X(ARB_CHECK,                         CMD_MI,        0x05,                                  1)   \
         X(ARB_ON_OFF,                        CMD_MI,        0x08,                                  1)   \
         X(URB_ATOMIC_ALLOC,                  CMD_MI,        0x09,                                  1)   \
+        X(MATH,                              CMD_MI,        0x1a,                                  1)   \
         X(MEM_COPY,                          CMD_XY,        0x5a,                                 10)   \
         X(MEM_SET,                           CMD_XY,        0x5b,                                  7)   \
         X(PIPE_CONTROL,                      CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x02, 0x00),          6)   \

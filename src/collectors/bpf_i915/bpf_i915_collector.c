@@ -160,39 +160,6 @@ cleanup:
         return 0;
 }
 
-int handle_debug_area(void *data_arg)
-{
-        struct debug_area_info *info;
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-
-        info = (struct debug_area_info *)data_arg;
-
-        if (verbose) {
-                print_debug_area(info);
-        }
-
-        vm = acquire_vm_profile(info->file, info->vm_id);
-
-        /* Find the buffer that this batchbuffer is associated with */
-        bind = get_binding(vm, info->gpu_addr);
-        if (bind == NULL) {
-                if (debug ) {
-                        WARN("couldn't find a buffer to store the debug area in.\n");
-                }
-                goto cleanup;
-        }
-
-        bind->type = BUFFER_TYPE_DEBUG_AREA;
-        bind->pid = info->pid;
-        memcpy(bind->name, info->name, TASK_COMM_LEN);
-
-cleanup:
-        release_vm_profile(vm);
-
-        return 0;
-}
-
 int handle_execbuf(void *data_arg)
 {
         struct execbuf_info *info;
@@ -241,13 +208,40 @@ int handle_execbuf_end(void *data_arg)
 
 int handle_iba(void *data_arg)
 {
-        struct iba_info *info;
+        struct iba_info       *info;
+        struct live_execbuf   *exec;
+        struct vm_profile     *vm;
+        struct buffer_binding *bind;
 
         if (iba) { return 0; }
 
         info = (struct iba_info *)data_arg;
         debug_printf("  IBA: 0x%llx\n", info->addr);
         iba = info->addr;
+
+        exec = hash_table_get_val(live_execbufs, info->eb_id);
+        if (exec == NULL) {
+                ERR("IBA for exec that is not live");
+                return 0;
+        }
+
+        /* Debug Area should be in VM 1 */
+        vm = acquire_vm_profile(exec->file, 1);
+        if (vm == NULL) {
+                WARN("Unable to find a vm_profile for vm_id=%u\n",
+                     1);
+                return 0;
+        }
+
+        bind = get_containing_binding(vm, iba);
+        if (bind != NULL) {
+                bind->type = BUFFER_TYPE_DEBUG_AREA;
+                memcpy(bind->name, exec->name, TASK_COMM_LEN);
+                debug_printf("  Marked buffer as a Debug Area: vm_id=%u gpu_addr=0x%lx\n",
+                                1, bind->gpu_addr);
+        }
+
+        release_vm_profile(vm);
 
         return 0;
 }
@@ -341,7 +335,6 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
                 case BPF_EVENT_TYPE_VM_CREATE:   return handle_vm_create(data_arg);
                 case BPF_EVENT_TYPE_VM_BIND:     return handle_vm_bind(data_arg);
                 case BPF_EVENT_TYPE_VM_UNBIND:   return handle_vm_unbind(data_arg);
-                case BPF_EVENT_TYPE_DEBUG_AREA:  return handle_debug_area(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF:     return handle_execbuf(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END: return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_IBA:         return handle_iba(data_arg);

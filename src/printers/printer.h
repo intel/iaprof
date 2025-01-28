@@ -13,7 +13,6 @@
 #define TID_LEN 8
 
 int print_header();
-int print_debug_area(struct debug_area_info *info);
 int print_vm_create(struct vm_create_info *info);
 int print_vm_bind(struct vm_bind_info *info, uint32_t vm_bind_counter);
 int print_vm_unbind(struct vm_unbind_info *info);

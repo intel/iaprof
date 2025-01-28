@@ -200,34 +200,6 @@ char is_debug_area(void *addr, u64 size)
         return 0;
 }
 
-char send_debug_area_info(struct gpu_mapping *gmapping, int stackid)
-{
-        u64 status;
-        struct debug_area_info *info;
-
-        /* Send a debug area event to userspace */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct debug_area_info), 0);
-        if (!info) {
-                ERR_PRINTK("send_debug_area failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 1;
-        }
-
-        info->type = BPF_EVENT_TYPE_DEBUG_AREA;
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-        info->gpu_addr = gmapping->addr;
-        info->vm_id = gmapping->vm_id;
-        info->file = gmapping->file;
-        info->stackid = stackid;
-        bpf_get_current_comm(info->name, sizeof(info->name));
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
-
-        return 1;
-}
-
 #include "batchbuffer.bpf.c"
 
 #ifdef XE_DRIVER

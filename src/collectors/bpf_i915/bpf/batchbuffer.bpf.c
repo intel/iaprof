@@ -34,15 +34,44 @@
 #ifdef BB_DEBUG
 struct {
         __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-        __uint(max_entries, 1<<15);
+        __uint(max_entries, 1);
         __type(key, u32);
         __type(value, const char *);
-} bb_cmd_names SEC(".maps");
+} bb_cmd_name SEC(".maps");
 
 #define ELEM(name, type, opcode, num_dwords) const char op_name_##name[] = #name;
         LIST_COMMANDS(ELEM)
 #undef ELEM
+const char op_name_unknown[] = "???";
 
+
+__attribute__((noinline))
+int install_op_name(u16 op) {
+        const char *addr = NULL;
+        u32         zero = 0;
+
+        switch (op) {
+
+#define ELEM(name, type, opcode, num_dwords) case opcode: addr = op_name_##name; break;
+        LIST_COMMANDS(ELEM)
+#undef ELEM
+
+                default:
+                        addr = op_name_unknown;
+                        break;
+        }
+
+        bpf_map_update_elem(&bb_cmd_name, &zero, &addr, 0);
+
+        return 0;
+}
+
+#define OP_NAME(_op) ({                                                 \
+        install_op_name(_op);                                           \
+        u32 zero = 0;                                                   \
+        const char **lookup = bpf_map_lookup_elem(&bb_cmd_name, &zero); \
+        lookup == NULL ? NULL : *lookup;                                \
+})
 #endif
 
 struct batch_buffer {
@@ -156,7 +185,10 @@ u32 dword_to_op(u32 dword) {
 }
 
 __attribute__((noinline))
-u8 op_lookup(u32 op) {
+u8 command_len(u32 op, u32 dword) {
+        if (op == MATH) {
+                return dword & 7;
+        }
         return bb_cmd_lookup[op & 0x7fff];
 }
 
@@ -203,13 +235,12 @@ int parse_next(struct parse_cxt *cxt) {
         u8                    cmd_len;
         u8                    which_dword;
         u64                   bbsp;
+        u32                   b;
+        u32                   bi;
+        struct batch_buffer  *other_buff;
         u64                   size;
         u64                   ksp;
         char                  one = 1;
-#ifdef BB_DEBUG
-        const char          **op_name_lookup;
-#endif
-
 
         if (cxt == NULL) { return -1; }
 
@@ -247,21 +278,14 @@ int parse_next(struct parse_cxt *cxt) {
                 } else {
                         op = dword_to_op(dword);
 
-                        to_consume = cmd_len = op_lookup(op);
+                        to_consume = cmd_len = command_len(op, dword);
 
                         if (cmd_len == 0) {
-                                BB_PRINTK("BB 0x%llx: Unknown BB command: dword = 0x%x", cur_ip, dword);
+                                ERR_PRINTK("BB 0x%llx: Unknown BB command: dword = 0x%x", cur_ip, dword);
                                 return -1;
                         }
 
-#ifdef BB_DEBUG
-                        op_name_lookup = bpf_map_lookup_elem(&bb_cmd_names, &op);
-                        if (op_name_lookup == NULL) {
-                                BB_PRINTK("BB 0x%llx: ??? (%u dwords)", cur_ip, cmd_len);
-                        } else {
-                                BB_PRINTK("BB 0x%llx: %s (%u dwords)", cur_ip, *op_name_lookup, cmd_len);
-                        }
-#endif
+                        BB_PRINTK("BB 0x%llx: %s (%u dwords)", cur_ip, OP_NAME(op), cmd_len);
                 }
 
 
@@ -285,17 +309,30 @@ int parse_next(struct parse_cxt *cxt) {
                                 lvl = cxt->level;
                         }
 
-                        if (BB_BUFF_CONTAINS_IP(buff, bbsp)) {
-                                bpf_map_update_elem(&bb_parse_buffers, &lvl, buff, 0);
-                        } else {
-                                buff = bpf_map_lookup_elem(&bb_parse_buffers, &lvl);
-                                if (buff == NULL) { return -1; }
+                        buff = bpf_map_lookup_elem(&bb_parse_buffers, &lvl);
+                        if (buff == NULL) { return -1; }
 
-                                if (read_batch_buffer(bbsp, buff) != 0) {
-                                        ERR_PRINTK("failed to look up batch buffer address 0x%llx", bbsp);
-                                        return -1;
+                        /* See if the bbsp points to somewhere that we've already read from userspace
+                         * in some other level's chunk to avoid an additional read. The intuition behind
+                         * this is that it is common for BATCH_BUFFER_START commands to jump somewhere
+                         * nearby or to jump back to some command area that we were previously parsing.
+                         * If this is succesful, we save a bpf_for_each_map_elem() as well as a
+                         * bpf_probe_read_user() (both in read_batch_buffer()), which is huge. */
+                        for (b = 0; b < 3; b += 1) {
+                                bi = b;
+                                other_buff = bpf_map_lookup_elem(&bb_parse_buffers, &bi);
+                                if (other_buff == NULL) { return -1; }
+                                if (BB_BUFF_CONTAINS_IP(other_buff, bbsp)) {
+                                        bpf_map_update_elem(&bb_parse_buffers, &lvl, other_buff, 0);
+                                        goto next_level_loaded;
                                 }
                         }
+
+                        if (read_batch_buffer(bbsp, buff) != 0) {
+                                ERR_PRINTK("failed to look up batch buffer address 0x%llx", bbsp);
+                                return -1;
+                        }
+next_level_loaded:;
 
                         cxt->ips[lvl & 3]     = bbsp - sizeof(u32); /* Will be advanced back to bbsp at bottom of dword loop. */
                         cxt->cpu_ips[lvl & 3] = (buff->cpu_base + (bbsp - buff->gpu_base)) - sizeof(u32);
@@ -342,17 +379,6 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         struct iba_info     *iba_info;
         struct ksp_info     *ksp_info;
         struct sip_info     *sip_info;
-
-#ifdef BB_DEBUG
-        u32 op_code;
-
-#define ELEM(name, type, opcode, num_dwords)                                 \
-            op_code = name;                                                  \
-            bpf_map_update_elem(&bb_cmd_names, &op_code, &op_name_##name, 0);
-
-            LIST_COMMANDS(ELEM)
-#undef ELEM
-#endif
 
         clear_ksps();
 

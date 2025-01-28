@@ -22,21 +22,6 @@ int print_header()
         return 0;
 }
 
-int print_debug_area(struct debug_area_info *info)
-{
-        pthread_mutex_lock(&debug_print_lock);
-        fprintf(stderr, "%-*.*s", EVENT_LEN, EVENT_LEN, "debug_area");
-        fprintf(stderr, " %-*llu", TIME_LEN, (unsigned long long)0);
-        fprintf(stderr, " %-*u", CPU_LEN, 0);
-        fprintf(stderr, " %-*u", PID_LEN, info->pid);
-        fprintf(stderr, " %-*u", TID_LEN, 0);
-        fprintf(stderr, " vm_id=%u gpu_addr=0x%llx\n",
-               info->vm_id, info->gpu_addr);
-        pthread_mutex_unlock(&debug_print_lock);
-
-        return 0;
-}
-
 int print_vm_create(struct vm_create_info *info)
 {
         pthread_mutex_lock(&debug_print_lock);

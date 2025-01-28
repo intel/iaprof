@@ -35,30 +35,30 @@ int BPF_PROG(xe_vm_bind_ioctl,
 
         /* For getting the cpu_addr */
         struct file_handle_pair pair = {};
-        
+
         /* Read the argument struct (which is large) into a per-cpu array */
         tmp_arg_key = 0;
         args = bpf_map_lookup_elem(&tmp_arg_storage, &tmp_arg_key);
         if (!args) {
-                DEBUG_PRINTK("WARNING: vm_bind_ioctl failed to reserve space for arguments.");
+                WARN_PRINTK("vm_bind_ioctl failed to reserve space for arguments.");
                 return 0;
         }
         retval = bpf_core_read(args, sizeof(*args), data);
         if (retval) {
-                DEBUG_PRINTK("WARNING: vm_bind_ioctl failed to read arguments.");
+                WARN_PRINTK("vm_bind_ioctl failed to read arguments.");
                 return 0;
         }
-        
+
         DEBUG_PRINTK("vm_bind_ioctl handle=%u gpu_addr=0x%lx op=0x%x", args->bind.obj, args->bind.addr, args->bind.op);
-        
+
         if (args->bind.op == DRM_XE_VM_BIND_OP_UNMAP) {
                 DEBUG_PRINTK("vm_bind_ioctl unmap handle=%u gpu_addr=0x%lx", args->bind.obj, args->bind.addr);
         }
-        
+
         if (args->bind.op == DRM_XE_VM_BIND_OP_PREFETCH) {
                 DEBUG_PRINTK("vm_bind_ioctl prefetch handle=%u gpu_addr=0x%lx", args->bind.obj, args->bind.addr);
         }
-        
+
         if ((args->bind.op != DRM_XE_VM_BIND_OP_MAP) &&
             (args->bind.op != DRM_XE_VM_BIND_OP_MAP_USERPTR)) {
                 return 0;
@@ -67,8 +67,7 @@ int BPF_PROG(xe_vm_bind_ioctl,
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
         if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_bind_ioctl failed to reserve in the ringbuffer.");
+                ERR_PRINTK("vm_bind_ioctl failed to reserve in the ringbuffer.");
                 dropped_event = 1;
                 return 0;
         }
@@ -88,14 +87,14 @@ int BPF_PROG(xe_vm_bind_ioctl,
                 info->offset = args->bind.obj_offset;
         }
         info->pid = bpf_get_current_pid_tgid() >> 32;
-        
+
         if (args->bind.op != DRM_XE_VM_BIND_OP_MAP_USERPTR) {
                 /* Get the CPU address from any mappings that have happened */
                 pair.handle = info->handle;
                 pair.file = (u64)file;
                 lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
                 if (!lookup) {
-                        DEBUG_PRINTK("WARNING: vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", info->gpu_addr, pair.handle);
+                        WARN_PRINTK("vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", info->gpu_addr, pair.handle);
                 } else {
                         /* Maintain a map of GPU->CPU addrs */
                         if (info->size && info->gpu_addr) {
@@ -115,13 +114,13 @@ int BPF_PROG(xe_vm_bind_ioctl,
                                         DEBUG_PRINTK("!!! adding 0x%llx to the page_map.", page_addr);
                                 }
                         } else {
-                                DEBUG_PRINTK("WARNING: vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", info->gpu_addr, info->size);
+                                WARN_PRINTK("vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", info->gpu_addr, info->size);
                         }
                 }
         }
-        
+
         DEBUG_PRINTK("vm_bind vm_id=%u handle=%u gpu_addr=0x%lx userptr=0x%lx num_binds=%u size=%lu file=0x%lx", info->vm_id, info->handle, info->gpu_addr, info->offset, args->num_binds, info->size, info->file);
-        
+
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         return 0;
