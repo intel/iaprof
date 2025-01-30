@@ -55,7 +55,7 @@ mkdir -p ${IGC_DIR}
 cd ${IGC_DIR}
 (
 ./build_igc.sh
-) 2>&1 > ${IGC_BUILD_LOG}
+) &> ${IGC_BUILD_LOG}
 RETVAL=$?
 if [ ${RETVAL} -ne 0 ]; then
   echo "  ERROR: IGC failed to build."

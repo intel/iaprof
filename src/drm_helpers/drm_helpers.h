@@ -6,8 +6,8 @@
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #else
-#include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
+#include <drm/i915_drm_prelim.h>
 #endif
 
 /*******************

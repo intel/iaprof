@@ -28,10 +28,13 @@ IGA_INCLUDE_DIR="${IGA_INCLUDE_DIR:-${DEPS_DIR}/install/include}"
 LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
 
-# Find the proper kernel headers and copy them into the deps/ directory
-KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
-mkdir -p ${DEPS_DIR}/kernel_headers/uapi
-cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
+# Find the proper kernel headers and copy them into the deps/ directory.
+# Add those to CFLAGS. Users can place headers in there as a workaround.
+if [ -d "/lib/modules/$(uname -r)/build/include/uapi" ]; then
+  KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
+  mkdir -p ${DEPS_DIR}/kernel_headers/uapi
+  cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
+fi
 CFLAGS+=" -I${DEPS_DIR}/kernel_headers"
 
 # Get the git commit hash

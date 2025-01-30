@@ -8,6 +8,7 @@
 #include <search.h>
 #include <unistd.h>
 
+#include <drm/i915_drm.h>
 #include <drm/i915_drm_prelim.h>
 
 #include "iaprof.h"
