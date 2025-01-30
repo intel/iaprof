@@ -2,6 +2,7 @@
 
 #include "iaprof.h"
 #include "proto_flame.h"
+#include "printers/debug/debug_printer.h"
 #include "stores/buffer_profile.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/debug_i915/debug_i915_collector.h"

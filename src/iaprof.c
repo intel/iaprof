@@ -4,6 +4,7 @@
 */
 
 #include "iaprof.h"
+#include "commands/record.h"
 
 #ifndef GIT_COMMIT_HASH
 #define GIT_COMMIT_HASH "?"

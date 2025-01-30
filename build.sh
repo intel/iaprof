@@ -27,7 +27,6 @@ PREFIX="${DEPS_DIR}/install"
 IGA_INCLUDE_DIR="${IGA_INCLUDE_DIR:-${DEPS_DIR}/install/include}"
 LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
-
 # Find the proper kernel headers and copy them into the deps/ directory.
 # Add those to CFLAGS. Users can place headers in there as a workaround.
 if [ -d "/lib/modules/$(uname -r)/build/include/uapi" ]; then
@@ -266,14 +265,24 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
+  
+####################
+#     COMMANDS     #
+####################
+COMMANDS_DIR="${SRC_DIR}/commands"
+echo "Building ${COMMANDS_DIR}..."
 
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/record.c \
+  -o ${COMMANDS_DIR}/record.o
 
 ####################
 #     IAPROF       #
 ####################
 
 ${CC} ${COMMON_FLAGS} -c \
-  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
@@ -302,6 +311,8 @@ ${CXX} ${LDFLAGS} \
   \
   ${GPU_PARSERS_DIR}/shader_decoder.o \
   \
+  ${COMMANDS_DIR}/record.o \
+  \
   ${SRC_DIR}/iaprof.o \
   \
   ${COMMON_FLAGS} \
@@ -310,7 +321,6 @@ ${CXX} ${LDFLAGS} \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
   -lz \
-  -lzstd \
   -lstdc++ \
   ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \

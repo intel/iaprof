@@ -13,6 +13,7 @@
 
 #include "iaprof.h"
 
+#include "printers/debug/debug_printer.h"
 #include "i915_helpers.h"
 
 /*******************

@@ -15,12 +15,12 @@
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 
-#include "iaprof.h"
+#include "commands/record.h"
 
 #include "stores/buffer_profile.h"
 
 #include "printers/stack/stack_printer.h"
-#include "printers/printer.h"
+#include "printers/debug/debug_printer.h"
 
 #include "bpf/main.h"
 #include "bpf/main.skel.h"
@@ -59,7 +59,7 @@ int handle_vm_create(void *data_arg)
         struct vm_create_info *info;
 
         info = (struct vm_create_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_create(info);
         }
 
@@ -80,7 +80,7 @@ int handle_vm_bind(void *data_arg)
         struct buffer_binding *bind;
 
         info = (struct vm_bind_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_bind(info, vm_bind_bpf_counter);
         }
 
@@ -137,7 +137,7 @@ int handle_vm_unbind(void *data_arg)
         struct buffer_binding *bind;
 
         info = (struct vm_unbind_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_unbind(info);
         }
 

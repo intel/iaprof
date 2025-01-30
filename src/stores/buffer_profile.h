@@ -6,7 +6,7 @@
 #include <pthread.h>
 
 #include "collectors/bpf_i915/bpf/main.h"
-#include "gpu_parsers/shader_decoder.h"
+/* #include "gpu_parsers/shader_decoder.h" */
 #include "collectors/eustall/eustall_collector.h"
 
 #include "utils/hash_table.h"
@@ -26,6 +26,8 @@ enum buffer_type {
         BUFFER_TYPE_SYSTEM_ROUTINE,
         BUFFER_TYPE_DEBUG_AREA,
 };
+
+struct kv_t;
 
 struct buffer_binding {
         enum buffer_type type;

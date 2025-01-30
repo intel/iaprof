@@ -9,7 +9,7 @@
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "gpu_parsers/shader_decoder.h"
-#include "printers/printer.h"
+#include "printers/debug/debug_printer.h"
 
 /* Driver-specific stuff */
 #ifdef XE_DRIVER
@@ -94,10 +94,8 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
                         hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
         }
 
-        if (verbose) {
-                print_eustall(sample, gpu_addr, offset, bind->handle,
-                              time);
-        }
+        print_eustall(sample, gpu_addr, offset, bind->handle,
+                      time);
 
         /* Check if this offset has been seen yet */
         found = hash_table_get_val(bind->stall_counts, offset);
@@ -208,9 +206,7 @@ none_found:
                         array_push(*eustall_waitlist, deferred);
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
-                        if (verbose) {
-                                print_eustall_defer(sample, addr, time);
-                        }
+                        print_eustall_defer(sample, addr, time);
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
@@ -220,11 +216,9 @@ none_found:
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
                 /* We have to guess. Choose the last one that we've found. */
-                if (verbose) {
-                        print_eustall_churn(sample, addr,
-                                            first_found_offset,
-                                            time);
-                }
+                print_eustall_churn(sample, addr,
+                                    first_found_offset,
+                                    time);
 
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
@@ -376,9 +370,7 @@ void handle_remaining_eustalls() {
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
-                if (verbose) {
-                        print_eustall_drop(&it->sample, addr, time);
-                }
+                print_eustall_drop(&it->sample, addr, time);
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);

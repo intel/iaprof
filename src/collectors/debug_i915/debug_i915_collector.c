@@ -20,7 +20,9 @@
 #include <uapi/drm/xe_drm.h>
 #endif
 
-#include "iaprof.h"
+#include "commands/record.h"
+
+#include "printers/debug/debug_printer.h"
 #include "debug_i915_collector.h"
 #include "stores/buffer_profile.h"
 #include "utils/utils.h"
@@ -139,9 +141,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
 
-        if (debug) {
-                fprintf(stderr, "Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
-        }
+        debug_printf("Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
 
         /* Find which index this PID relates to */
         pid_index = -1;
@@ -174,9 +174,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
                 }
         }
 
-        if (debug) {
-                WARN("Couldn't find a symbol for addr=0x%lx\n", addr);
-        }
+        debug_printf("Couldn't find a symbol for addr=0x%lx\n", addr);
 
         return -1;
 }

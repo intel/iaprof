@@ -14,11 +14,12 @@
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/bpf_i915/bpf/main.skel.h"
 
-#include "printers/stack/stack_printer.h"
-
 #include "utils/hash_table.h"
 #include "utils/tree.h"
 #include "utils/demangle.h"
+
+#include "printers/debug/debug_printer.h"
+#include "printers/stack/stack_printer.h"
 
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;

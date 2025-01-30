@@ -7,7 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "iaprof.h"
+#include "printers/debug/debug_printer.h"
 #include "utils/utils.h"
 
 #define MAX_CHARS_ADDR 16

@@ -45,6 +45,8 @@
 #include "stores/buffer_profile.h"
 #include "stores/proto_flame.h"
 
+#include "commands/record.h"
+
 /******************
  * GLOBALS        *
  ******************/
@@ -66,13 +68,10 @@ static _Atomic char main_thread_should_stop = 0;
 
 int pid = 0;
 char verbose = 0;
-char debug = 0;
 char bb_debug = 0;
 char quiet = 0;
 char debug_collector = 1;
 char *g_sidecar = NULL;
-
-pthread_mutex_t debug_print_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
@@ -681,4 +680,6 @@ int record(int argc, char **argv)
 
         free_profiles();
         fflush(stdout);
+        
+        return 0;
 }
