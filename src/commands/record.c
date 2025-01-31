@@ -43,7 +43,7 @@
 
 /* Stores */
 #include "stores/buffer_profile.h"
-#include "stores/proto_flame.h"
+#include "stores/interval_profile.h"
 
 #include "commands/record.h"
 
@@ -61,6 +61,7 @@ static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
 static _Atomic char collect_threads_enabled = 3;
 static _Atomic char main_thread_should_stop = 0;
+static uint64_t     interval_number = 0;
 
 /*******************
 * COMMANDLINE ARGS *
@@ -299,7 +300,7 @@ int handle_eustall_read(int fd, struct device_info *devinfo)
                 handle_eustall_samples(eustall_info.perf_buf, len, devinfo);
         }
 
-        store_interval_flames();
+        store_interval_profile(interval_number++);
 
         /* Reset for the next interval */
         clear_interval_profiles();
@@ -379,7 +380,7 @@ next:;
         }
 
         handle_remaining_eustalls();
-        store_interval_flames();
+        store_interval_profile(interval_number++);
 
         return NULL;
 }
@@ -595,7 +596,7 @@ int record(int argc, char **argv)
         print_status("Initializing, please wait...\n");
 
         init_profiles();
-        init_flames();
+        init_interval_profile();
         init_eustall_waitlist();
         init_driver();
 

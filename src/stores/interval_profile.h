@@ -11,14 +11,15 @@
 #include "utils/hash_table.h"
 
 /***************************************
-* Proto Flamegraph
+* Interval Profile
 **********************
-* Stores the individual components necessary to produce a Flamegraph,
-* so that we can build it up as we go.
+* Stores per-interval profiles, so that we can build
+* an in-memory profile that maintains which interval
+* each sample was collected in.
 ***************************************/
 
-/* Stores a single "flame" of a flamegraph. */
-struct proto_flame {
+/* Stores an aggregated sample within an interval's profile */
+struct sample {
         char       *proc_name;
         const char *ustack_str;
         const char *kstack_str;
@@ -33,9 +34,9 @@ struct proto_flame {
         int         stall_type;
 };
 
-typedef struct proto_flame proto_flame_struct;
+typedef struct sample sample_struct;
 
-static inline int proto_flame_equ(const struct proto_flame a, const struct proto_flame b) {
+static inline int sample_equ(const struct sample a, const struct sample b) {
         /* Check the stack strings by pointer value since they are uniquely stored
          * and retrieved via {store,get}_stack(). */
         if (a.ustack_str != b.ustack_str)          { return 0; }
@@ -54,9 +55,9 @@ static inline int proto_flame_equ(const struct proto_flame a, const struct proto
         return 1;
 }
 
-use_hash_table_e(proto_flame_struct, uint64_t, proto_flame_equ);
+/* Stores a single interval's profile */
+use_hash_table_e(sample_struct, uint64_t, sample_equ);
+extern hash_table(sample_struct, uint64_t) interval_profile;
 
-extern hash_table(proto_flame_struct, uint64_t) flame_samples;
-
-void init_flames();
-void store_interval_flames();
+void init_interval_profile();
+void store_interval_profile(uint64_t interval);
