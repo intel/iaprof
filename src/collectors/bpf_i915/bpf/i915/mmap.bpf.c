@@ -36,14 +36,14 @@ struct fake_offset_pointer {
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct fake_offset_pointer);
         __type(value, struct file_handle_pair);
 } mmap_wait_for_unmap SEC(".maps");
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct file_handle_pair);
         __type(value, u64);
 } file_handle_mapping SEC(".maps");
@@ -126,7 +126,7 @@ struct mmap_offset_wait_for_mmap_val {
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, u64);
         __type(value, struct mmap_offset_wait_for_mmap_val);
 } mmap_offset_wait_for_mmap SEC(".maps");

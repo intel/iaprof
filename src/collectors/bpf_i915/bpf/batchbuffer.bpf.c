@@ -114,15 +114,15 @@ static __u64 _find_batchbuffer(struct bpf_map *map, struct gpu_mapping *gmapping
 }
 
 struct parse_cxt {
+        u8  attempts;
+        u8  bb2l;
+        u32 level;
         u64 eb_id;
         u64 ips[4]; /* 4 because we use a bitmask trick to soothe the verifier. Level 4 is not used. */
         u64 cpu_ips[4];
-        u32 level;
-        u8  bb2l;
         u64 iba;
         u64 sip;
         u64 ksp;
-        u8  attempts;
 };
 
 struct {
@@ -434,16 +434,8 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         }
 
         stop = 0;
-
-        if (HAS_BPF_FOR) {
-                bpf_for(i, 0, MAX_BB_COMMANDS) {
-                        stop = parse_next(cxt);
-                        if (stop != 0) { break; }
-                }
-        } else {
-                for (i = 0; i < MAX_BB_COMMANDS && stop == 0; i += 1) {
-                        stop = parse_next(cxt);
-                }
+        for (i = 0; i < MAX_BB_COMMANDS && stop == 0; i += 1) {
+                stop = parse_next(cxt);
         }
 
         if (stop == 0) {

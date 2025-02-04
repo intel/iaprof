@@ -14,7 +14,7 @@ struct file_ctx_pair {
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct file_ctx_pair);
         __type(value, u32);
 } context_create_wait_for_exec SEC(".maps");

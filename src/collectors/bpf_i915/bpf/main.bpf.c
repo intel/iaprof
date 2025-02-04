@@ -74,8 +74,6 @@ extern int LINUX_KERNEL_VERSION __kconfig;
 #define WARN_PRINTK(...) ;
 #endif
 
-#define HAS_BPF_FOR (LINUX_KERNEL_VERSION >= KERNEL_VERSION(6, 4, 0))
-
 /***************************************
 * HACKY DECLARATIONS
 *
