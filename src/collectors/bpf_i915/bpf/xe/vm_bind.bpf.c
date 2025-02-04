@@ -111,7 +111,6 @@ int BPF_PROG(xe_vm_bind_ioctl,
                                 bpf_for(page_idx, 0, num_pages) {
                                         page_addr = gmapping.addr + (page_idx * PAGE_SIZE);
                                         bpf_map_update_elem(&page_map, &page_addr, &(gmapping.addr), 0);
-                                        DEBUG_PRINTK("!!! adding 0x%llx to the page_map.", page_addr);
                                 }
                         } else {
                                 WARN_PRINTK("vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", info->gpu_addr, info->size);
@@ -153,8 +152,7 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
         gmapping.file = (u64)file;
         lookup = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
         if (!lookup) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
+                WARN_PRINTK("vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
                 return 0;
         }
         __builtin_memcpy(&cmapping, lookup,
@@ -163,20 +161,17 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
         /* Delete the element from the gpu_cpu_map and cpu_gpu_map */
         retval = bpf_map_delete_elem(&gpu_cpu_map, &gmapping);
         if (retval < 0) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
+                WARN_PRINTK("vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
         }
         retval = bpf_map_delete_elem(&cpu_gpu_map, &cmapping);
         if (retval < 0) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
+                WARN_PRINTK("vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
         }
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
         if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_unbind_ioctl failed to reserve in the ringbuffer.");
+                WARN_PRINTK("vm_unbind_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;

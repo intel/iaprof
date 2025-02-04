@@ -172,7 +172,7 @@ int read_opts(int argc, char **argv)
                 }
                 g_sidecar[--size] = '\0';
         }
-        
+
 
         return 0;
 }
@@ -348,7 +348,7 @@ void *eustall_collect_thread_main(void *a) {
         if (init_eustall(&devinfo)) {
                 ERR("Failed to configure EU stalls.\n");
         }
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized EU stall collector.\n");
         }
@@ -388,6 +388,7 @@ void *eustall_collect_thread_main(void *a) {
 next:;
         }
 
+        wakeup_eustall_deferred_attrib_thread();
         handle_remaining_eustalls();
         store_interval_flames();
 
@@ -410,7 +411,7 @@ void *bpf_collect_thread_main(void *a) {
 
         init_bpf_i915();
         errno = 0;
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized BPF collector.\n");
         }
@@ -480,7 +481,7 @@ void *debug_i915_collect_thread_main(void *a) {
 
         pollfds         = array_make(struct pollfd);
         pollfds_indices = array_make(int);
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized debug collector.\n");
         }

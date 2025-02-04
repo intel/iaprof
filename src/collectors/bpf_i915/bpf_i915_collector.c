@@ -123,10 +123,6 @@ cleanup:
 
         vm_bind_bpf_counter++;
 
-#ifndef XE_DRIVER
-        wakeup_eustall_deferred_attrib_thread();
-#endif
-
         return 0;
 }
 
@@ -243,6 +239,8 @@ int handle_iba(void *data_arg)
 
         release_vm_profile(vm);
 
+        wakeup_eustall_deferred_attrib_thread();
+
         return 0;
 }
 
@@ -281,6 +279,8 @@ int handle_ksp(void *data_arg)
         }
 
         release_vm_profile(vm);
+
+        wakeup_eustall_deferred_attrib_thread();
 
         return 0;
 }

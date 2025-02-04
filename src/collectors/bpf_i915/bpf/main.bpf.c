@@ -60,6 +60,8 @@ n* i915 GEM Tracer
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 
+extern int LINUX_KERNEL_VERSION __kconfig;
+
 #include "main.h"
 #include "gpu_parsers/bb_parser_defs.h"
 
@@ -71,6 +73,8 @@ n* i915 GEM Tracer
 #define DEBUG_PRINTK(...) ;
 #define WARN_PRINTK(...) ;
 #endif
+
+#define HAS_BPF_FOR (LINUX_KERNEL_VERSION >= KERNEL_VERSION(6, 4, 0))
 
 /***************************************
 * HACKY DECLARATIONS
@@ -106,21 +110,6 @@ struct {
 } rb SEC(".maps");
 
 /***************************************
-* STACKMAP
-*
-* Used for grabbing stacks in all BPF sub-programs.
-***************************************/
-
-#if 0
-struct {
-        __uint(type, BPF_MAP_TYPE_STACK_TRACE);
-        __uint(key_size, sizeof(u32));
-        __uint(value_size, MAX_STACK_DEPTH * sizeof(u64));
-        __uint(max_entries, 1<<14);
-} stackmap SEC(".maps");
-#endif
-
-/***************************************
 * GPU->CPU Map
 *
 * This map uses `i915_gem_mmap_ioctl`, `i915_gem_mmap_offset_ioctl`, `i915_gem_mmap`
@@ -138,67 +127,24 @@ struct gpu_mapping {
 };
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct gpu_mapping);
         __type(value, struct cpu_mapping);
 } gpu_cpu_map SEC(".maps");
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct cpu_mapping);
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
 #ifdef XE_DRIVER
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_PAGE_ENTRIES);
         __type(key, u64);
         __type(value, u64);
 } page_map SEC(".maps");
 #endif
-struct {
-        __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
-        __type(key, u64);
-        __type(value, u32);
-} fault_count_map SEC(".maps");
-
-struct {
-        __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
-        __type(key, struct gpu_mapping);
-        __type(value, char);
-} known_not_batch_buffers SEC(".maps");
-
-/***************************************
-* Buffer Filters
-***************************************/
-
-#define DBGAREA_MAGIC 0x61657261676264
-#define SBAAREA_MAGIC 0x61657261616273
-#define TSSAREA_MAGIC 0x61657261737374
-
-char is_debug_area(void *addr, u64 size)
-{
-        u64 val;
-        struct debug_area_info *info;
-
-        if (size < 8) {
-                return 0;
-        }
-
-        /* Make a copy of the first 8 bytes, read them to see what the buffer type is */
-        bpf_probe_read_user(&val, sizeof(val), addr);
-
-        if (val == DBGAREA_MAGIC ||
-            val == SBAAREA_MAGIC ||
-            val == TSSAREA_MAGIC) {
-
-                return 1;
-        }
-
-        return 0;
-}
 
 #include "batchbuffer.bpf.c"
 

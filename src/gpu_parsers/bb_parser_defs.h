@@ -61,6 +61,9 @@
  */
 
 #ifdef XE_DRIVER
+
+#define PLATFORM_HAS_MI_MATH (0)
+
 #define LIST_COMMANDS(X)                                                                                \
 /*        NAME,                              TYPE,        OPCODE,                         NUM_DWORDS */ \
         X(NOOP,                              CMD_MI,        0x00,                                  1)   \
@@ -95,6 +98,8 @@
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
 #define COMPUTE_WALKER_KSP_DWORD 20
 #else
+
+#define PLATFORM_HAS_MI_MATH (1)
 
 /* Note about MI_MATH: the actual length in DWORDS of the command is encoded in the last 3 bits of the
  * DWORD. It's encoded as 1 in this table, but care should be taken in parsing code to account for this. */

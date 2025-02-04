@@ -14,7 +14,7 @@ struct file_ctx_pair {
 
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
-        __uint(max_entries, MAX_ENTRIES);
+        __uint(max_entries, MAX_MAPPINGS);
         __type(key, struct file_ctx_pair);
         __type(value, u32);
 } context_create_wait_for_exec SEC(".maps");
@@ -32,7 +32,7 @@ int BPF_PROG(xe_exec_queue_create_ioctl,
                 DEBUG_PRINTK("!!! exec_queue_create returned with an error");
                 return 0;
         }
-        
+
         args = (struct drm_xe_exec_queue_create *)data;
         vm_id = BPF_CORE_READ(args, vm_id);
         ctx_id = BPF_CORE_READ(args, exec_queue_id);
@@ -73,8 +73,7 @@ int BPF_PROG(xe_vm_create_ioctl, struct drm_device *dev, void *data,
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);
         if (!info) {
-                DEBUG_PRINTK(
-                        "WARNING: vm_create_ioctl failed to reserve in the ringbuffer.");
+                ERR_PRINTK("vm_create_ioctl failed to reserve in the ringbuffer.");
                 status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                 DEBUG_PRINTK("Unconsumed data: %lu", status);
                 dropped_event = 1;
@@ -93,4 +92,3 @@ int BPF_PROG(xe_vm_create_ioctl, struct drm_device *dev, void *data,
 
         return 0;
 }
-

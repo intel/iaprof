@@ -84,8 +84,7 @@ int init_syms_cache()
         if (syms_cache == NULL) {
                 syms_cache = syms_cache__new(0);
                 if (!syms_cache) {
-                        fprintf(stderr,
-                                "ERROR: Failed to initialize syms_cache.\n");
+                        ERR("Failed to initialize syms_cache.\n");
                         return -1;
                 }
         }
