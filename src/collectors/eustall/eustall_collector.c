@@ -247,7 +247,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                 /* We're going to read from the end of the header until the end of these records */
                 if (sample > ((struct eustall_sample *)(perf_buf + len))) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
-                        debug_printf("WARNING: EU stall reading would put us back the end of the buffer.\n");
+                        WARN("EU stall reading would put us back the end of the buffer.\n");
                         break;
                 }
 

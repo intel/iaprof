@@ -2,7 +2,7 @@
 
 #include "drm_helpers/drm_helpers.h"
 
-#define PAGE_SIZE 4096
+#define PAGE_SIZE (4096)
 
 /*******************
 *    Utilities     *

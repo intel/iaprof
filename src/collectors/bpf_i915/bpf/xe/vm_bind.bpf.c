@@ -111,7 +111,6 @@ int BPF_PROG(xe_vm_bind_ioctl,
                                 bpf_for(page_idx, 0, num_pages) {
                                         page_addr = gmapping.addr + (page_idx * PAGE_SIZE);
                                         bpf_map_update_elem(&page_map, &page_addr, &(gmapping.addr), 0);
-                                        DEBUG_PRINTK("!!! adding 0x%llx to the page_map.", page_addr);
                                 }
                         } else {
                                 WARN_PRINTK("vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", info->gpu_addr, info->size);

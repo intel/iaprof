@@ -114,11 +114,12 @@ static __u64 _find_batchbuffer(struct bpf_map *map, struct gpu_mapping *gmapping
 }
 
 struct parse_cxt {
+        u8  attempts;
+        u8  bb2l;
+        u32 level;
         u64 eb_id;
         u64 ips[4]; /* 4 because we use a bitmask trick to soothe the verifier. Level 4 is not used. */
         u64 cpu_ips[4];
-        u32 level;
-        u8  bb2l;
         u64 iba;
         u64 sip;
         u64 ksp;
@@ -130,6 +131,17 @@ struct {
         __type(key, u64);
         __type(value, struct parse_cxt);
 } deferred_parse SEC(".maps");
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_BB_DEFERRED);
+        __type(key, u64);
+        __type(value, struct parse_cxt);
+} tmp_deffered_add SEC(".maps");
+
+#ifdef BB_DEBUG
+static int n_deferred;
+#endif
 
 struct {
         __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
@@ -184,6 +196,8 @@ u32 dword_to_op(u32 dword) {
         return GET_OPCODE(dword);
 }
 
+#if PLATFORM_HAS_MI_MATH
+
 __attribute__((noinline))
 u8 command_len(u32 op, u32 dword) {
         if (op == MATH) {
@@ -191,6 +205,16 @@ u8 command_len(u32 op, u32 dword) {
         }
         return bb_cmd_lookup[op & 0x7fff];
 }
+#define COMMAND_LEN(_op, _dword) command_len((_op), (_dword))
+
+#else
+
+u8 command_len(u32 op) {
+        return bb_cmd_lookup[op & 0x7fff];
+}
+#define COMMAND_LEN(_op, _dword) command_len((_op))
+
+#endif
 
 __attribute__((noinline))
 int read_batch_buffer(u64 bbsp, struct batch_buffer *buff) {
@@ -219,7 +243,10 @@ int read_batch_buffer(u64 bbsp, struct batch_buffer *buff) {
 #define NORMAL_STOP    (1)
 #define DATA_NOT_READY (2)
 
-#define BB_BUFF_CONTAINS_IP(_buff, _ip) ((_buff)->gpu_base <= (_ip) && (_ip) < ((_buff)->gpu_base + MAX_BB_BYTES))
+#define BB_BUFF_CONTAINS_IP(_buff, _ip)                                                        \
+        (  (_buff)->gpu_base <= (_ip)                                                          \
+        && (_ip) < ((_buff)->gpu_base + MAX_BB_BYTES)                                          \
+        && (_buff)->dwords[(((_ip) - buff->gpu_base) / sizeof(u32)) & MAX_BB_DWORDS_IDX] != 0) /* If it's a NOOP, don't reuse. */
 
 __attribute__((noinline))
 int parse_next(struct parse_cxt *cxt) {
@@ -266,7 +293,9 @@ int parse_next(struct parse_cxt *cxt) {
                         buff->gpu_base = cur_ip;
                         buff->cpu_base = cxt->cpu_ips[lvl & 3];
 
-                        bpf_probe_read_user(buff->dwords, MAX_BB_BYTES, (void*)buff->cpu_base);
+                        if (buff->cpu_base != 0) {
+                                bpf_probe_read_user(buff->dwords, MAX_BB_BYTES, (void*)buff->cpu_base);
+                        }
 
                         dword_off = 0;
                 }
@@ -278,7 +307,7 @@ int parse_next(struct parse_cxt *cxt) {
                 } else {
                         op = dword_to_op(dword);
 
-                        to_consume = cmd_len = command_len(op, dword);
+                        to_consume = cmd_len = COMMAND_LEN(op, dword);
 
                         if (cmd_len == 0) {
                                 ERR_PRINTK("BB 0x%llx: Unknown BB command: dword = 0x%x", cur_ip, dword);
@@ -464,25 +493,60 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
 
 static void defer_batchbuffer_parse(struct parse_cxt *parse_cxt) {
         u64 ip;
+#ifdef BB_DEBUG
+        int exists;
+#endif
 
         ip = parse_cxt->ips[parse_cxt->level & 3];
+
+#ifdef BB_DEBUG
+        exists = bpf_map_lookup_elem(&deferred_parse, &ip) != NULL;
+#endif
 
         if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
                 ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
                 dropped_event = 1;
         }
+
+#ifdef BB_DEBUG
+        if (!exists) {
+                __sync_fetch_and_add(&n_deferred, 1);
+        }
+#endif
+
+        BB_PRINTK("Adding 0x%lx to deferred parse map. %d entries", ip, n_deferred);
 }
 
 static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, struct address_range *range) {
         struct execbuf_end_info *end_info;
+        u64                      new_ip;
         u64                      status;
 
         if (range != NULL && (*ip < range->start || *ip >= range->end)) {
                 return 0;
         }
 
+        bpf_map_delete_elem(map, ip);
+
+#ifdef BB_DEBUG
+        __sync_fetch_and_add(&n_deferred, -1);
+#endif
+
         if (parse_batchbuffer(parse_cxt, 1) == DATA_NOT_READY) {
                 WARN_PRINTK("deferred batch buffer still not ready");
+
+                new_ip = parse_cxt->ips[parse_cxt->level & 3];
+
+                parse_cxt->attempts += 1;
+
+                if (parse_cxt->attempts == MAX_BB_ATTEMPTS) {
+                        WARN_PRINTK("dropping batch buffer after %d attempts", MAX_BB_ATTEMPTS);
+                } else {
+                        if (bpf_map_update_elem(&tmp_deffered_add, &new_ip, parse_cxt, 0) != 0) {
+                                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
+                                dropped_event = 1;
+                        }
+                }
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
                 if (!end_info) {
@@ -495,13 +559,18 @@ static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struc
                 end_info->type  = BPF_EVENT_TYPE_EXECBUF_END;
                 end_info->eb_id = parse_cxt->eb_id;
                 bpf_ringbuf_submit(end_info, BPF_RB_FORCE_WAKEUP);
-
-                bpf_map_delete_elem(map, ip);
         }
 
         return 0;
 }
 
+static __u64 _add_tmp_deferred(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, void *cxt) {
+        defer_batchbuffer_parse(parse_cxt);
+        bpf_map_delete_elem(map, ip);
+        return 0;
+}
+
 static void try_parse_deferred_batchbuffers(struct address_range *range) {
         bpf_for_each_map_elem(&deferred_parse, _try_parse_deferred_batchbuffer, range, 0);
+        bpf_for_each_map_elem(&tmp_deffered_add, _add_tmp_deferred, NULL, 0);
 }

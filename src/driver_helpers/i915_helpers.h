@@ -2,7 +2,7 @@
 
 #include "drm_helpers/drm_helpers.h"
 
-#define PAGE_SIZE 4096
+#define PAGE_SIZE (4096)
 #define GEM_MAX_ENGINES (PRELIM_I915_EXEC_ENGINE_MASK + 1)
 #define QUERY_SIZE \
         offsetof(struct drm_i915_query_engine_info, engines[GEM_MAX_ENGINES])

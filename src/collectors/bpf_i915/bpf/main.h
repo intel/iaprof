@@ -1,19 +1,21 @@
 #ifndef GEM_COLLECTOR_H
 #define GEM_COLLECTOR_H
 
-#define MAX_STACK_DEPTH 512
-#define TASK_COMM_LEN 16
-#define MAX_ENTRIES 4 * 1024
-#define RINGBUF_SIZE 512 * 1024 * 1024 /* 512 MB */
-#define PAGE_SIZE 4096
-#define PAGE_MASK ~(0xfff)
+#define MAX_STACK_DEPTH     (512)
+#define TASK_COMM_LEN       (16)
+#define MAX_MAPPINGS        (4 * 1024)
+#define MAX_PAGE_ENTRIES    (1024 * 1024)
+#define RINGBUF_SIZE        (512 * 1024 * 1024) /* 512 MB */
+#define PAGE_SIZE           (4096)
+#define PAGE_MASK           (~0xfff)
 
 #define MAX_BB_DWORDS       (1024)
 #define MAX_BB_DWORDS_IDX   (MAX_BB_DWORDS - 1)
 #define MAX_BB_BYTES        (MAX_BB_DWORDS * sizeof(uint32_t))
 #define MAX_BB_COMMANDS     (8192)
-#define MAX_BB_DEFERRED     (8)
+#define MAX_BB_DEFERRED     (64)
 #define MAX_BB_KSP          (128)
+#define MAX_BB_ATTEMPTS     (4)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
@@ -104,34 +106,6 @@ struct sip_info {
 
         __u64 eb_id;
         __u64 addr;
-};
-
-/* Collected from an mmap */
-struct mapping_info {
-        __u8 type;
-
-        __u64 file;
-        __u32 handle;
-        __u64 cpu_addr;
-        __u64 size;
-        __u64 offset;
-
-        __u32 pid, tid, cpu;
-        __u64 time;
-};
-
-/* Collected from an munmap, possibly
-   after execbuffer */
-struct unmap_info {
-        __u8 type;
-
-        __u64 file;
-        __u32 handle;
-        __u64 cpu_addr;
-        __u64 size;
-
-        __u32 pid, tid, cpu;
-        __u64 time;
 };
 
 /* Collected from a vm_create */
