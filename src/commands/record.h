@@ -10,4 +10,4 @@ extern int g_samples_unmatched;
 
 extern device_info devinfo;
 
-int record(int argc, char **argv);
+void record(int argc, char **argv);

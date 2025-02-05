@@ -1,9 +1,80 @@
 #include "iaprof.h"
 
 #include "printers/stack/stack_printer.h"
+#include "printers/debug/debug_printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
 #include "stores/interval_profile.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
+
+void parse_stack(char *str)
+{
+        WARN("Parsing stack\n");
+}
+
+void parse_eustall(char *str)
+{
+        WARN("Parsing eustall\n");
+}
+
+void parse_interval_start(char *str)
+{
+        WARN("Parsing interval_start\n");
+}
+
+void parse_interval_end(char *str)
+{
+        WARN("Parsing interval_end\n");
+}
+
+enum profile_line {
+  STACK = 0,
+  EUSTALL = 1,
+  INTERVAL_START = 2,
+  INTERVAL_END = 3,
+  PROFILE_LINE_MAX
+};
+static char *profile_line_strs[] = {
+  [STACK] = "stack",
+  [EUSTALL] = "eustall",
+  [INTERVAL_START] = "interval_start",
+  [INTERVAL_END] = "interval_end",
+};
+static void (*profile_line_ptrs[]) (char*) = {
+  [STACK] = &parse_stack,
+  [EUSTALL] = &parse_eustall,
+  [INTERVAL_START] = &parse_interval_start,
+  [INTERVAL_END] = &parse_interval_end,
+};
+
+void parse_interval_profile()
+{
+        ssize_t bytes_read;
+        size_t line_size, profile_line_size;
+        char *line_buffer;
+        int i, found;
+        
+        line_buffer = NULL;
+        line_size = 0;
+        while ((bytes_read = getline(&line_buffer, &line_size, stdin)) != -1) {
+                /* Remove the newline */
+                if (line_buffer[bytes_read - 1] == '\n') {
+                        line_buffer[bytes_read - 1] = '\0';
+                }
+                
+                /* Call a parsing function based on the first field */
+                found = 0;
+                for (i = 0; i < PROFILE_LINE_MAX; i++) {
+                        profile_line_size = strlen(profile_line_strs[i]);
+                        if (strncmp(line_buffer, profile_line_strs[i], profile_line_size) == 0) {
+                                profile_line_ptrs[i](line_buffer + profile_line_size);
+                                found = 1;
+                        }
+                }
+                if (!found) {
+                        WARN("Unrecognized input line: '%s'\n", line_buffer);
+                }
+        }
+}
 
 void print_stack(uint64_t key, const char *stack_str,
                  const struct stack *stack, int last_index)
@@ -21,7 +92,7 @@ void print_stack(uint64_t key, const char *stack_str,
         printf(" %s\n", stack_str);
 }
 
-void print_sample(struct sample *samp, uint64_t *countp)
+void print_eustall(struct sample *samp, uint64_t *countp)
 {
         char               *gpu_symbol;
         char               *gpu_file;
@@ -94,11 +165,11 @@ void print_interval(uint64_t interval)
         struct sample      samp;
         uint64_t           *countp;
         
-        printf("interval_start %lu\n", interval);
+        printf("interval_start\t%lu\n", interval);
 
         hash_table_traverse(interval_profile, samp, countp) {
-                print_sample(&samp, countp);
+                print_eustall(&samp, countp);
         }
         
-        printf("interval_end %lu\n", interval);
+        printf("interval_end\t%lu\n", interval);
 }

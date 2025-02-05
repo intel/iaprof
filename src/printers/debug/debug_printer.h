@@ -1,8 +1,11 @@
 #pragma once
 
+#include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
 
 extern char debug;
 extern pthread_mutex_t debug_print_lock;
@@ -26,17 +29,6 @@ void print_vm_unbind(struct vm_unbind_info *info);
 void print_execbuf(struct execbuf_info *info);
 
 void print_total_eustall(uint64_t num, unsigned long long time);
-void print_eustall(struct eustall_sample *sample, uint64_t gpu_addr,
-                  uint64_t offset, uint32_t handle,
-                  unsigned long long time);
-void print_eustall_churn(struct eustall_sample *sample, uint64_t gpu_addr,
-                        uint64_t offset, unsigned long long time);
-void print_eustall_drop(struct eustall_sample *sample, uint64_t gpu_addr,
-                       unsigned long long time);
-void print_eustall_defer(struct eustall_sample *sample, uint64_t gpu_addr,
-                        unsigned long long time);
-void print_eustall_multichurn(struct eustall_sample *sample, uint64_t gpu_addr,
-                             unsigned long long time);
 void print_debug_profile();
 
 #define debug_printf(...)                                \

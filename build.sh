@@ -282,6 +282,12 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   ${COMMANDS_DIR}/record.c \
   -o ${COMMANDS_DIR}/record.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/flame.c \
+  -o ${COMMANDS_DIR}/flame.o
 
 ####################
 #     IAPROF       #
@@ -318,6 +324,7 @@ ${CXX} ${LDFLAGS} \
   ${GPU_PARSERS_DIR}/shader_decoder.o \
   \
   ${COMMANDS_DIR}/record.o \
+  ${COMMANDS_DIR}/flame.o \
   \
   ${SRC_DIR}/iaprof.o \
   \

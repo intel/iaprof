@@ -148,7 +148,7 @@ int read_opts(int argc, char **argv)
                 }
         }
 
-        if (optind < argc) {
+        if ((optind < argc) && (optind != 1)) {
                 for (int i = optind; i < argc; i++) {
                         size += strlen(argv[i]) + 2; /* Make room for trailing space and NULL terminator. */
                 }
@@ -576,7 +576,7 @@ void handle_sigint(int sig)
         }
 }
 
-int record(int argc, char **argv)
+void record(int argc, char **argv)
 {
         struct sigaction sa;
         struct timespec leftover, request = { 1, 0 };
@@ -670,6 +670,4 @@ int record(int argc, char **argv)
 
         free_profiles();
         fflush(stdout);
-        
-        return 0;
 }
