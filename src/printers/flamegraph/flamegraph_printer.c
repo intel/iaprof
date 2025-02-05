@@ -33,8 +33,8 @@ void print_flamegraph()
                 printf("%s;", samp.proc_name);
                 printf("%u;", samp.pid);
 
-                ustack_str = samp.ustack_str;
-                kstack_str = samp.kstack_str;
+                ustack_str = get_stack_str(samp.ustack_hash);
+                kstack_str = get_stack_str(samp.kstack_hash);
                 if (ustack_str) {
                         printf("%s", ustack_str);
                         if (kstack_str) {

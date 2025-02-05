@@ -6,7 +6,7 @@
 
 #include "iaprof.h"
 #include "printers/debug/debug_printer.h"
-#include "buffer_profile.h"
+#include "gpu_kernel_stalls.h"
 
 _Atomic uint64_t iba = 0;
 

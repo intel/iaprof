@@ -42,7 +42,7 @@
 #include "printers/debug/debug_printer.h"
 
 /* Stores */
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "stores/interval_profile.h"
 
 #include "commands/record.h"
@@ -68,7 +68,6 @@ static uint64_t     interval_number = 0;
 *******************/
 
 int pid = 0;
-char verbose = 0;
 char bb_debug = 0;
 char quiet = 0;
 char debug_collector = 1;
@@ -77,7 +76,6 @@ char *g_sidecar = NULL;
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
                                         { "quiet", no_argument, 0, 'q' },
-                                        { "verbose", no_argument, 0, 'v' },
                                         { "batchbuffer-debug", no_argument, 0,
                                           'b' },
                                         { "no-debug-collector", no_argument, 0, 'g' },
@@ -96,7 +94,6 @@ void usage()
         printf("        -g, --no-debug-collector disable the i915 debugger\n");
         printf("        -h, --help               help\n");
         printf("        -q, --quiet              quiet\n");
-        printf("        -v, --verbose            verbose\n");
         printf("        command                  profile system-wide while command runs\n\n");
         printf("Version: %s\n", GIT_COMMIT_HASH);
 }
@@ -116,7 +113,7 @@ int read_opts(int argc, char **argv)
 
         while (1) {
                 option_index = 0;
-                c = getopt_long(argc, argv, "dbghqve", long_options,
+                c = getopt_long(argc, argv, "dbghqe", long_options,
                                 &option_index);
                 if (c == -1) {
                         break;
@@ -137,9 +134,6 @@ int read_opts(int argc, char **argv)
                         /* no fallthrough */
                 case 'q':
                         quiet = 1;
-                        break;
-                case 'v':
-                        verbose = 1;
                         break;
                 case 0:
                         if (strcmp(long_options[option_index].name,
@@ -223,7 +217,7 @@ void print_table()
 
 void print_status_table(int seconds)
 {
-        if (quiet || verbose || debug)
+        if (quiet || debug)
                 return;
 
         print_table();
@@ -596,13 +590,8 @@ int record(int argc, char **argv)
         print_status("Initializing, please wait...\n");
 
         init_profiles();
-        init_interval_profile();
         init_eustall_waitlist();
         init_driver();
-
-        if (verbose) {
-                print_header();
-        }
 
         if (start_thread(bpf_collect_thread_main, &bpf_collect_thread_id) != 0) {
                 ERR("Failed to start the BPF collection thread.\n");

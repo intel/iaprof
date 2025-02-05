@@ -17,7 +17,6 @@ use_hash_table(uint64_t, offset_profile_struct);
 
 void clear_interval_profiles();
 void clear_unbound_buffers();
-void print_buffer_profiles();
 
 enum buffer_type {
         BUFFER_TYPE_UNKNOWN = 0,
@@ -50,8 +49,8 @@ struct buffer_binding {
         int      unbound;
 
         /* The stack where this buffer was execbuffer'd */
-        const char *execbuf_ustack_str;
-        const char *execbuf_kstack_str;
+        uint64_t execbuf_ustack_hash;
+        uint64_t execbuf_kstack_hash;
 
         /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;

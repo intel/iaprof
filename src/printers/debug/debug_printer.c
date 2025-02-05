@@ -9,7 +9,7 @@
 
 #include "printers/flamegraph/flamegraph_printer.h"
 
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/eustall/eustall_collector.h"

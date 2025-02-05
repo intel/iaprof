@@ -1,9 +1,10 @@
 #include <stdbool.h>
 
 #include "iaprof.h"
-#include "interval_profile.h"
+#include "stores/interval_profile.h"
+#include "printers/interval/interval_printer.h"
 #include "printers/debug/debug_printer.h"
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 #include "collectors/eustall/eustall_collector.h"
@@ -17,7 +18,7 @@ static uint64_t sample_hash(const struct sample a) {
 
         hash = 2654435761ULL;
 
-        hash *= ((uint64_t)a.ustack_str >> 3) * ((uint64_t)a.kstack_str >> 3);
+        hash *= ((uint64_t)a.ustack_hash >> 3) * ((uint64_t)a.kstack_hash >> 3);
 
         hash ^= a.pid;
         hash ^= a.is_debug;
@@ -29,11 +30,6 @@ static uint64_t sample_hash(const struct sample a) {
 
         return hash;
 }
-
-void init_interval_profile() {
-        interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
-}
-
 
 /* Returns 0 on success, -1 for failure */
 static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
@@ -125,12 +121,12 @@ void store_kernel_profile(struct buffer_binding *bind)
 
         memset(&samp, 0, sizeof(samp));
 
-        samp.proc_name  = strdup(bind->name);
-        samp.pid        = bind->pid;
-        samp.ustack_str = bind->execbuf_ustack_str;
-        samp.kstack_str = bind->execbuf_kstack_str;
-        samp.is_debug   = bind->type == BUFFER_TYPE_DEBUG_AREA;
-        samp.is_sys     = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
+        samp.proc_name   = strdup(bind->name);
+        samp.pid         = bind->pid;
+        samp.ustack_hash = bind->execbuf_ustack_hash;
+        samp.kstack_hash = bind->execbuf_kstack_hash;
+        samp.is_debug    = bind->type == BUFFER_TYPE_DEBUG_AREA;
+        samp.is_sys      = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
 
         /* Iterate over the offsets that we have EU stalls for */
         hash_table_traverse(bind->stall_counts, offset, profile) {
@@ -173,7 +169,9 @@ void store_interval_profile(uint64_t interval)
 {
         struct vm_profile *vm;
         struct buffer_binding *bind;
-
+        
+        interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
+        
         FOR_BINDING(vm, bind, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
@@ -186,4 +184,8 @@ void store_interval_profile(uint64_t interval)
 /* Jump here so that the macro releases locks. */
 next:;
         });
+        
+        print_interval(interval);
+        
+        hash_table_free(interval_profile);
 }

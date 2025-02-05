@@ -168,8 +168,8 @@ echo "Building ${STORES_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/buffer_profile.c \
-  -o ${STORES_DIR}/buffer_profile.o
+  ${STORES_DIR}/gpu_kernel_stalls.c \
+  -o ${STORES_DIR}/gpu_kernel_stalls.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
@@ -232,6 +232,11 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/interval/interval_printer.c \
+  -o ${PRINTERS_DIR}/interval/interval_printer.o
 
 ####################
 #     UTILS        #
@@ -295,7 +300,7 @@ ${CXX} ${LDFLAGS} \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
-  ${STORES_DIR}/buffer_profile.o \
+  ${STORES_DIR}/gpu_kernel_stalls.o \
   ${STORES_DIR}/interval_profile.o \
   \
   ${IAPROF_COLLECTORS} \
@@ -304,6 +309,7 @@ ${CXX} ${LDFLAGS} \
   ${PRINTERS_DIR}/stack/stack_printer.o \
   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o \
   ${PRINTERS_DIR}/debug/debug_printer.o \
+  ${PRINTERS_DIR}/interval/interval_printer.o \
   \
   ${UTILS_DIR}/utils.o \
   ${UTILS_DIR}/array.o \

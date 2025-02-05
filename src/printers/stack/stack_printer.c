@@ -19,6 +19,7 @@
 #include "utils/demangle.h"
 
 #include "printers/debug/debug_printer.h"
+#include "printers/interval/interval_printer.h"
 #include "printers/stack/stack_printer.h"
 
 static struct syms_cache *syms_cache = NULL;
@@ -32,13 +33,11 @@ static char tmp_str[MAX_CHARS_UINT64];
 typedef struct stack stack_struct;
 typedef char *string;
 
-static inline int stack_equ(const struct stack a, const struct stack b) {
-        return memcmp(&a, &b, sizeof(a)) == 0;
-}
+use_hash_table(uint64_t, string);
+use_hash_table(uint64_t, stack_struct);
 
-use_hash_table_e(stack_struct, string, stack_equ);
-
-static hash_table(stack_struct, string) stacks;
+static hash_table(uint64_t, string) stack_strs;
+static hash_table(uint64_t, stack_struct) stack_ips;
 
 use_hash_table(uint64_t, char);
 typedef hash_table(uint64_t, char) blacklist_t;
@@ -57,7 +56,7 @@ static hash_table(int, hll_syms_map_t) hll_syms;
 
 const struct ksyms *ksyms;
 
-static uint64_t stack_hash(const struct stack stack) {
+uint64_t stack_hash(const struct stack stack) {
         uint64_t  hash;
         int       i;
         uint64_t  piece;
@@ -75,6 +74,9 @@ static uint64_t stack_hash(const struct stack stack) {
 
         return hash;
 }
+uint64_t noop_hash(uint64_t key) {
+  return key;
+}
 
 static uint64_t u64_id_hash(uint64_t val) { return val; }
 static uint64_t addr_hash(uint64_t addr) { return addr >> 3; }
@@ -85,8 +87,7 @@ int init_syms_cache()
         if (syms_cache == NULL) {
                 syms_cache = syms_cache__new(0);
                 if (!syms_cache) {
-                        fprintf(stderr,
-                                "ERROR: Failed to initialize syms_cache.\n");
+                        debug_printf("ERROR: Failed to initialize syms_cache.\n");
                         return -1;
                 }
         }
@@ -253,21 +254,21 @@ void blacklist(int pid, uint64_t addr) {
         hash_table_insert(bl, addr, 1);
 }
 
-const char *get_stack(const struct stack *stack) {
+const char *get_stack_str(uint64_t hash) {
         char **lookup;
 
-        if (stacks == NULL) {
+        if (stack_strs == NULL) {
                 return NULL;
         }
 
-        lookup = hash_table_get_val(stacks, *stack);
+        lookup = hash_table_get_val(stack_strs, hash);
         if (!lookup) {
                 return NULL;
         }
         return *lookup;
 }
 
-static const char *_store_stack(int pid, const struct stack *stack, int is_user)
+static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
 {
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
@@ -280,15 +281,20 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
         const char *sym_name;
         unsigned long dso_offset;
         char *stack_str;
-        char **lookup;
+        uint64_t *lookup, key;
 
         stack_str = NULL;
+        last_i = -1;
 
-        if (stacks == NULL) {
-                stacks = hash_table_make(stack_struct, string, stack_hash);
+        if (stack_strs == NULL) {
+                stack_strs = hash_table_make(uint64_t, string, noop_hash);
+        }
+        if (stack_ips == NULL) {
+                stack_ips = hash_table_make(uint64_t, stack_struct, noop_hash);
         }
 
-        lookup = hash_table_get_val(stacks, *stack);
+        key = stack_hash(*stack);
+        lookup = hash_table_get_key(stack_strs, key);
         if (lookup) {
                 return *lookup;
         }
@@ -296,7 +302,7 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
                 ERR("Error grabbing the syms_cache_lock. Aborting.\n");
         }
-
+        
         if ((pid == 0) && is_user) {
                 stack_str = strdup("[unknown]");
                 goto insert;
@@ -304,7 +310,7 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
 
         sfd = bpf_info.stackmap_fd;
         if (sfd <= 0) {
-                fprintf(stderr, "Failed to get stackmap.\n");
+                debug_printf("Failed to get stackmap.\n");
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
@@ -408,19 +414,21 @@ static const char *_store_stack(int pid, const struct stack *stack, int is_user)
 
 insert:
 
-        hash_table_insert(stacks, *stack, stack_str);
+        print_stack(key, stack_str, stack, last_i);
+        hash_table_insert(stack_strs, key, stack_str);
+        hash_table_insert(stack_ips, key, *stack);
 
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 ERR("Error unlocking the syms_cache_lock. Aborting.\n");
         }
 
-        return stack_str;
+        return key;
 }
 
-const char *store_kstack(const struct stack *stack) {
+uint64_t store_kstack(const struct stack *stack) {
         return _store_stack(0, stack, 0);
 }
 
-const char *store_ustack(int pid, const struct stack *stack) {
+uint64_t store_ustack(int pid, const struct stack *stack) {
         return _store_stack(pid, stack, 1);
 }
