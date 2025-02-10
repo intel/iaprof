@@ -18,7 +18,7 @@ static uint64_t sample_hash(const struct sample a) {
 
         hash = 2654435761ULL;
 
-        hash *= ((uint64_t)a.ustack_hash >> 3) * ((uint64_t)a.kstack_hash >> 3);
+        hash *= ((uint64_t)a.ustack_str >> 3) * ((uint64_t)a.kstack_str >> 3);
 
         hash ^= a.pid;
         hash ^= a.is_debug;
@@ -123,8 +123,8 @@ void store_kernel_profile(struct buffer_binding *bind)
 
         samp.proc_name   = strdup(bind->name);
         samp.pid         = bind->pid;
-        samp.ustack_hash = bind->execbuf_ustack_hash;
-        samp.kstack_hash = bind->execbuf_kstack_hash;
+        samp.ustack_str  = bind->execbuf_ustack_str;
+        samp.kstack_str  = bind->execbuf_kstack_str;
         samp.is_debug    = bind->type == BUFFER_TYPE_DEBUG_AREA;
         samp.is_sys      = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
 

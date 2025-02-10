@@ -40,8 +40,8 @@ struct live_execbuf {
         uint32_t    vm_id;
         uint32_t    pid;
         char        name[TASK_COMM_LEN];
-        uint64_t ustack_hash;
-        uint64_t kstack_hash;
+        const char  *ustack_str;
+        const char  *kstack_str;
 };
 typedef struct live_execbuf live_execbuf_struct;
 
@@ -176,10 +176,10 @@ int handle_execbuf(void *data_arg)
         live.vm_id      = info->vm_id;
         live.pid        = info->pid;
         memcpy(live.name, info->name, TASK_COMM_LEN);
-        
-        /* Store and print the stacks */
-        live.ustack_hash = store_ustack(info->pid, &info->ustack);
-        live.kstack_hash = store_kstack(&info->kstack);
+        live.ustack_str = store_ustack(info->pid, &info->ustack);
+        live.kstack_str = store_kstack(&info->kstack);
+        print_string(live.ustack_str);
+        print_string(live.kstack_str);
 
         hash_table_insert(live_execbufs, info->eb_id, live);
 
@@ -272,8 +272,8 @@ int handle_ksp(void *data_arg)
         if (shader_bind != NULL) {
                 shader_bind->type               = BUFFER_TYPE_SHADER;
                 shader_bind->pid                = exec->pid;
-                shader_bind->execbuf_ustack_hash = exec->ustack_hash;
-                shader_bind->execbuf_kstack_hash = exec->kstack_hash;
+                shader_bind->execbuf_ustack_str = exec->ustack_str;
+                shader_bind->execbuf_kstack_str = exec->kstack_str;
                 memcpy(shader_bind->name, exec->name, TASK_COMM_LEN);
                 debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
                                 vm->vm_id, shader_bind->gpu_addr);
@@ -313,8 +313,8 @@ int handle_sip(void *data_arg)
         if (shader_bind != NULL) {
                 shader_bind->type               = BUFFER_TYPE_SYSTEM_ROUTINE;
                 shader_bind->pid                = exec->pid;
-                shader_bind->execbuf_ustack_hash = exec->ustack_hash;
-                shader_bind->execbuf_kstack_hash = exec->kstack_hash;
+                shader_bind->execbuf_ustack_str = exec->ustack_str;
+                shader_bind->execbuf_kstack_str = exec->kstack_str;
                 memcpy(shader_bind->name, exec->name, TASK_COMM_LEN);
                 debug_printf("  Marked buffer as a SIP shader: vm_id=%u gpu_addr=0x%lx\n",
                                 vm->vm_id, shader_bind->gpu_addr);

@@ -14,13 +14,12 @@
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/bpf_i915/bpf/main.skel.h"
 
+#include "printers/debug/debug_printer.h"
+#include "printers/stack/stack_printer.h"
+
 #include "utils/hash_table.h"
 #include "utils/tree.h"
 #include "utils/demangle.h"
-
-#include "printers/debug/debug_printer.h"
-#include "printers/interval/interval_printer.h"
-#include "printers/stack/stack_printer.h"
 
 static struct syms_cache *syms_cache = NULL;
 pthread_rwlock_t syms_cache_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -33,11 +32,13 @@ static char tmp_str[MAX_CHARS_UINT64];
 typedef struct stack stack_struct;
 typedef char *string;
 
-use_hash_table(uint64_t, string);
-use_hash_table(uint64_t, stack_struct);
+static inline int stack_equ(const struct stack a, const struct stack b) {
+        return memcmp(&a, &b, sizeof(a)) == 0;
+}
 
-static hash_table(uint64_t, string) stack_strs;
-static hash_table(uint64_t, stack_struct) stack_ips;
+use_hash_table_e(stack_struct, string, stack_equ);
+
+static hash_table(stack_struct, string) stacks;
 
 use_hash_table(uint64_t, char);
 typedef hash_table(uint64_t, char) blacklist_t;
@@ -56,7 +57,7 @@ static hash_table(int, hll_syms_map_t) hll_syms;
 
 const struct ksyms *ksyms;
 
-uint64_t stack_hash(const struct stack stack) {
+static uint64_t stack_hash(const struct stack stack) {
         uint64_t  hash;
         int       i;
         uint64_t  piece;
@@ -74,9 +75,6 @@ uint64_t stack_hash(const struct stack stack) {
 
         return hash;
 }
-uint64_t noop_hash(uint64_t key) {
-  return key;
-}
 
 static uint64_t u64_id_hash(uint64_t val) { return val; }
 static uint64_t addr_hash(uint64_t addr) { return addr >> 3; }
@@ -87,7 +85,8 @@ int init_syms_cache()
         if (syms_cache == NULL) {
                 syms_cache = syms_cache__new(0);
                 if (!syms_cache) {
-                        debug_printf("ERROR: Failed to initialize syms_cache.\n");
+                        fprintf(stderr,
+                                "ERROR: Failed to initialize syms_cache.\n");
                         return -1;
                 }
         }
@@ -254,21 +253,21 @@ void blacklist(int pid, uint64_t addr) {
         hash_table_insert(bl, addr, 1);
 }
 
-const char *get_stack_str(uint64_t hash) {
+const char *get_stack(const struct stack *stack) {
         char **lookup;
 
-        if (stack_strs == NULL) {
+        if (stacks == NULL) {
                 return NULL;
         }
 
-        lookup = hash_table_get_val(stack_strs, hash);
+        lookup = hash_table_get_val(stacks, *stack);
         if (!lookup) {
                 return NULL;
         }
         return *lookup;
 }
 
-static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
+static const char *_store_stack(int pid, const struct stack *stack, int is_user)
 {
         const struct syms *syms;
         hll_syms_map_t hll_syms_map;
@@ -281,20 +280,15 @@ static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
         const char *sym_name;
         unsigned long dso_offset;
         char *stack_str;
-        uint64_t *lookup, key;
+        char **lookup;
 
         stack_str = NULL;
-        last_i = -1;
 
-        if (stack_strs == NULL) {
-                stack_strs = hash_table_make(uint64_t, string, noop_hash);
-        }
-        if (stack_ips == NULL) {
-                stack_ips = hash_table_make(uint64_t, stack_struct, noop_hash);
+        if (stacks == NULL) {
+                stacks = hash_table_make(stack_struct, string, stack_hash);
         }
 
-        key = stack_hash(*stack);
-        lookup = hash_table_get_key(stack_strs, key);
+        lookup = hash_table_get_val(stacks, *stack);
         if (lookup) {
                 return *lookup;
         }
@@ -302,7 +296,7 @@ static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
         if (pthread_rwlock_wrlock(&syms_cache_lock) != 0) {
                 ERR("Error grabbing the syms_cache_lock. Aborting.\n");
         }
-        
+
         if ((pid == 0) && is_user) {
                 stack_str = strdup("[unknown]");
                 goto insert;
@@ -310,7 +304,7 @@ static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
 
         sfd = bpf_info.stackmap_fd;
         if (sfd <= 0) {
-                debug_printf("Failed to get stackmap.\n");
+                fprintf(stderr, "Failed to get stackmap.\n");
                 stack_str = strdup("[unknown]");
                 goto insert;
         }
@@ -414,21 +408,19 @@ static uint64_t _store_stack(int pid, const struct stack *stack, int is_user)
 
 insert:
 
-        print_stack(key, stack_str, stack, last_i);
-        hash_table_insert(stack_strs, key, stack_str);
-        hash_table_insert(stack_ips, key, *stack);
+        hash_table_insert(stacks, *stack, stack_str);
 
         if (pthread_rwlock_unlock(&syms_cache_lock) != 0) {
                 ERR("Error unlocking the syms_cache_lock. Aborting.\n");
         }
 
-        return key;
+        return stack_str;
 }
 
-uint64_t store_kstack(const struct stack *stack) {
+const char *store_kstack(const struct stack *stack) {
         return _store_stack(0, stack, 0);
 }
 
-uint64_t store_ustack(int pid, const struct stack *stack) {
+const char *store_ustack(int pid, const struct stack *stack) {
         return _store_stack(pid, stack, 1);
 }

@@ -49,8 +49,8 @@ struct buffer_binding {
         int      unbound;
 
         /* The stack where this buffer was execbuffer'd */
-        uint64_t execbuf_ustack_hash;
-        uint64_t execbuf_kstack_hash;
+        const char *execbuf_ustack_str;
+        const char *execbuf_kstack_str;
 
         /* Set if EU stalls are associated with this buffer */
         struct kv_t *kv;

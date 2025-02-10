@@ -21,8 +21,8 @@
 /* Stores an aggregated sample within an interval's profile */
 struct sample {
         char       *proc_name;
-        uint64_t   ustack_hash;
-        uint64_t   kstack_hash;
+        const char *ustack_str;
+        const char *kstack_str;
 
         uint32_t    pid;
         int         is_debug;
@@ -39,8 +39,8 @@ typedef struct sample sample_struct;
 static inline int sample_equ(const struct sample a, const struct sample b) {
         /* Check the stack strings by pointer value since they are uniquely stored
          * and retrieved via {store,get}_stack(). */
-        if (a.ustack_hash != b.ustack_hash)        { return 0; }
-        if (a.kstack_hash != b.kstack_hash)        { return 0; }
+        if (a.ustack_str != b.ustack_str)        { return 0; }
+        if (a.kstack_str != b.kstack_str)        { return 0; }
 
         if (a.pid        != b.pid)                 { return 0; }
         if (a.is_debug   != b.is_debug)            { return 0; }

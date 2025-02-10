@@ -264,3 +264,7 @@ uint64_t str_hash(char *s) {
 }
 
 int str_equ(char *a, char *b) { return strcmp(a, b) == 0; }
+
+uint64_t noop_hash(uint64_t key) {
+  return key;
+}

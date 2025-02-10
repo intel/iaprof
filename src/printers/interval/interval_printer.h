@@ -6,5 +6,6 @@
 #include "collectors/bpf_i915/bpf/main.h"
 
 void parse_interval_profile();
-void print_stack(uint64_t key, const char *stack_str, const struct stack *stack, int last_index);
+void print_string(const char *str);
 void print_interval(uint64_t interval);
+void (*get_profile_line_func(char *str, size_t *size)) (char *str);
