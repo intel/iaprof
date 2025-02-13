@@ -64,6 +64,7 @@ static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
 static _Atomic char collect_threads_enabled = 3;
 static _Atomic char main_thread_should_stop = 0;
+static _Atomic char eustall_deferred_attrib_thread_should_stop = 0;
 
 /*******************
 * COMMANDLINE ARGS *
@@ -318,7 +319,7 @@ int handle_eustall_read(int fd, struct device_info *devinfo)
 }
 
 void *eustall_deferred_attrib_thread_main(void *a) {
-        while (!collect_threads_should_stop) {
+        while (!eustall_deferred_attrib_thread_should_stop && !collect_threads_should_stop) {
                 pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
                 pthread_cond_wait(&eustall_deferred_attrib_cond, &eustall_deferred_attrib_cond_mtx);
                 pthread_mutex_unlock(&eustall_deferred_attrib_cond_mtx);
@@ -388,7 +389,10 @@ void *eustall_collect_thread_main(void *a) {
 next:;
         }
 
+        eustall_deferred_attrib_thread_should_stop = 1;
         wakeup_eustall_deferred_attrib_thread();
+        pthread_join(eustall_deferred_attrib_thread_id, NULL);
+
         handle_remaining_eustalls();
         store_interval_flames();
 
