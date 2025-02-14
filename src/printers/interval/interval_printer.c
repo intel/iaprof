@@ -6,6 +6,7 @@
 #include "stores/interval_profile.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 #include "utils/utils.h"
+#include "printers/interval/interval_printer.h"
 
 #include <string.h>
 
@@ -46,7 +47,7 @@ int insert_string(char *str, uint64_t *id)
         return 1;
 }
 
-void insert_string_id(uint64_t id, char *str)
+int insert_string_id(uint64_t id, char *str)
 {
         char **lookup;
         
@@ -56,7 +57,9 @@ void insert_string_id(uint64_t id, char *str)
         lookup = hash_table_get_val(string_reader, id);
         if (lookup == NULL) {
                 hash_table_insert(string_reader, id, str);
+                return 1;
         }
+        return 0;
 }
 
 char *get_string(uint64_t id)
@@ -88,13 +91,14 @@ uint64_t get_id(const char *str)
         return 0;
 }
 
-void parse_string(char *str)
+int parse_string(char *str, void *result)
 {
         char *token;
         int token_index;
         
         char *stack_str;
         uint64_t id;
+        uint64_t *size = result;
         
         token_index = 0;
         token = strtok(str, "\t");
@@ -104,7 +108,7 @@ void parse_string(char *str)
                 if (token_index == 0) {
                         if (sscanf(token, "%lu", &id) != 1) {
                                 WARN("stack line failed to parse a string ID from: %s\n", token);
-                                return;
+                                return -1;
                         }
                         token = strtok(NULL, "\t");
                         token_index++;
@@ -113,7 +117,7 @@ void parse_string(char *str)
                 } else if (token_index == 1) {
                         if(sscanf(token, "%m[^\t]", &stack_str) != 1) {
                                 WARN("Couldn't parse this as a stack string: %s\n", token);
-                                return;
+                                return -1;
                         }
                         token_index++;
                         break;
@@ -123,176 +127,164 @@ void parse_string(char *str)
         /* Sanity-check */
         if (token_index < 2) {
                 WARN("stack line got too few tab-delimited tokens\n");
-                return;
+                return -1;
         } else if (token_index > 2) {
                 WARN("stack line got too many tab-delimited tokens\n");
-                return;
+                return -1;
         }
         
-        insert_string_id(id, stack_str);
+        *size = strlen(stack_str);
+        
+        if (!insert_string_id(id, stack_str)) {
+                free(stack_str);
+        }
+        return 0;
 }
 
-void parse_eustall(char *str)
+int parse_eustall(char *str, void *result)
 {
         char *token;
         int token_index;
+        struct eustall_result *res = (struct eustall_result *)result;
         
-        char *proc_name, *gpu_file, *gpu_symbol, *insn_text, *stall_type_str;
-        unsigned pid;
-        uint64_t ustack_id, kstack_id, samp_offset, samp_count;
-        int is_debug, is_sys;
+        uint64_t ustack_id, kstack_id;
         
         token_index = 0;
         token = strtok(str, "\t");
         while (token != NULL) {
                 
-                /* First is the process name */
                 if (token_index == 0) {
-                        if(sscanf(token, "%ms", &proc_name) != 1) {
+                        if(sscanf(token, "%s", res->proc_name) != 1) {
                                 WARN("eustall line failed to parse this as a process name: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
-                /* Second is the PID */
                 } else if (token_index == 1) {
-                        if (sscanf(token, "%u", &pid) != 1) {
+                        if (sscanf(token, "%u", &(res->pid)) != 1) {
                                 WARN("eustall line failed to parse a PID from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 2) {
                         if (sscanf(token, "%lu", &ustack_id) != 1) {
                                 WARN("eustall line failed to parse a string ID from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
+                        res->ustack_str = get_string(ustack_id);
                 } else if (token_index == 3) {
                         if (sscanf(token, "%lu", &kstack_id) != 1) {
                                 WARN("eustall line failed to parse a string ID from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
+                        res->kstack_str = get_string(kstack_id);
                 } else if (token_index == 4) {
-                        if (sscanf(token, "%d", &is_debug) != 1) {
+                        if (sscanf(token, "%d", &(res->is_debug)) != 1) {
                                 WARN("eustall line failed to parse an int from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 5) {
-                        if (sscanf(token, "%d", &is_sys) != 1) {
+                        if (sscanf(token, "%d", &(res->is_sys)) != 1) {
                                 WARN("eustall line failed to parse an int from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 6) {
-                        if(sscanf(token, "%ms", &gpu_file) != 1) {
+                        if(sscanf(token, "%s", res->gpu_file) != 1) {
                                 WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 7) {
-                        if(sscanf(token, "%ms", &gpu_symbol) != 1) {
+                        if(sscanf(token, "%s", res->gpu_symbol) != 1) {
                                 WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 8) {
-                        if(sscanf(token, "%ms", &insn_text) != 1) {
+                        if(sscanf(token, "%s", res->insn_text) != 1) {
                                 WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 9) {
-                        if(sscanf(token, "%ms", &stall_type_str) != 1) {
+                        if(sscanf(token, "%s", res->stall_type_str) != 1) {
                                 WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 10) {
-                        if (sscanf(token, "0x%lx", &samp_offset) != 1) {
+                        if (sscanf(token, "0x%lx", &(res->samp_offset)) != 1) {
                                 WARN("eustall line failed to parse a value from: %s\n", token);
-                                return;
+                                return -1;
                         }
-                        token = strtok(NULL, "\t");
-                        token_index++;
                 } else if (token_index == 11) {
-                        if (sscanf(token, "%lu", &samp_count) != 1) {
+                        if (sscanf(token, "%lu", &(res->samp_count)) != 1) {
                                 WARN("eustall line failed to parse a value from: %s\n", token);
-                                return;
+                                return -1;
                         }
                         token = strtok(NULL, "\t");
                         token_index++;
                         break;
                 }
+                
+                /* Advance to the next tab-delimited field */
+                token = strtok(NULL, "\t");
+                token_index++;
         }
         
         /* Sanity-check */
         if (token_index < 12) {
                 WARN("eustall line got too few tab-delimited tokens\n");
-                return;
+                return -1;
         } else if (token_index > 12) {
                 WARN("eustall line got too many tab-delimited tokens\n");
-                return;
+                return -1;
         }
+        
+        return 0;
 }
 
-void parse_interval_start(char *str)
+int parse_interval_start(char *str, void *result)
 {
+        return 0;
 }
 
-void parse_interval_end(char *str)
+int parse_interval_end(char *str, void *result)
 {
+        return 0;
 }
 
-enum profile_line {
-  STRING = 0,
-  EUSTALL = 1,
-  INTERVAL_START = 2,
-  INTERVAL_END = 3,
-  PROFILE_LINE_MAX
-};
-static char *profile_line_strs[] = {
-  [STRING] = "string",
-  [EUSTALL] = "eustall",
-  [INTERVAL_START] = "interval_start",
-  [INTERVAL_END] = "interval_end",
-};
-static void (*profile_line_ptrs[]) (char*) = {
-  [STRING] = &parse_string,
-  [EUSTALL] = &parse_eustall,
-  [INTERVAL_START] = &parse_interval_start,
-  [INTERVAL_END] = &parse_interval_end,
+static char *profile_event_strs[] = {
+  [PROFILE_EVENT_STRING] = "string",
+  [PROFILE_EVENT_EUSTALL] = "eustall",
+  [PROFILE_EVENT_INTERVAL_START] = "interval_start",
+  [PROFILE_EVENT_INTERVAL_END] = "interval_end",
 };
 
-/* Returns the function pointer that you can use to parse
-   a given line */
-void (*get_profile_line_func(char *str, size_t *size)) (char *str)
+/* Function pointers for each type of profile event.
+   Each accepts the string of the line as an argument, and
+   returns a void * to their corresponding return type. */
+static int (*profile_event_funcs[]) (char *, void *) = {
+  [PROFILE_EVENT_STRING] = &parse_string,
+  [PROFILE_EVENT_EUSTALL] = &parse_eustall,
+  [PROFILE_EVENT_INTERVAL_START] = &parse_interval_start,
+  [PROFILE_EVENT_INTERVAL_END] = &parse_interval_end,
+};
+
+/* Given a string of a line, parses the profile event on that line, and
+   returns the size of the event name, a function pointer to parse it, and the profile_event enum value. */
+int get_profile_event_func(char *str, size_t *size, int (**func_ptr)(char *, void *), enum profile_event *event)
 {
         int i;
         
-        for (i = 0; i < PROFILE_LINE_MAX; i++) {
-                *size = strlen(profile_line_strs[i]);
-                if (strncmp(str, profile_line_strs[i], *size) == 0) {
-                        return profile_line_ptrs[i];
+        for (i = 0; i < PROFILE_EVENT_MAX; i++) {
+                *size = strlen(profile_event_strs[i]);
+                if (strncmp(str, profile_event_strs[i], *size) == 0) {
+                        *event = i;
+                        *func_ptr = profile_event_funcs[i];
+                        return 0;
                 }
         }
-        return NULL;
+        return -1;
 }
 
-void print_string(char *stack_str)
+void print_string(const char *stack_str)
 {
         uint64_t id;
-        if (!insert_string(stack_str, &id)) {
+        if (!insert_string((char *)stack_str, &id)) {
                 return;
         }
         printf("string\t%lu\t%s\n", id, stack_str);
@@ -306,6 +298,7 @@ void print_eustall(struct sample *samp, uint64_t *countp)
         int                 gpu_line;
         int                 err;
         const char         *stall_type_str;
+        char                symbol_and_line[MAX_GPU_SYMBOL_LEN];
         
         /* Ensure we've got a GPU symbol */
         err = debug_i915_get_sym(samp->pid, samp->addr, &gpu_symbol, &gpu_file, &gpu_line);
@@ -315,32 +308,38 @@ void print_eustall(struct sample *samp, uint64_t *countp)
                 gpu_line   = 0;
         }
 
-        printf("eustall\t%s\t%u\t%lu\t%lu\t%d\t%d\t",
-               samp->proc_name, samp->pid,
+        printf("eustall\t%.*s\t%u\t%lu\t%lu\t%d\t%d\t",
+               MAX_PROC_NAME_LEN, samp->proc_name, samp->pid,
                get_id(samp->ustack_str), get_id(samp->kstack_str),
                samp->is_debug, samp->is_sys);
+               
+        /* Print a maximum of MAX_GPU_FILE_LEN characters for the GPU filename */
         if (gpu_file) {
-                printf("%s\t", gpu_file);
+                printf("%.*s\t", MAX_GPU_FILE_LEN, gpu_file);
         } else {
-                printf("%s\t", unknown_file);
+                printf("%.*s\t", MAX_GPU_FILE_LEN, unknown_file);
         }
         
+        /* Print a maximum of MAX_GPU_SYMBOL_LEN characters for the GPU symbol */
         if (gpu_symbol) {
                 if (gpu_line) {
-                        printf("%s line %d\t", gpu_symbol, gpu_line);
+                        snprintf(symbol_and_line, MAX_GPU_SYMBOL_LEN,
+                                 "%s line %d", gpu_symbol, gpu_line);
+                        printf("%.*s\t", MAX_GPU_SYMBOL_LEN, symbol_and_line);
                 } else {
-                        printf("%s\t", gpu_symbol);
+                        printf("%.*s\t", MAX_GPU_SYMBOL_LEN, gpu_symbol);
                 }
         } else if (samp->is_sys) {
-                printf("%s\t", system_routine);
+                printf("%.*s\t", MAX_GPU_SYMBOL_LEN, system_routine);
         } else {
                 printf("0x%lx\t", samp->addr);
         }
         
+        /* Print a maximum of MAX_INSN_TEXT_LEN for the instruction text */
         if (samp->insn_text) {
-                printf("%s\t", samp->insn_text);
+                printf("%.*s\t", MAX_INSN_TEXT_LEN, samp->insn_text);
         } else {
-                printf("%s\t", failed_decode);
+                printf("%.*s\t", MAX_INSN_TEXT_LEN, failed_decode);
         }
 
         switch (samp->stall_type) {
@@ -357,7 +356,9 @@ void print_eustall(struct sample *samp, uint64_t *countp)
                         stall_type_str = "unknown";
                         break;
         }
-        printf("%s\t", stall_type_str);
+        
+        /* Print a maximum of MAX_STALL_TYPE_LEN for the stall type */
+        printf("%.*s\t", MAX_STALL_TYPE_LEN, stall_type_str);
         printf("0x%lx\t", samp->offset);
         printf("%lu\n", *countp);
         fflush(stdout);
