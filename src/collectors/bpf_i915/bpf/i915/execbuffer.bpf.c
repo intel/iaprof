@@ -129,7 +129,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
         parse_cxt.ips[0]     = offset + batch_start_offset;
         parse_cxt.cpu_ips[0] = cpu_addr + batch_start_offset;
 
-        if (parse_batchbuffer(&parse_cxt, 0) == DATA_NOT_READY) {
+        if (parse_batchbuffer(&parse_cxt, 0) == BB_TRY_AGAIN) {
                 defer_batchbuffer_parse(&parse_cxt);
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
