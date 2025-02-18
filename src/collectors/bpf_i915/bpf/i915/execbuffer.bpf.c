@@ -23,14 +23,14 @@ int BPF_PROG(i915_gem_do_execbuffer,
              struct drm_i915_gem_exec_object2 *exec)
 {
         long err;
-        u32 cpu, handle, batch_index, batch_start_offset;
+        u32 batch_start_offset, batch_index;
         u64 cpu_addr, offset, size,
             file_ptr, this_eb_id;
         struct cpu_mapping cmapping = {};
         struct gpu_mapping gmapping = {};
         struct file_ctx_pair pair = {};
         struct execbuf_info *info;
-        struct parse_cxt parse_cxt = {};
+        static struct parse_cxt parse_cxt = {}; /* static to reduce pressure on stack size */
         struct execbuf_end_info *end_info;
 
         file_ptr = (u64)file;
@@ -64,10 +64,8 @@ int BPF_PROG(i915_gem_do_execbuffer,
         if (batch_index == 0) {
                 /* If the index is 0 (the vast majority of the time it is), we can
                    just directly read the `objects` pointer. */
-                handle = BPF_CORE_READ(exec, handle);
                 offset = BPF_CORE_READ(exec, offset);
         } else {
-                handle = 0xffffffff;
                 offset = 0xffffffffffffffff;
         }
 
@@ -131,7 +129,7 @@ int BPF_PROG(i915_gem_do_execbuffer,
         parse_cxt.ips[0]     = offset + batch_start_offset;
         parse_cxt.cpu_ips[0] = cpu_addr + batch_start_offset;
 
-        if (parse_batchbuffer(&parse_cxt, 0) == DATA_NOT_READY) {
+        if (parse_batchbuffer(&parse_cxt, 0) == BB_TRY_AGAIN) {
                 defer_batchbuffer_parse(&parse_cxt);
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);

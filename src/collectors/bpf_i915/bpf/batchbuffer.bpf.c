@@ -114,15 +114,15 @@ static __u64 _find_batchbuffer(struct bpf_map *map, struct gpu_mapping *gmapping
 }
 
 struct parse_cxt {
-        u8  attempts;
-        u8  bb2l;
-        u32 level;
         u64 eb_id;
         u64 ips[4]; /* 4 because we use a bitmask trick to soothe the verifier. Level 4 is not used. */
         u64 cpu_ips[4];
         u64 iba;
         u64 sip;
-        u64 ksp;
+        u8  level;
+        u8  attempts;
+        u8  bb2l;
+        u8  has_ksps;
 };
 
 struct {
@@ -240,8 +240,8 @@ int read_batch_buffer(u64 bbsp, struct batch_buffer *buff) {
 }
 
 
-#define NORMAL_STOP    (1)
-#define DATA_NOT_READY (2)
+#define BB_STOP      (1)
+#define BB_TRY_AGAIN (2)
 
 #define BB_BUFF_CONTAINS_IP(_buff, _ip)                                                        \
         (  (_buff)->gpu_base <= (_ip)                                                          \
@@ -265,7 +265,6 @@ int parse_next(struct parse_cxt *cxt) {
         u32                   b;
         u32                   bi;
         struct batch_buffer  *other_buff;
-        u64                   size;
         u64                   ksp;
         char                  one = 1;
 
@@ -287,7 +286,8 @@ int parse_next(struct parse_cxt *cxt) {
         for (i = 0; i < 40; i += 1) {
                 last_dword = dword;
 
-                cur_ip    = cxt->ips[lvl & 3];
+                cur_ip = cxt->ips[lvl & 3];
+
                 dword_off = (cur_ip - buff->gpu_base) / sizeof(u32);
                 if (dword_off > MAX_BB_DWORDS_IDX) {
                         buff->gpu_base = cur_ip;
@@ -322,7 +322,7 @@ int parse_next(struct parse_cxt *cxt) {
 
 
                 if (op == NOOP) {
-                    return DATA_NOT_READY;
+                    return BB_TRY_AGAIN;
                 }
 
 
@@ -369,15 +369,17 @@ next_level_loaded:;
                         BB_PRINTK("  Jumping to new buffer.");
 
                 } else if ((op == BATCH_BUFFER_END) && (which_dword == 0)) {
-                        if (lvl == 0) { return 1; }
+                        if (lvl == 0) { return BB_STOP; }
                         cxt->level -= 1;
                         lvl = cxt->level;
 
                 } else if ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD)) {
-                        ksp      = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
-                        cxt->ksp = ksp;
+                        ksp           = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
+                        cxt->has_ksps = 1;
+
+                        BB_PRINTK("  KSP: 0x%llx", ksp);
+
                         bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
-                        BB_PRINTK("  KSP: 0x%llx", cxt->ksp);
 
                 } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
                         cxt->iba = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFF000);
@@ -397,6 +399,33 @@ next_level_loaded:;
 
         return 0;
 }
+
+static void defer_batchbuffer_parse(struct parse_cxt *parse_cxt) {
+        u64 ip;
+#ifdef BB_DEBUG
+        int exists;
+#endif
+
+        ip = parse_cxt->ips[parse_cxt->level & 3];
+
+#ifdef BB_DEBUG
+        exists = bpf_map_lookup_elem(&deferred_parse, &ip) != NULL;
+#endif
+
+        if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
+                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
+                dropped_event = 1;
+        }
+
+#ifdef BB_DEBUG
+        if (!exists) {
+                __sync_fetch_and_add(&n_deferred, 1);
+        }
+#endif
+
+        BB_PRINTK("Adding 0x%lx to deferred parse map. %d entries", ip, n_deferred);
+}
+
 
 static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         u64                  initial_ip;
@@ -439,12 +468,14 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         }
 
         if (stop == 0) {
-                ERR_PRINTK("exceeded the maximum number of batch buffer commands");
-                dropped_event = 1;
-                return -1;
+                stop = BB_TRY_AGAIN;
+/*                 defer_batchbuffer_parse(cxt); */
+/*                 ERR_PRINTK("exceeded the maximum number of batch buffer commands"); */
+/*                 dropped_event = 1; */
+/*                 return -1; */
         } else if (stop < 0) {
                 /* Some error condition occurred. */
-                dropped_event = 1;
+/*                 dropped_event = 1; */
                 return -1;
         }
 
@@ -465,10 +496,10 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
                 cxt->iba = 0;
         }
 
-        if (cxt->ksp) {
+        if (cxt->has_ksps) {
                 send_ksps(cxt);
 
-                cxt->ksp = 0;
+                cxt->has_ksps = 0;
         }
 
         if (cxt->sip) {
@@ -491,32 +522,6 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         return stop;
 }
 
-static void defer_batchbuffer_parse(struct parse_cxt *parse_cxt) {
-        u64 ip;
-#ifdef BB_DEBUG
-        int exists;
-#endif
-
-        ip = parse_cxt->ips[parse_cxt->level & 3];
-
-#ifdef BB_DEBUG
-        exists = bpf_map_lookup_elem(&deferred_parse, &ip) != NULL;
-#endif
-
-        if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
-                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
-                dropped_event = 1;
-        }
-
-#ifdef BB_DEBUG
-        if (!exists) {
-                __sync_fetch_and_add(&n_deferred, 1);
-        }
-#endif
-
-        BB_PRINTK("Adding 0x%lx to deferred parse map. %d entries", ip, n_deferred);
-}
-
 static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, struct address_range *range) {
         struct execbuf_end_info *end_info;
         u64                      new_ip;
@@ -532,7 +537,7 @@ static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struc
         __sync_fetch_and_add(&n_deferred, -1);
 #endif
 
-        if (parse_batchbuffer(parse_cxt, 1) == DATA_NOT_READY) {
+        if (parse_batchbuffer(parse_cxt, 1) == BB_TRY_AGAIN) {
                 WARN_PRINTK("deferred batch buffer still not ready");
 
                 new_ip = parse_cxt->ips[parse_cxt->level & 3];

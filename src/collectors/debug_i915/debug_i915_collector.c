@@ -110,9 +110,7 @@ void init_debug_i915(int i915_fd, int pid)
 #endif
 
         if (debug_fd < 0) {
-                fprintf(stderr,
-                        "Failed to open the debug interface for PID %d: %d.\n",
-                        pid, debug_fd);
+                WARN("Failed to open the debug interface for PID %d: %d.\n", pid, debug_fd);
                 goto out;
         }
 
@@ -137,44 +135,38 @@ out:;
 
 int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
 {
-        int i, pid_index;
+        int i, j;
         struct i915_symbol_table *table;
         struct i915_symbol_entry *entry;
 
         debug_printf("Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
 
-        /* Find which index this PID relates to */
-        pid_index = -1;
         for (i = 0; i < debug_i915_info.num_pids; i++) {
-                if (debug_i915_info.pids[i] == pid) {
-                        pid_index = i;
-                        break;
+                /* Find the addr range in this PID's symbol table */
+                table = &(debug_i915_info.symtabs[i]);
+
+                if (table->pid != pid) { continue; }
+
+                for (j = 0; j < table->num_syms; j++) {
+                        entry = &(table->symtab[j]);
+                        if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
+                                if (out_gpu_symbol != NULL) {
+                                        *out_gpu_symbol = entry->symbol;
+                                }
+                                if (out_gpu_file != NULL) {
+                                        *out_gpu_file = entry->filename;
+                                }
+                                if (out_gpu_line != NULL) {
+                                        *out_gpu_line = entry->linenum;
+                                }
+                                return 0;
+                        }
                 }
-        }
-        if (pid_index == -1) {
-                WARN("PID %d does not have GPU symbols.\n", pid);
-                return -1;
+
+                break;
         }
 
-        /* Find the addr range in this PID's symbol table */
-        table = &(debug_i915_info.symtabs[pid_index]);
-        for (i = 0; i < table->num_syms; i++) {
-                entry = &(table->symtab[i]);
-                if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
-                        if (out_gpu_symbol != NULL) {
-                                *out_gpu_symbol = entry->symbol;
-                        }
-                        if (out_gpu_file != NULL) {
-                                *out_gpu_file = entry->filename;
-                        }
-                        if (out_gpu_line != NULL) {
-                                *out_gpu_line = entry->linenum;
-                        }
-                        return 0;
-                }
-        }
-
-        debug_printf("Couldn't find a symbol for addr=0x%lx\n", addr);
+        WARN("Couldn't find a symbol for addr=0x%lx\n", addr);
 
         return -1;
 }
@@ -493,6 +485,10 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         int retval;
         size_t string_table_index;
 
+        pthread_rwlock_rdlock(&debug_i915_info_lock);
+        debug_printf("ELF for pid %d\n", debug_i915_info.pids[pid_index]);
+        pthread_rwlock_unlock(&debug_i915_info_lock);
+
         /* Initialize the ELF from the buffer */
         elf = elf_memory((char *)data, data_size);
         if (!elf) {
@@ -609,10 +605,10 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         read_uuid.size = uuid->len;
         read_uuid.ptr = (uint64_t)malloc(uuid->len);
         read_uuid.flags = 0;
-        
+
         errno = 0;
         retval = ioctl(debug_fd, DRM_XE_EUDEBUG_IOCTL_READ_METADATA, &read_uuid);
-        
+
         data = (unsigned char *)read_uuid.ptr;
         size = read_uuid.size;
 #else
@@ -629,10 +625,10 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         read_uuid.handle = uuid->handle;
         read_uuid.payload_size = uuid->payload_size;
         read_uuid.payload_ptr = (uint64_t)malloc(uuid->payload_size);
-        
+
         errno = 0;
         retval = ioctl(debug_fd, PRELIM_I915_DEBUG_IOCTL_READ_UUID, &read_uuid);
-        
+
         data = (unsigned char *)read_uuid.payload_ptr;
         size = read_uuid.payload_size;
 #endif
@@ -723,7 +719,7 @@ int read_debug_i915_event(int fd, int pid_index)
         int retval, ack_retval;
         struct drm_xe_eudebug_ack_event ack_event = {};
         uint32_t size;
-        
+
         size = sizeof(struct drm_xe_eudebug_event) + MAX_EVENT_SIZE;
 
         /* Prepare the event struct to be read */
