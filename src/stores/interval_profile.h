@@ -30,7 +30,7 @@ struct sample {
 
         uint64_t    addr;
         uint64_t    offset;
-        char       *insn_text;
+        uint64_t    insn_id;
         int         stall_type;
 };
 
@@ -49,7 +49,7 @@ static inline int sample_equ(const struct sample a, const struct sample b) {
         if (a.offset     != b.offset)              { return 0; }
         if (a.stall_type != b.stall_type)          { return 0; }
 
-        if (strcmp(a.insn_text, b.insn_text) != 0) { return 0; }
+        if (a.insn_id    != b.insn_id)             { return 0; }
         if (strcmp(a.proc_name, b.proc_name) != 0) { return 0; }
 
         return 1;

@@ -22,19 +22,21 @@ enum profile_event {
 #define MAX_STALL_TYPE_LEN (16)
 #define MAX_OFFSET_LEN (20)
 
+extern uint64_t failed_decode_id;
+
 struct eustall_result {
-        char proc_name[MAX_PROC_NAME_LEN + 1];
-        char gpu_file[MAX_GPU_FILE_LEN + 1];
-        char gpu_symbol[MAX_GPU_SYMBOL_LEN + 1];
-        char insn_text[MAX_INSN_TEXT_LEN + 1];
-        char stall_type_str[MAX_STALL_TYPE_LEN + 1];
-        char *ustack_str, *kstack_str;
+        uint64_t proc_name_id, gpu_file_id, gpu_symbol_id,
+                 insn_text_id, stall_type_id,
+                 ustack_id, kstack_id;
+        
         unsigned pid;
         uint64_t samp_offset, samp_count;
         int is_debug, is_sys;
 };
 
+void print_initial_strings();
+char *get_string(uint64_t id);
 void parse_interval_profile();
-void print_string(const char *str);
+uint64_t print_string(const char *str);
 void print_interval(uint64_t interval);
 int get_profile_event_func(char *str, size_t *size, int (**func_ptr)(char *, void *), enum profile_event *event);

@@ -31,6 +31,8 @@ struct i915_symbol_entry {
         char *symbol;
         char *filename;
         int linenum;
+        
+        uint64_t symbol_id, filename_id;
 };
 
 struct i915_symbol_table {
@@ -72,7 +74,7 @@ void deinit_debug_i915(int pid);
 void init_debug_i915(int i915_fd, int pid);
 int read_debug_i915_event(int fd, int pid_index);
 void read_debug_i915_events(int fd, int pid_index);
-int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
+int debug_i915_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id);
 
 void free_debug_i915();
 

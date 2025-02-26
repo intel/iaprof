@@ -13,6 +13,11 @@
 
 hash_table(sample_struct, uint64_t) interval_profile;
 
+void init_interval_profile()
+{
+        print_initial_strings();
+}
+
 static uint64_t sample_hash(const struct sample a) {
         uint64_t hash;
 
@@ -25,7 +30,7 @@ static uint64_t sample_hash(const struct sample a) {
 
         hash ^= ((a.addr + a.offset) >> 3) << a.stall_type;
 
-        hash ^= str_hash(a.insn_text);
+        hash ^= a.insn_id << 8;
         hash ^= str_hash(a.proc_name);
 
         return hash;
@@ -100,7 +105,6 @@ static void update_sample(const struct sample *samp, uint64_t count) {
         } else {
                 memcpy(&samp_copy, samp, sizeof(samp_copy));
                 samp_copy.proc_name = strdup(samp_copy.proc_name);
-                samp_copy.insn_text = strdup(samp_copy.insn_text);
 
                 hash_table_insert(interval_profile, samp_copy, count);
         }
@@ -112,7 +116,6 @@ void store_kernel_profile(struct shader_binding *shader)
         struct sample samp;
         uint64_t offset, addr;
         struct offset_profile *profile;
-        char *failed_decode = "[failed_decode]";
         char retval;
         char *insn_text;
         size_t insn_text_len;
@@ -140,10 +143,10 @@ void store_kernel_profile(struct shader_binding *shader)
                 insn_text_len = 0;
                 retval = get_insn_text(shader, offset, &insn_text, &insn_text_len);
                 if (retval != 0) {
-                        insn_text = failed_decode;
+                        samp.insn_id = failed_decode_id;
+                } else {
+                        samp.insn_id = print_string(insn_text);
                 }
-
-                samp.insn_text = insn_text;
 
                 /* NOTE: We do late symbolization of GPU addresses because we may be slightly behind
                  * collecting ELF info from the debug interface. See print_flamegraph(). */
@@ -157,7 +160,7 @@ void store_kernel_profile(struct shader_binding *shader)
                         }
                 }
 
-                if (insn_text != failed_decode) {
+                if (samp.insn_id != failed_decode_id) {
                         free(insn_text);
                 }
         }
