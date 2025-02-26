@@ -14,6 +14,21 @@ static const char *unknown_file = "[unknown file]";
 static const char *system_routine = "System Routine (Exceptions)";
 static const char *failed_decode = "[failed decode]";
 
+/* String IDs for constant strings */
+static uint64_t unknown_file_id = 0;
+static uint64_t system_routine_id = 0;
+uint64_t failed_decode_id = 0;
+static uint64_t active_stall_id = 0;
+static uint64_t control_stall_id = 0;
+static uint64_t pipestall_stall_id = 0;
+static uint64_t send_stall_id = 0;
+static uint64_t dist_acc_stall_id = 0;
+static uint64_t sbid_stall_id = 0;
+static uint64_t sync_stall_id = 0;
+static uint64_t inst_fetch_stall_id = 0;
+static uint64_t other_stall_id = 0;
+static uint64_t unknown_stall_id = 0;
+
 /***************************************
 * String Table
 *
@@ -98,7 +113,6 @@ int parse_string(char *str, void *result)
         
         char *stack_str;
         uint64_t id;
-        uint64_t *size = result;
         
         token_index = 0;
         token = strtok(str, "\t");
@@ -133,8 +147,6 @@ int parse_string(char *str, void *result)
                 return -1;
         }
         
-        *size = strlen(stack_str);
-        
         if (!insert_string_id(id, stack_str)) {
                 free(stack_str);
         }
@@ -143,94 +155,16 @@ int parse_string(char *str, void *result)
 
 int parse_eustall(char *str, void *result)
 {
-        char *token;
-        int token_index;
+        int retval;
         struct eustall_result *res = (struct eustall_result *)result;
         
-        uint64_t ustack_id, kstack_id;
-        
-        token_index = 0;
-        token = strtok(str, "\t");
-        while (token != NULL) {
-                
-                if (token_index == 0) {
-                        if(sscanf(token, "%s", res->proc_name) != 1) {
-                                WARN("eustall line failed to parse this as a process name: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 1) {
-                        if (sscanf(token, "%u", &(res->pid)) != 1) {
-                                WARN("eustall line failed to parse a PID from: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 2) {
-                        if (sscanf(token, "%lu", &ustack_id) != 1) {
-                                WARN("eustall line failed to parse a string ID from: %s\n", token);
-                                return -1;
-                        }
-                        res->ustack_str = get_string(ustack_id);
-                } else if (token_index == 3) {
-                        if (sscanf(token, "%lu", &kstack_id) != 1) {
-                                WARN("eustall line failed to parse a string ID from: %s\n", token);
-                                return -1;
-                        }
-                        res->kstack_str = get_string(kstack_id);
-                } else if (token_index == 4) {
-                        if (sscanf(token, "%d", &(res->is_debug)) != 1) {
-                                WARN("eustall line failed to parse an int from: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 5) {
-                        if (sscanf(token, "%d", &(res->is_sys)) != 1) {
-                                WARN("eustall line failed to parse an int from: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 6) {
-                        if(sscanf(token, "%s", res->gpu_file) != 1) {
-                                WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 7) {
-                        if(sscanf(token, "%s", res->gpu_symbol) != 1) {
-                                WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 8) {
-                        if(sscanf(token, "%s", res->insn_text) != 1) {
-                                WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 9) {
-                        if(sscanf(token, "%s", res->stall_type_str) != 1) {
-                                WARN("eustall line failed to parse this as a string: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 10) {
-                        if (sscanf(token, "0x%lx", &(res->samp_offset)) != 1) {
-                                WARN("eustall line failed to parse a value from: %s\n", token);
-                                return -1;
-                        }
-                } else if (token_index == 11) {
-                        if (sscanf(token, "%lu", &(res->samp_count)) != 1) {
-                                WARN("eustall line failed to parse a value from: %s\n", token);
-                                return -1;
-                        }
-                        token = strtok(NULL, "\t");
-                        token_index++;
-                        break;
-                }
-                
-                /* Advance to the next tab-delimited field */
-                token = strtok(NULL, "\t");
-                token_index++;
-        }
-        
-        /* Sanity-check */
-        if (token_index < 12) {
-                WARN("eustall line got too few tab-delimited tokens\n");
-                return -1;
-        } else if (token_index > 12) {
-                WARN("eustall line got too many tab-delimited tokens\n");
+        retval = sscanf(str, "\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu",
+                        &(res->proc_name_id), &(res->pid), &(res->ustack_id), &(res->kstack_id),
+                        &(res->is_debug), &(res->is_sys), &(res->gpu_file_id),
+                        &(res->gpu_symbol_id), &(res->insn_text_id), &(res->stall_type_id),
+                        &(res->samp_offset), &(res->samp_count));
+        if (retval != 12) {
+                WARN("eustall line failed to parse!\n");
                 return -1;
         }
         
@@ -281,87 +215,94 @@ int get_profile_event_func(char *str, size_t *size, int (**func_ptr)(char *, voi
         return -1;
 }
 
-void print_string(const char *stack_str)
+uint64_t print_string(const char *stack_str)
 {
         uint64_t id;
         if (!insert_string((char *)stack_str, &id)) {
-                return;
+                return id;
         }
         printf("string\t%lu\t%s\n", id, stack_str);
         fflush(stdout);
+        return id;
+}
+
+void print_initial_strings()
+{
+        /* Constant strings */
+        unknown_file_id = print_string(unknown_file);
+        system_routine_id = print_string(system_routine);
+        failed_decode_id = print_string(failed_decode);
+        
+        /* Stall types */
+        active_stall_id = print_string("active");
+        control_stall_id = print_string("control");
+        pipestall_stall_id = print_string("pipestall");
+        send_stall_id = print_string("send");
+        dist_acc_stall_id = print_string("dist_acc");
+        sbid_stall_id = print_string("sbid");
+        sync_stall_id = print_string("sync");
+        inst_fetch_stall_id = print_string("inst_fetch");
+        other_stall_id = print_string("other");
+        unknown_stall_id = print_string("unknown");
+
 }
 
 void print_eustall(struct sample *samp, uint64_t *countp)
 {
-        char               *gpu_symbol;
-        char               *gpu_file;
-        int                 gpu_line;
-        int                 err;
-        const char         *stall_type_str;
-        char                symbol_and_line[MAX_GPU_SYMBOL_LEN];
+        char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
+        
+        uint64_t proc_name_id, gpu_file_id, gpu_symbol_id, insn_text_id, stall_type_id;
+        
+        proc_name_id = print_string(samp->proc_name);
         
         /* Ensure we've got a GPU symbol */
-        err = debug_i915_get_sym(samp->pid, samp->addr, &gpu_symbol, &gpu_file, &gpu_line);
-        if (err) {
-                gpu_symbol = NULL;
-                gpu_file   = NULL;
-                gpu_line   = 0;
-        }
-
-        printf("eustall\t%.*s\t%u\t%lu\t%lu\t%d\t%d\t",
-               MAX_PROC_NAME_LEN, samp->proc_name, samp->pid,
-               get_id(samp->ustack_str), get_id(samp->kstack_str),
-               samp->is_debug, samp->is_sys);
-               
-        /* Print a maximum of MAX_GPU_FILE_LEN characters for the GPU filename */
-        if (gpu_file) {
-                printf("%.*s\t", MAX_GPU_FILE_LEN, gpu_file);
-        } else {
-                printf("%.*s\t", MAX_GPU_FILE_LEN, unknown_file);
+        gpu_file_id = 0;
+        gpu_symbol_id = 0;
+        debug_i915_get_sym(samp->pid, samp->addr, &gpu_symbol_id, &gpu_file_id);
+        
+        /* Construct a string to print out for the file of the GPU code */
+        if (!gpu_file_id) {
+                gpu_file_id = unknown_file_id;
         }
         
-        /* Print a maximum of MAX_GPU_SYMBOL_LEN characters for the GPU symbol */
-        if (gpu_symbol) {
-                if (gpu_line) {
-                        snprintf(symbol_and_line, MAX_GPU_SYMBOL_LEN,
-                                 "%s line %d", gpu_symbol, gpu_line);
-                        printf("%.*s\t", MAX_GPU_SYMBOL_LEN, symbol_and_line);
+        /* Construct a string to print for the GPU symbol (and line, if applicable) */
+        if (!gpu_symbol_id) {
+                if (samp->is_sys) {
+                        gpu_symbol_id = system_routine_id;
                 } else {
-                        printf("%.*s\t", MAX_GPU_SYMBOL_LEN, gpu_symbol);
+                        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", samp->addr);
+                        gpu_symbol_id = print_string(gpu_symbol_tmp);
                 }
-        } else if (samp->is_sys) {
-                printf("%.*s\t", MAX_GPU_SYMBOL_LEN, system_routine);
-        } else {
-                printf("0x%lx\t", samp->addr);
         }
         
-        /* Print a maximum of MAX_INSN_TEXT_LEN for the instruction text */
-        if (samp->insn_text) {
-                printf("%.*s\t", MAX_INSN_TEXT_LEN, samp->insn_text);
+        if (samp->insn_id) {
+                insn_text_id = samp->insn_id;
         } else {
-                printf("%.*s\t", MAX_INSN_TEXT_LEN, failed_decode);
+                insn_text_id = failed_decode_id;
         }
-
+        
+        /* Construct a string for the stall reason */
         switch (samp->stall_type) {
-                case STALL_TYPE_ACTIVE:     stall_type_str = "active";     break;
-                case STALL_TYPE_CONTROL:    stall_type_str = "control";    break;
-                case STALL_TYPE_PIPESTALL:  stall_type_str = "pipestall";  break;
-                case STALL_TYPE_SEND:       stall_type_str = "send";       break;
-                case STALL_TYPE_DIST_ACC:   stall_type_str = "dist_acc";   break;
-                case STALL_TYPE_SBID:       stall_type_str = "sbid";       break;
-                case STALL_TYPE_SYNC:       stall_type_str = "sync";       break;
-                case STALL_TYPE_INST_FETCH: stall_type_str = "inst_fetch"; break;
-                case STALL_TYPE_OTHER:      stall_type_str = "other";      break;
+                case STALL_TYPE_ACTIVE:     stall_type_id = active_stall_id;     break;
+                case STALL_TYPE_CONTROL:    stall_type_id = control_stall_id;    break;
+                case STALL_TYPE_PIPESTALL:  stall_type_id = pipestall_stall_id;  break;
+                case STALL_TYPE_SEND:       stall_type_id = send_stall_id;       break;
+                case STALL_TYPE_DIST_ACC:   stall_type_id = dist_acc_stall_id;   break;
+                case STALL_TYPE_SBID:       stall_type_id = sbid_stall_id;       break;
+                case STALL_TYPE_SYNC:       stall_type_id = sync_stall_id;       break;
+                case STALL_TYPE_INST_FETCH: stall_type_id = inst_fetch_stall_id; break;
+                case STALL_TYPE_OTHER:      stall_type_id = other_stall_id;      break;
                 default:
-                        stall_type_str = "unknown";
+                        stall_type_id = unknown_stall_id;
                         break;
         }
-        
-        /* Print a maximum of MAX_STALL_TYPE_LEN for the stall type */
-        printf("%.*s\t", MAX_STALL_TYPE_LEN, stall_type_str);
-        printf("0x%lx\t", samp->offset);
-        printf("%lu\n", *countp);
-        fflush(stdout);
+
+        printf("eustall\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu\n",
+               proc_name_id, samp->pid,
+               get_id(samp->ustack_str), get_id(samp->kstack_str),
+               samp->is_debug, samp->is_sys, gpu_file_id,
+               gpu_symbol_id, insn_text_id, stall_type_id, samp->offset,
+               *countp);
 }
 
 void print_interval(uint64_t interval)

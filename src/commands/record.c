@@ -327,6 +327,8 @@ void *eustall_collect_thread_main(void *a) {
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 ERR("Error blocking signal.\n");
         }
+        
+        init_interval_profile();
 
         /* EU stall collector. Add to the epoll_fd that the bpf_i915
            collector created. */

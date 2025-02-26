@@ -165,10 +165,6 @@ int handle_execbuf(void *data_arg)
 
         info = (struct execbuf_info *)data_arg;
 
-        if (verbose) {
-                print_execbuf(info);
-        }
-
         existing = hash_table_get_val(live_execbufs, info->eb_id);
         if (existing != NULL) {
                 ERR("execbuf info eb_id already seen, eb_id = %llu", info->eb_id);

@@ -22,6 +22,7 @@
 
 #include "commands/record.h"
 
+#include "printers/interval/interval_printer.h"
 #include "printers/debug/debug_printer.h"
 #include "debug_i915_collector.h"
 #include "stores/gpu_kernel_stalls.h"
@@ -133,7 +134,7 @@ out_unlock:;
 out:;
 }
 
-int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
+int debug_i915_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id)
 {
         int i, j;
         struct i915_symbol_table *table;
@@ -150,14 +151,11 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
                 for (j = 0; j < table->num_syms; j++) {
                         entry = &(table->symtab[j]);
                         if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
-                                if (out_gpu_symbol != NULL) {
-                                        *out_gpu_symbol = entry->symbol;
+                                if (out_symbol_id != NULL) {
+                                        *out_symbol_id = entry->symbol_id;
                                 }
-                                if (out_gpu_file != NULL) {
-                                        *out_gpu_file = entry->filename;
-                                }
-                                if (out_gpu_line != NULL) {
-                                        *out_gpu_line = entry->linenum;
+                                if (out_file_id != NULL) {
+                                        *out_file_id = entry->filename_id;
                                 }
                                 return 0;
                         }
@@ -175,6 +173,8 @@ void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *
         struct i915_symbol_table *table;
         int num_syms;
         struct i915_symbol_entry *entry;
+        
+        char file_and_line[MAX_GPU_FILE_LEN];
 
         pthread_rwlock_wrlock(&debug_i915_info_lock);
 
@@ -194,6 +194,15 @@ void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *
         entry->symbol = symbol;
         entry->filename = filename;
         entry->linenum = linenum;
+        
+        entry->symbol_id = print_string(symbol);
+        if (linenum) {
+                snprintf(file_and_line, MAX_GPU_FILE_LEN,
+                         "%s line %d", filename, linenum);
+                entry->filename_id = print_string(file_and_line);
+        } else {
+                entry->filename_id = print_string(filename);
+        }
 
         pthread_rwlock_unlock(&debug_i915_info_lock);
 }
