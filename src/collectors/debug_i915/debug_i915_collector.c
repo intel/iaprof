@@ -20,9 +20,11 @@
 #include <uapi/drm/xe_drm.h>
 #endif
 
-#include "iaprof.h"
+#include "commands/record.h"
+
+#include "printers/debug/debug_printer.h"
 #include "debug_i915_collector.h"
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 #include "utils/demangle.h"

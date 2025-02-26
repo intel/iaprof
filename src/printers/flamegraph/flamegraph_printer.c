@@ -2,13 +2,13 @@
 
 #include "printers/stack/stack_printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
-#include "stores/proto_flame.h"
+#include "stores/interval_profile.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 
 
 void print_flamegraph()
 {
-        struct proto_flame  flame;
+        struct sample      samp;
         uint64_t           *countp;
         uint64_t            count;
         int                 err;
@@ -19,28 +19,28 @@ void print_flamegraph()
         const char         *kstack_str;
         const char         *stall_type_str;
 
-        hash_table_traverse(flame_samples, flame, countp) {
+        hash_table_traverse(interval_profile, samp, countp) {
                 count = *countp;
 
                 /* Ensure we've got a GPU symbol */
-                err = debug_i915_get_sym(flame.pid, flame.addr, &gpu_symbol, &gpu_file, &gpu_line);
+                err = debug_i915_get_sym(samp.pid, samp.addr, &gpu_symbol, &gpu_file, &gpu_line);
                 if (err) {
                         gpu_symbol = NULL;
                         gpu_file   = NULL;
                         gpu_line   = 0;
                 }
 
-                printf("%s;", flame.proc_name);
-                printf("%u;", flame.pid);
+                printf("%s;", samp.proc_name);
+                printf("%u;", samp.pid);
 
-                ustack_str = flame.ustack_str;
-                kstack_str = flame.kstack_str;
+                ustack_str = get_stack_str(samp.ustack_hash);
+                kstack_str = get_stack_str(samp.kstack_hash);
                 if (ustack_str) {
                         printf("%s", ustack_str);
                         if (kstack_str) {
                                 printf("%s", kstack_str);
                         }
-                } else if (flame.is_debug) {
+                } else if (samp.is_debug) {
                         printf("L0 Debugger");
                 } else {
                         printf("[unknown];");
@@ -59,18 +59,18 @@ void print_flamegraph()
                         } else {
                                 printf("%s_[G];", gpu_symbol);
                         }
-                } else if (flame.is_sys) {
+                } else if (samp.is_sys) {
                         printf("System Routine (Exceptions);");
                 } else {
-                        printf("0x%lx_[G];", flame.addr);
+                        printf("0x%lx_[G];", samp.addr);
                 }
-                if (flame.insn_text) {
-                        printf("%s_[g];", flame.insn_text);
+                if (samp.insn_text) {
+                        printf("%s_[g];", samp.insn_text);
                 } else {
                         printf("[failed_decode]_[g];");
                 }
 
-                switch (flame.stall_type) {
+                switch (samp.stall_type) {
                         case STALL_TYPE_ACTIVE:     stall_type_str = "active";     break;
                         case STALL_TYPE_CONTROL:    stall_type_str = "control";    break;
                         case STALL_TYPE_PIPESTALL:  stall_type_str = "pipestall";  break;
@@ -86,6 +86,6 @@ void print_flamegraph()
                 }
 
                 printf("%s_[g];", stall_type_str);
-                printf("0x%lx_[g] %lu\n", flame.offset, count);
+                printf("0x%lx_[g] %lu\n", samp.offset, count);
         }
 }

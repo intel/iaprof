@@ -14,6 +14,7 @@
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/bpf_i915/bpf/main.skel.h"
 
+#include "printers/debug/debug_printer.h"
 #include "printers/stack/stack_printer.h"
 
 #include "utils/hash_table.h"
@@ -84,7 +85,8 @@ int init_syms_cache()
         if (syms_cache == NULL) {
                 syms_cache = syms_cache__new(0);
                 if (!syms_cache) {
-                        ERR("Failed to initialize syms_cache.\n");
+                        fprintf(stderr,
+                                "ERROR: Failed to initialize syms_cache.\n");
                         return -1;
                 }
         }

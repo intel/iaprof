@@ -13,4 +13,5 @@ int handle_binary(unsigned char **dst, unsigned char *src, uint64_t *dst_sz,
                   uint64_t src_sz);
 int handle_binary_from_fd(int fd, unsigned char **buf, size_t size, uint64_t gpu_addr);
 uint64_t str_hash(char *s);
+uint64_t noop_hash(uint64_t s);
 int str_equ(char *a, char *b);

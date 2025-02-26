@@ -5,8 +5,8 @@
 #include <stdbool.h>
 
 #include "iaprof.h"
-#include "buffer_profile.h"
-
+#include "printers/debug/debug_printer.h"
+#include "gpu_kernel_stalls.h"
 
 _Atomic uint64_t iba = 0;
 
@@ -186,10 +186,7 @@ void print_bindings()
         struct vm_profile *vm;
         struct buffer_binding *bind;
 
-        if (!debug)
-                return;
-
-        printf( "==== BINDINGS ====\n");
+        debug_printf( "==== BINDINGS ====\n");
 
         FOR_BINDING(vm, bind, {
                 debug_printf(

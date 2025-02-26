@@ -15,12 +15,13 @@
 #include <bpf/bpf.h>
 #include <linux/bpf.h>
 
-#include "iaprof.h"
+#include "commands/record.h"
 
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 
 #include "printers/stack/stack_printer.h"
-#include "printers/printer.h"
+#include "printers/debug/debug_printer.h"
+#include "printers/interval/interval_printer.h"
 
 #include "bpf/main.h"
 #include "bpf/main.skel.h"
@@ -39,8 +40,8 @@ struct live_execbuf {
         uint32_t    vm_id;
         uint32_t    pid;
         char        name[TASK_COMM_LEN];
-        const char *ustack_str;
-        const char *kstack_str;
+        const char  *ustack_str;
+        const char  *kstack_str;
 };
 typedef struct live_execbuf live_execbuf_struct;
 
@@ -59,7 +60,7 @@ int handle_vm_create(void *data_arg)
         struct vm_create_info *info;
 
         info = (struct vm_create_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_create(info);
         }
 
@@ -80,7 +81,7 @@ int handle_vm_bind(void *data_arg)
         struct buffer_binding *bind;
 
         info = (struct vm_bind_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_bind(info, vm_bind_bpf_counter);
         }
 
@@ -135,7 +136,7 @@ int handle_vm_unbind(void *data_arg)
         struct buffer_binding *bind;
 
         info = (struct vm_unbind_info *)data_arg;
-        if (verbose) {
+        if (debug) {
                 print_vm_unbind(info);
         }
 
@@ -181,6 +182,8 @@ int handle_execbuf(void *data_arg)
         memcpy(live.name, info->name, TASK_COMM_LEN);
         live.ustack_str = store_ustack(info->pid, &info->ustack);
         live.kstack_str = store_kstack(&info->kstack);
+        print_string(live.ustack_str);
+        print_string(live.kstack_str);
 
         hash_table_insert(live_execbufs, info->eb_id, live);
 

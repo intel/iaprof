@@ -5,11 +5,11 @@
 
 #include "iaprof.h"
 #include "drm_helpers/drm_helpers.h"
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "gpu_parsers/shader_decoder.h"
-#include "printers/printer.h"
+#include "printers/debug/debug_printer.h"
 
 /* Driver-specific stuff */
 #ifdef XE_DRIVER
@@ -92,11 +92,6 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         if (bind->stall_counts == NULL) {
                 bind->stall_counts =
                         hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
-        }
-
-        if (verbose) {
-                print_eustall(sample, gpu_addr, offset, bind->handle,
-                              time);
         }
 
         /* Check if this offset has been seen yet */
@@ -208,9 +203,6 @@ next:;
                         array_push(*eustall_waitlist, deferred);
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
-                        if (verbose) {
-                                print_eustall_defer(sample, addr, time);
-                        }
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
@@ -220,12 +212,6 @@ next:;
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
                 /* We have to guess. Choose the last one that we've found. */
-                if (verbose) {
-                        print_eustall_churn(sample, addr,
-                                            first_found_offset,
-                                            time);
-                }
-
                 associate_sample(sample, first_found_file, first_found_vm_id,
                                  addr, first_found_offset,
                                  time);
@@ -364,21 +350,10 @@ void wakeup_eustall_deferred_attrib_thread() {
 }
 
 void handle_remaining_eustalls() {
-        struct timespec          spec;
-        unsigned long long       time;
         struct deferred_eustall *it;
-        uint64_t                 addr;
-
-        /* Get the timestamp */
-        clock_gettime(CLOCK_MONOTONIC, &spec);
-        time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
-                addr = (((uint64_t)it->sample.ip) << 3) + iba;
-                if (verbose) {
-                        print_eustall_drop(&it->sample, addr, time);
-                }
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);

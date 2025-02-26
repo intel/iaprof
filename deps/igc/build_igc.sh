@@ -3,6 +3,7 @@ BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PREFIX="${PREFIX:-${BASEDIR}/../install}"
 
 BUILD_TYPE="Release"
+IGC_BUILD_LOG="${BASEDIR}/igc.log"
 
 # Branch names
 LLVM_PROJECT_BRANCH="release/14.x"

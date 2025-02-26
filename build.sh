@@ -27,11 +27,13 @@ PREFIX="${DEPS_DIR}/install"
 IGA_INCLUDE_DIR="${IGA_INCLUDE_DIR:-${DEPS_DIR}/install/include}"
 LOCAL_DEPS=${LOCAL_DEPS:-"${PREFIX}/lib/libbpf.a ${PREFIX}/lib/libiga64.a"}
 
-
-# Find the proper kernel headers and copy them into the deps/ directory
-KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
-mkdir -p ${DEPS_DIR}/kernel_headers/uapi
-cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
+# Find the proper kernel headers and copy them into the deps/ directory.
+# Add those to CFLAGS. Users can place headers in there as a workaround.
+if [ -d "/lib/modules/$(uname -r)/build/include/uapi" ]; then
+  KERNEL_HEADERS="${KERNEL_HEADERS:-/lib/modules/$(uname -r)/build/include/uapi/}"
+  mkdir -p ${DEPS_DIR}/kernel_headers/uapi
+  cp -r ${KERNEL_HEADERS}/* ${DEPS_DIR}/kernel_headers/uapi/
+fi
 CFLAGS+=" -I${DEPS_DIR}/kernel_headers"
 
 # Get the git commit hash
@@ -166,14 +168,14 @@ echo "Building ${STORES_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/buffer_profile.c \
-  -o ${STORES_DIR}/buffer_profile.o
+  ${STORES_DIR}/gpu_kernel_stalls.c \
+  -o ${STORES_DIR}/gpu_kernel_stalls.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/proto_flame.c \
-  -o ${STORES_DIR}/proto_flame.o
+  ${STORES_DIR}/interval_profile.c \
+  -o ${STORES_DIR}/interval_profile.o
 
 ####################
 #   COLLECTORS     #
@@ -216,10 +218,10 @@ ${CC} ${COMMON_FLAGS} -c \
   ${PRINTERS_DIR}/printer.c \
   -o ${PRINTERS_DIR}/printer.o
 
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
-  -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
+# ${CC} ${COMMON_FLAGS} -c \
+#   -I${PREFIX}/include \
+#   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
+#   -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
@@ -230,6 +232,11 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  ${PRINTERS_DIR}/interval/interval_printer.c \
+  -o ${PRINTERS_DIR}/interval/interval_printer.o
 
 ####################
 #     UTILS        #
@@ -263,14 +270,30 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
+  
+####################
+#     COMMANDS     #
+####################
+COMMANDS_DIR="${SRC_DIR}/commands"
+echo "Building ${COMMANDS_DIR}..."
 
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/record.c \
+  -o ${COMMANDS_DIR}/record.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/flame.c \
+  -o ${COMMANDS_DIR}/flame.o
 
 ####################
 #     IAPROF       #
 ####################
 
 ${CC} ${COMMON_FLAGS} -c \
-  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   -I${PREFIX}/include \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
@@ -283,21 +306,24 @@ ${CXX} ${LDFLAGS} \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
-  ${STORES_DIR}/buffer_profile.o \
-  ${STORES_DIR}/proto_flame.o \
+  ${STORES_DIR}/gpu_kernel_stalls.o \
+  ${STORES_DIR}/interval_profile.o \
   \
   ${IAPROF_COLLECTORS} \
   \
   ${PRINTERS_DIR}/printer.o \
   ${PRINTERS_DIR}/stack/stack_printer.o \
-  ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o \
   ${PRINTERS_DIR}/debug/debug_printer.o \
+  ${PRINTERS_DIR}/interval/interval_printer.o \
   \
   ${UTILS_DIR}/utils.o \
   ${UTILS_DIR}/array.o \
   ${UTILS_DIR}/demangle.o \
   \
   ${GPU_PARSERS_DIR}/shader_decoder.o \
+  \
+  ${COMMANDS_DIR}/record.o \
+  ${COMMANDS_DIR}/flame.o \
   \
   ${SRC_DIR}/iaprof.o \
   \
@@ -307,7 +333,6 @@ ${CXX} ${LDFLAGS} \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
   -lz \
-  -lzstd \
   -lstdc++ \
   ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \

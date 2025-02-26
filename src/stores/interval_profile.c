@@ -1,17 +1,19 @@
 #include <stdbool.h>
 
 #include "iaprof.h"
-#include "proto_flame.h"
-#include "stores/buffer_profile.h"
+#include "stores/interval_profile.h"
+#include "printers/interval/interval_printer.h"
+#include "printers/debug/debug_printer.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "collectors/bpf_i915/bpf_i915_collector.h"
 #include "collectors/debug_i915/debug_i915_collector.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "gpu_parsers/shader_decoder.h"
 #include "utils/utils.h"
 
-hash_table(proto_flame_struct, uint64_t) flame_samples;
+hash_table(sample_struct, uint64_t) interval_profile;
 
-static uint64_t proto_flame_hash(const struct proto_flame a) {
+static uint64_t sample_hash(const struct sample a) {
         uint64_t hash;
 
         hash = 2654435761ULL;
@@ -28,11 +30,6 @@ static uint64_t proto_flame_hash(const struct proto_flame a) {
 
         return hash;
 }
-
-void init_flames() {
-        flame_samples = hash_table_make(proto_flame_struct, uint64_t, proto_flame_hash);
-}
-
 
 /* Returns 0 on success, -1 for failure */
 static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
@@ -92,27 +89,27 @@ out:;
         return retval;
 }
 
-static void update_flame(const struct proto_flame *flame, uint64_t count) {
+static void update_sample(const struct sample *samp, uint64_t count) {
         uint64_t           *lookup;
-        struct proto_flame  flame_copy;
+        struct sample      samp_copy;
 
-        lookup = hash_table_get_val(flame_samples, *flame);
+        lookup = hash_table_get_val(interval_profile, *samp);
 
         if (lookup != NULL) {
                 *lookup += count;
         } else {
-                memcpy(&flame_copy, flame, sizeof(flame_copy));
-                flame_copy.proc_name = strdup(flame_copy.proc_name);
-                flame_copy.insn_text = strdup(flame_copy.insn_text);
+                memcpy(&samp_copy, samp, sizeof(samp_copy));
+                samp_copy.proc_name = strdup(samp_copy.proc_name);
+                samp_copy.insn_text = strdup(samp_copy.insn_text);
 
-                hash_table_insert(flame_samples, flame_copy, count);
+                hash_table_insert(interval_profile, samp_copy, count);
         }
 }
 
-/* Prints the flamegraph for a single kernel */
-void store_kernel_flames(struct buffer_binding *bind)
+/* Stores a profile for a single kernel */
+void store_kernel_profile(struct buffer_binding *bind)
 {
-        struct proto_flame flame;
+        struct sample samp;
         uint64_t offset, addr;
         struct offset_profile *profile;
         char *failed_decode = "[failed_decode]";
@@ -122,26 +119,21 @@ void store_kernel_flames(struct buffer_binding *bind)
         int stall_type;
         uint64_t count;
 
-        if (debug) {
-                debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", bind->vm_id, bind->gpu_addr,
-                       bind->pid);
-        }
+        memset(&samp, 0, sizeof(samp));
 
-        memset(&flame, 0, sizeof(flame));
-
-        flame.proc_name  = strdup(bind->name);
-        flame.pid        = bind->pid;
-        flame.ustack_str = bind->execbuf_ustack_str;
-        flame.kstack_str = bind->execbuf_kstack_str;
-        flame.is_debug   = bind->type == BUFFER_TYPE_DEBUG_AREA;
-        flame.is_sys     = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
+        samp.proc_name   = strdup(bind->name);
+        samp.pid         = bind->pid;
+        samp.ustack_str  = bind->execbuf_ustack_str;
+        samp.kstack_str  = bind->execbuf_kstack_str;
+        samp.is_debug    = bind->type == BUFFER_TYPE_DEBUG_AREA;
+        samp.is_sys      = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
 
         /* Iterate over the offsets that we have EU stalls for */
         hash_table_traverse(bind->stall_counts, offset, profile) {
                 addr = bind->gpu_addr + offset;
 
-                flame.addr = addr;
-                flame.offset = offset;
+                samp.addr = addr;
+                samp.offset = offset;
 
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
@@ -151,17 +143,17 @@ void store_kernel_flames(struct buffer_binding *bind)
                         insn_text = failed_decode;
                 }
 
-                flame.insn_text = insn_text;
+                samp.insn_text = insn_text;
 
                 /* NOTE: We do late symbolization of GPU addresses because we may be slightly behind
-                 * collecting collecting ELF info from the debug interface. See print_flamegraph(). */
+                 * collecting ELF info from the debug interface. See print_flamegraph(). */
 
                 for (stall_type = 0; stall_type < NR_STALL_TYPES; stall_type += 1) {
-                        flame.stall_type = stall_type;
+                        samp.stall_type = stall_type;
 
                         count = profile->counts[stall_type];
                         if (count > 0) {
-                                update_flame(&flame, count);
+                                update_sample(&samp, count);
                         }
                 }
 
@@ -170,14 +162,16 @@ void store_kernel_flames(struct buffer_binding *bind)
                 }
         }
 
-        free(flame.proc_name);
+        free(samp.proc_name);
 }
 
-void store_interval_flames()
+void store_interval_profile(uint64_t interval)
 {
         struct vm_profile *vm;
         struct buffer_binding *bind;
-
+        
+        interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
+        
         FOR_BINDING(vm, bind, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
@@ -185,9 +179,13 @@ void store_interval_flames()
                         goto next;
                 }
 
-                store_kernel_flames(bind);
+                store_kernel_profile(bind);
 
 /* Jump here so that the macro releases locks. */
 next:;
         });
+        
+        print_interval(interval);
+        
+        hash_table_free(interval_profile);
 }

@@ -15,39 +15,36 @@
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #else
+#include <drm/i915_drm.h>
 #include <drm/i915_drm_prelim.h>
 #endif
 
 #include "drm_helpers/drm_helpers.h"
+#include "printers/debug/debug_printer.h"
 
 void ioctl_err(int err)
 {
         switch (err) {
         case EBADF:
-                fprintf(stderr,
-                        "The file descriptor passed to ioctl was invalid.\n");
+                WARN("The file descriptor passed to ioctl was invalid.\n");
                 break;
         case EINTR:
-                fprintf(stderr, "The ioctl command was interrupted.\n");
+                WARN("The ioctl command was interrupted.\n");
                 break;
         case EFAULT:
-                fprintf(stderr,
-                        "The argp argument to ioctl is an invalid memory area.\n");
+                WARN("The argp argument to ioctl is an invalid memory area.\n");
                 break;
         case EINVAL:
-                fprintf(stderr,
-                        "The request or argp argument to ioctl is not valid.\n");
+                WARN("The request or argp argument to ioctl is not valid.\n");
                 break;
         case ENOTTY:
-                fprintf(stderr,
-                        "The file descriptor passed to ioctl was not the right type.\n");
+                WARN("The file descriptor passed to ioctl was not the right type.\n");
                 break;
         case ENXIO:
-                fprintf(stderr,
-                        "The requested code is valid for the device, but the driver doesn't support it.\n");
+                WARN("The requested code is valid for the device, but the driver doesn't support it.\n");
                 break;
         default:
-                fprintf(stderr, "The ioctl error was unknown.\n");
+                WARN("The ioctl error was unknown.\n");
                 break;
         }
 }
@@ -73,7 +70,7 @@ int open_first_driver(device_info *devinfo)
                 sprintf(filename, "%s%u", DRIVER_BASE, i);
                 fd = open(filename, O_RDWR);
                 if (fd == -1) {
-                        fprintf(stderr, "Failed to open device: %s\n",
+                        WARN("Failed to open device: %s\n",
                                 filename);
                         continue;
                 }
@@ -84,7 +81,7 @@ int open_first_driver(device_info *devinfo)
                 version.name_len = sizeof(name) - 1;
                 version.name = name;
                 if (ioctl_do(fd, DRM_IOCTL_VERSION, &version)) {
-                        fprintf(stderr, "Failed to get the DRM version!\n");
+                        WARN("Failed to get the DRM version!\n");
                         ioctl_err(errno);
                         close(fd);
                         fd = -1;
@@ -93,9 +90,8 @@ int open_first_driver(device_info *devinfo)
 
                 /* If the driver name isn't "i915", go to the next one. */
                 if ((strcmp(version.name, "i915") != 0) && (strcmp(version.name, "xe") != 0)) {
-                        fprintf(stderr,
-                                "Found a driver called '%s' on device %s, but it's not supported.\n",
-                                version.name, filename);
+                        WARN("Found a driver called '%s' on device %s, but it's not supported.\n",
+                             version.name, filename);
                         close(fd);
                         fd = -1;
                         continue;
@@ -107,7 +103,7 @@ int open_first_driver(device_info *devinfo)
 
         /* We didn't find any devices */
         if (fd == -1) {
-                fprintf(stderr, "Failed to find any devices.\n");
+                WARN("Failed to find any devices.\n");
                 return -1;
         }
 
@@ -179,7 +175,7 @@ int get_drm_device_info(device_info *devinfo)
 
         sysfs_dir_fd = open_sysfs_dir(devinfo->fd);
         if (sysfs_dir_fd < 0) {
-                fprintf(stderr, "Failed to open the sysfs dir.\n");
+                WARN("Failed to open the sysfs dir.\n");
                 return -1;
         }
 
@@ -192,7 +188,7 @@ int get_drm_device_info(device_info *devinfo)
                 memset(&dq, 0, sizeof(dq));
                 dq.query = DRM_XE_DEVICE_QUERY_CONFIG;
                 if(ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY, &dq)) {
-                        fprintf(stderr, "Failed to get the size of the device config! Aborting.\n");
+                        WARN("Failed to get the size of the device config! Aborting.\n");
                         ioctl_err(errno);
                         return -1;
                 }
@@ -201,13 +197,13 @@ int get_drm_device_info(device_info *devinfo)
                 qc = malloc(dq.size);
                 dq.data = (uint64_t)qc;
                 if(ioctl_do(devinfo->fd, DRM_IOCTL_XE_DEVICE_QUERY, &dq)) {
-                        fprintf(stderr, "Failed to get the device config! Aborting.\n");
+                        WARN("Failed to get the device config! Aborting.\n");
                         ioctl_err(errno);
                         return -1;
                 }
                 
-                fprintf(stderr, "Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
-                fprintf(stderr, "VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
+                WARN("Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
+                WARN("VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
                 
                 devinfo->id = qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID] & 0xffff;
                 devinfo->va_bits = qc->info[DRM_XE_QUERY_CONFIG_VA_BITS];
@@ -223,13 +219,10 @@ int get_drm_device_info(device_info *devinfo)
                 devinfo->id = devid;
 #endif
         } else {
-                fprintf(stderr,
-                        "The DRM driver '%s' is not supported. Aborting.\n",
-                        devinfo->name);
+                WARN("The DRM driver '%s' is not supported. Aborting.\n", devinfo->name);
                 return -1;
         }
 
-        fprintf(stderr, "Using device ID: 0x%x\n", devinfo->id);
         devinfo->graphics_ver = 0;
         devinfo->graphics_rel = 0;
         for (i = 0; i < num_pci_ids; i++) {
@@ -239,7 +232,7 @@ int get_drm_device_info(device_info *devinfo)
                 }
         }
         if (devinfo->graphics_ver == 0) {
-                fprintf(stderr, "Your device (PCI ID 0x%x) isn't supported.\n", devinfo->id);
+                WARN("Your device (PCI ID 0x%x) isn't supported.\n", devinfo->id);
                 return -1;
         }
 
