@@ -17,8 +17,8 @@ CFLAGS+=" -DDEBUG"
 LDFLAGS="${LSAN:-}"
 
 BPFTOOL=${BPFTOOL:-bpftool}
-export IAPROF_XE_DRIVER=""
-#CFLAGS+=" -DXE_DRIVER"
+export IAPROF_XE_DRIVER="yes"
+CFLAGS+=" -DXE_DRIVER"
 
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 

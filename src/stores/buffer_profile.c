@@ -47,27 +47,6 @@ struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr) {
         return NULL;
 }
 
-struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr) {
-        tree_it(uint64_t, buffer_binding_struct) it;
-        struct buffer_binding new_bind;
-
-        assert(vm->lock_holder == pthread_self()
-                && "get_or_create_binding called, but vm->lock not held by this thread!");
-
-        it = tree_lookup(vm->bindings, gpu_addr);
-        if (tree_it_good(it)) {
-                goto found;
-        }
-
-        memset(&new_bind, 0, sizeof(new_bind));
-        new_bind.vm_id = vm->vm_id;
-        new_bind.gpu_addr = gpu_addr;
-        it = tree_insert(vm->bindings, gpu_addr, new_bind);
-
-found:;
-        return &tree_it_val(it);
-}
-
 struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_binding_struct) it;
         struct buffer_binding *bind;
@@ -93,30 +72,78 @@ struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gp
         return bind;
 }
 
-static void clear_stalls(struct buffer_binding *bind) {
-        if (bind->stall_counts != NULL) {
-                hash_table_free(bind->stall_counts);
-                bind->stall_counts = NULL;
+struct shader_binding *get_or_create_shader(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, shader_binding_struct) it;
+        struct shader_binding new_shader;
+        struct buffer_binding *buff_bind;
+
+        assert(vm->lock_holder == pthread_self()
+                && "get_or_create_shader called, but vm->lock not held by this thread!");
+
+        it = tree_lookup(vm->shaders, gpu_addr);
+        if (tree_it_good(it)) {
+                goto found;
+        }
+
+        memset(&new_shader, 0, sizeof(new_shader));
+        new_shader.gpu_addr = gpu_addr;
+        new_shader.buff_bind = get_containing_binding(vm, gpu_addr);
+        
+        it = tree_insert(vm->shaders, gpu_addr, new_shader);
+
+found:;
+        return &tree_it_val(it);
+}
+
+struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, buffer_binding_struct) it;
+        struct buffer_binding new_bind;
+
+        assert(vm->lock_holder == pthread_self()
+                && "get_or_create_binding called, but vm->lock not held by this thread!");
+
+        it = tree_lookup(vm->bindings, gpu_addr);
+        if (tree_it_good(it)) {
+                goto found;
+        }
+
+        memset(&new_bind, 0, sizeof(new_bind));
+        new_bind.vm_id = vm->vm_id;
+        new_bind.gpu_addr = gpu_addr;
+        it = tree_insert(vm->bindings, gpu_addr, new_bind);
+
+found:;
+        return &tree_it_val(it);
+}
+
+static void clear_stalls(struct shader_binding *shader) {
+        if (shader->stall_counts != NULL) {
+                hash_table_free(shader->stall_counts);
+                shader->stall_counts = NULL;
         }
 }
 
-static void free_binding(struct buffer_binding *bind) {
-        clear_stalls(bind);
+static void free_shader(struct shader_binding *shader) {
+        clear_stalls(shader);
 
-        if (bind->kv != NULL) {
-            iga_fini(bind->kv);
-            bind->kv = NULL;
+        if (shader->kv != NULL) {
+            iga_fini(shader->kv);
+            shader->kv = NULL;
         }
 }
 
 static void free_bindings(tree(uint64_t, buffer_binding_struct) buffer_bindings) {
-        tree_it(uint64_t, buffer_binding_struct) it;
+        tree_free(buffer_bindings);
+}
 
-        tree_traverse(buffer_bindings, it) {
-                free_binding(&tree_it_val(it));
+static void free_shaders(tree(uint64_t, shader_binding_struct) shaders) {
+        tree_it(uint64_t, shader_binding_struct) it;
+
+        tree_traverse(shaders, it) {
+                free_shader(&tree_it_val(it));
         }
 
-        tree_free(buffer_bindings);
+        tree_free(shaders);
 }
 
 void free_profiles() {

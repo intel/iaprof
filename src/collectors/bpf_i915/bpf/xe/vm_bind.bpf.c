@@ -35,6 +35,7 @@ int BPF_PROG(xe_vm_bind_ioctl,
 
         /* For getting the cpu_addr */
         struct file_handle_pair pair = {};
+        struct binding_info bindinfo = {};
 
         /* Read the argument struct (which is large) into a per-cpu array */
         tmp_arg_key = 0;
@@ -92,6 +93,14 @@ int BPF_PROG(xe_vm_bind_ioctl,
                 /* Get the CPU address from any mappings that have happened */
                 pair.handle = info->handle;
                 pair.file = (u64)file;
+                
+                bindinfo.gpu_addr = info->gpu_addr;
+                bindinfo.size = info->size;
+                bindinfo.vm_id = args->vm_id;
+                
+                /* Add this binding to the file_handle_binding map */
+                bpf_map_update_elem(&file_handle_binding, &pair, &bindinfo, 0);
+                
                 lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
                 if (!lookup) {
                         WARN_PRINTK("vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", info->gpu_addr, pair.handle);

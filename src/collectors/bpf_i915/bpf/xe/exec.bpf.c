@@ -46,7 +46,7 @@ int BPF_PROG(xe_exec_ioctl, struct drm_device *dev, void *data, struct drm_file 
                 }
         }
 
-        gpu_addr = BPF_CORE_READ(args, address);
+        gpu_addr = BPF_CORE_READ(args, address) & UPPER_MASK;
         gpu_page_addr = gpu_addr & PAGE_MASK;
         DEBUG_PRINTK("execbuffer vm_id=%u exec_queue_id=%u num_batch_buffer=%u address=0x%lx",
                      vm_id, exec_queue_id, num_batch_buffer, gpu_addr);
@@ -121,7 +121,7 @@ int BPF_PROG(xe_exec_ioctl, struct drm_device *dev, void *data, struct drm_file 
         parse_cxt.ips[0]     = gpu_addr;
         parse_cxt.cpu_ips[0] = cpu_addr + offset;
 
-        if (parse_batchbuffer(&parse_cxt, 0) == DATA_NOT_READY) {
+        if (parse_batchbuffer(&parse_cxt, 0) == BB_TRY_AGAIN) {
                 defer_batchbuffer_parse(&parse_cxt);
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);

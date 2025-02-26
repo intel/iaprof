@@ -61,12 +61,12 @@ else
 
 fi
 
-${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
-RETVAL="$?"
-if [ $RETVAL -ne 0 ]; then
-  echo "    I can't find the BTF information for drm! Aborting."
-  exit 1
-fi
+# ${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
+# RETVAL="$?"
+# if [ $RETVAL -ne 0 ]; then
+#   echo "    I can't find the BTF information for drm! Aborting."
+#   exit 1
+# fi
 
 # Compile the BPF object code
 echo "  Compiling the BPF program..."

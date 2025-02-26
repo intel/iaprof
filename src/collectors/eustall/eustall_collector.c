@@ -155,7 +155,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         first_found_file = 0;
 
         if (!iba) {
-                goto none_found;
+/*                 goto none_found; */
         }
 
         FOR_VM(vm, {
@@ -197,7 +197,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 next:;
         });
 
-none_found:
+/* none_found: */
         /* Now that we've found 0+ matches, print or store them. */
         if (found == 0) {
                 if (!is_deferred) {
