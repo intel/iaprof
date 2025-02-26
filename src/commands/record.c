@@ -147,6 +147,8 @@ int read_opts(int argc, char **argv)
                         break;
                 }
         }
+        
+        printf("optind: %d, argc: %d\n", optind, argc);
 
         if ((optind < argc) && (optind != 1)) {
                 for (int i = optind; i < argc; i++) {
@@ -665,6 +667,9 @@ void record(int argc, char **argv)
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
         /* Print the final profile */
+        if (debug) {
+          print_debug_profile();
+        }
         gettimeofday(&tv, NULL);
         print_status_table((int)tv.tv_sec - startsecs);
 

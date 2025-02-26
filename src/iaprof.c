@@ -38,7 +38,7 @@ int main(int argc, char **argv)
   /* Determine the subcommand */
   for (i = 0; i < COMMANDS_MAX; i++) {
           if (strcmp(argv[1], command_strs[i]) == 0) {
-                  command_ptrs[i](argc, argv);
+                  command_ptrs[i](argc-1, argv+1);
                   return 0;
           }
   }

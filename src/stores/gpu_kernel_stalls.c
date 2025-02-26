@@ -47,6 +47,20 @@ struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr) {
         return NULL;
 }
 
+struct shader_binding *get_shader(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, shader_binding_struct) it;
+
+        assert(vm->lock_holder == pthread_self()
+                && "get_binding called, but vm->lock not held by this thread!");
+
+        it = tree_lookup(vm->shaders, gpu_addr);
+        if (tree_it_good(it)) {
+                return &tree_it_val(it);
+        }
+
+        return NULL;
+}
+
 struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, buffer_binding_struct) it;
         struct buffer_binding *bind;
@@ -72,10 +86,35 @@ struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gp
         return bind;
 }
 
+struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu_addr) {
+        tree_it(uint64_t, shader_binding_struct) it;
+        struct shader_binding *shader;
+
+        assert(vm->lock_holder == pthread_self()
+                && "get_containing_shader called, but vm->lock not held by this thread!");
+
+        it = tree_gtr(vm->shaders, gpu_addr);
+        tree_it_prev(it);
+
+        if (!tree_it_good(it)) {
+                return NULL;
+        }
+
+        shader = &tree_it_val(it);
+
+        if (gpu_addr < shader->gpu_addr) {
+                /* XXX: WARNING: We do NOT check the size of the shader, since we have no
+                   way of knowing it. This can lead to mis-association if we don't know
+                   the addresses of ALL shaders. */
+                return NULL;
+        }
+
+        return shader;
+}
+
 struct shader_binding *get_or_create_shader(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, shader_binding_struct) it;
         struct shader_binding new_shader;
-        struct buffer_binding *buff_bind;
 
         assert(vm->lock_holder == pthread_self()
                 && "get_or_create_shader called, but vm->lock not held by this thread!");
@@ -156,6 +195,7 @@ void free_profiles() {
                 vm = tree_it_val(it);
 
                 free_bindings(vm->bindings);
+                free_shaders(vm->shaders);
 
                 free(vm);
         }
@@ -177,7 +217,6 @@ void delete_binding(struct vm_profile *vm, uint64_t gpu_addr) {
                 return;
         }
 
-        free_binding(&tree_it_val(it));
         tree_delete(vm->bindings, gpu_addr);
 }
 
@@ -198,10 +237,10 @@ void print_bindings()
 void clear_interval_profiles()
 {
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
 
-        FOR_BINDING(vm, bind, {
-                clear_stalls(bind);
+        FOR_SHADER(vm, shader, {
+                clear_stalls(shader);
         });
 }
 
@@ -248,6 +287,7 @@ static struct vm_profile *_get_vm_profile(uint64_t file, uint32_t vm_id, int cre
         vm->vm_id    = vm_id;
         vm->file     = file;
         vm->bindings = tree_make(uint64_t, buffer_binding_struct);
+        vm->shaders = tree_make(uint64_t, shader_binding_struct);
 
         tree_insert(vm_profiles, pair, vm);
 

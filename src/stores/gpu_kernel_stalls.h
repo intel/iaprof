@@ -18,19 +18,9 @@ use_hash_table(uint64_t, offset_profile_struct);
 void clear_interval_profiles();
 void clear_unbound_buffers();
 
-enum buffer_type {
-        BUFFER_TYPE_UNKNOWN = 0,
-        BUFFER_TYPE_BATCHBUFFER,
-        BUFFER_TYPE_SHADER,
-        BUFFER_TYPE_SYSTEM_ROUTINE,
-        BUFFER_TYPE_DEBUG_AREA,
-};
-
 struct kv_t;
 
 struct buffer_binding {
-        enum buffer_type type;
-
         uint64_t file;
         uint32_t handle;
 
@@ -49,11 +39,23 @@ struct buffer_binding {
         int      unbound;
 };
 
+enum shader_type {
+        SHADER_TYPE_UNKNOWN = 0,
+        SHADER_TYPE_SHADER,
+        SHADER_TYPE_SYSTEM_ROUTINE,
+        SHADER_TYPE_DEBUG_AREA,
+};
+
 struct shader_binding {
+        enum shader_type type;
         struct buffer_binding *buff_bind;
+        
+        uint32_t pid;
+        uint32_t vm_id;
+        char proc_name[TASK_COMM_LEN];
         uint64_t gpu_addr;
         
-        /* The stack where this buffer was execbuffer'd */
+        /* The stacks from which this shader was execbuffer'd */
         const char *execbuf_ustack_str;
         const char *execbuf_kstack_str;
         
@@ -100,9 +102,12 @@ extern pthread_rwlock_t vm_profiles_lock;
 
 void init_profiles();
 struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *get_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_ordered_binding(uint32_t vm_bind_order);
 struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *get_or_create_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu_addr);
 void delete_binding(struct vm_profile *vm, uint64_t gpu_addr);
 void free_profiles();
 

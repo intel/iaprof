@@ -29,10 +29,6 @@
 #include "utils/hash_table.h"
 #include "utils/demangle.h"
 
-#ifdef SLOW_MODE
-static uint32_t vm_bind_counter = 0;
-#endif
-
 struct debug_i915_info_t debug_i915_info;
 pthread_rwlock_t debug_i915_info_lock;
 
@@ -647,71 +643,6 @@ cleanup:
         return;
 }
 
-
-#ifdef SLOW_MODE
-void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
-                          int pid_index)
-{
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-        struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
-        uint64_t gpu_addr;
-        char found;
-
-        vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
-
-        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
-                return;
-        }
-
-        /* If any of the top 16 bits are set, it's an invalid address. We only want
-           the bottom 48 bits. */
-        gpu_addr = vm_bind->va_start;
-        if (gpu_addr & 0xffff000000000000) {
-                vm_bind_counter++;
-                return;
-        }
-
-        debug_printf("vm_bind_debug vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
-               vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
-               vm_bind_counter);
-
-        /* Wait on this VM_BIND to happen in BPF, so that we can know which VM
-           to associate it with! */
-        found = 0;
-        while (!found) {
-                pthread_mutex_lock(&debug_i915_vm_bind_lock);
-
-                FOR_BINDING(vm, bind, {
-                        if (bind->vm_bind_order == vm_bind_counter) {
-                                found = 1;
-                                FOR_BINDING_CLEANUP(); goto out;
-                        }
-                });
-
-                if (pthread_cond_wait(&debug_i915_vm_bind_cond, &debug_i915_vm_bind_lock) != 0) {
-                        fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
-                        pthread_mutex_unlock(&debug_i915_vm_bind_lock);
-                        goto cleanup;
-                }
-
-                FOR_BINDING(vm, bind, {
-                        if (bind->vm_bind_order == vm_bind_counter) {
-                                found = 1;
-                                FOR_BINDING_CLEANUP(); goto out;
-                        }
-                });
-out:;
-                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
-        }
-
-cleanup:
-        vm_bind_counter++;
-
-        return;
-}
-#endif
-
 #ifdef XE_DRIVER
 /* Returns whether an event was actually read. */
 int read_debug_i915_event(int fd, int pid_index)
@@ -749,10 +680,6 @@ int read_debug_i915_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == DRM_XE_EUDEBUG_EVENT_METADATA) {
                 handle_event_uuid(fd, event, pid_index);
-#ifdef SLOW_MODE
-        } else if (event->type == DRM_XE_EUDEBUG_EVENT_VM_BIND) {
-                handle_event_vm_bind(fd, event, pid_index);
-#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */
@@ -804,10 +731,6 @@ int read_debug_i915_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
-#ifdef SLOW_MODE
-        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
-                handle_event_vm_bind(fd, event, pid_index);
-#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */

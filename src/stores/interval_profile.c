@@ -32,7 +32,7 @@ static uint64_t sample_hash(const struct sample a) {
 }
 
 /* Returns 0 on success, -1 for failure */
-static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
+static char get_insn_text(struct shader_binding *shader, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
@@ -41,11 +41,11 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         retval = 0;
 
         pthread_mutex_lock(&debug_i915_shader_binaries_lock);
-        bin = get_shader_binary(bind->gpu_addr);
+        bin = get_shader_binary(shader->gpu_addr);
 
         if (bin == NULL) {
                 if (debug) {
-                        WARN("Can't find a shader at 0x%lx\n", bind->gpu_addr);
+                        WARN("Can't find a shader at 0x%lx\n", shader->gpu_addr);
                 }
                 retval = -1;
                 goto out;
@@ -62,9 +62,9 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
         /* Initialize the kernel view */
-        if (!bind->kv) {
-                bind->kv = iga_init(bin->bytes, bin->size);
-                if (!bind->kv) {
+        if (!shader->kv) {
+                shader->kv = iga_init(bin->bytes, bin->size);
+                if (!shader->kv) {
                         if (debug) {
                                 WARN("Failed to initialize IGA.\n");
                         }
@@ -74,11 +74,11 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
         /* Disassemble */
-        retval = iga_disassemble_insn(bind->kv, offset, insn_text,
+        retval = iga_disassemble_insn(shader->kv, offset, insn_text,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        WARN("Disassembly failed on shader at 0x%lx\n", bind->gpu_addr);
+                        WARN("Disassembly failed on shader at 0x%lx\n", shader->gpu_addr);
                 }
                 goto out;
         }
@@ -107,7 +107,7 @@ static void update_sample(const struct sample *samp, uint64_t count) {
 }
 
 /* Stores a profile for a single kernel */
-void store_kernel_profile(struct buffer_binding *bind)
+void store_kernel_profile(struct shader_binding *shader)
 {
         struct sample samp;
         uint64_t offset, addr;
@@ -121,16 +121,16 @@ void store_kernel_profile(struct buffer_binding *bind)
 
         memset(&samp, 0, sizeof(samp));
 
-        samp.proc_name   = strdup(bind->name);
-        samp.pid         = bind->pid;
-        samp.ustack_str  = bind->execbuf_ustack_str;
-        samp.kstack_str  = bind->execbuf_kstack_str;
-        samp.is_debug    = bind->type == BUFFER_TYPE_DEBUG_AREA;
-        samp.is_sys      = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
+        samp.proc_name   = strdup(shader->proc_name);
+        samp.pid         = shader->pid;
+        samp.ustack_str  = shader->execbuf_ustack_str;
+        samp.kstack_str  = shader->execbuf_kstack_str;
+        samp.is_debug    = shader->type == SHADER_TYPE_DEBUG_AREA;
+        samp.is_sys      = shader->type == SHADER_TYPE_SYSTEM_ROUTINE;
 
         /* Iterate over the offsets that we have EU stalls for */
-        hash_table_traverse(bind->stall_counts, offset, profile) {
-                addr = bind->gpu_addr + offset;
+        hash_table_traverse(shader->stall_counts, offset, profile) {
+                addr = shader->gpu_addr + offset;
 
                 samp.addr = addr;
                 samp.offset = offset;
@@ -138,7 +138,7 @@ void store_kernel_profile(struct buffer_binding *bind)
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
                 insn_text_len = 0;
-                retval = get_insn_text(bind, offset, &insn_text, &insn_text_len);
+                retval = get_insn_text(shader, offset, &insn_text, &insn_text_len);
                 if (retval != 0) {
                         insn_text = failed_decode;
                 }
@@ -168,18 +168,18 @@ void store_kernel_profile(struct buffer_binding *bind)
 void store_interval_profile(uint64_t interval)
 {
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
         
         interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
         
-        FOR_BINDING(vm, bind, {
+        FOR_SHADER(vm, shader, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
-                if (bind->stall_counts == NULL) {
+                if (shader->stall_counts == NULL) {
                         goto next;
                 }
 
-                store_kernel_profile(bind);
+                store_kernel_profile(shader);
 
 /* Jump here so that the macro releases locks. */
 next:;

@@ -23,29 +23,28 @@
 char debug = 0;
 pthread_mutex_t debug_print_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void print_debug_binding(struct buffer_binding *bind)
+void print_debug_shader(struct shader_binding *shader)
 {
-        debug_printf("buffer handle=%u gpu_addr=0x%lx vm_id=%u has_stalls=%u\n",
-               bind->handle, bind->gpu_addr, bind->vm_id,
-               bind->stall_counts != NULL);
+        debug_printf("buffer gpu_addr=0x%lx vm_id=%u\n",
+               shader->gpu_addr, shader->vm_id);
 }
 
-/* Prints all GPU kernels that we found */
+/* Prints all shaders that we've found */
 void print_debug_profile()
 {
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
         uint64_t tot;
 
         if (!debug) {
                 return;
         }
 
-        debug_printf("buffer_bindings\n");
+        debug_printf("shader_bindings\n");
 
         /* Iterate over each buffer */
-        FOR_BINDING(vm, bind, {
-                print_debug_binding(bind);
+        FOR_SHADER(vm, shader, {
+                print_debug_shader(shader);
         });
 
 

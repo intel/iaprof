@@ -69,7 +69,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         struct offset_profile *found;
         struct offset_profile profile;
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
 
         vm = acquire_vm_profile(file, vm_id);
 
@@ -79,9 +79,9 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
                 return -1;
         }
 
-        bind = get_containing_binding(vm, gpu_addr);
+        shader = get_shader(vm, gpu_addr);
 
-        if (!bind) {
+        if (!shader) {
                 WARN("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
                      vm_id, gpu_addr);
                 release_vm_profile(vm);
@@ -89,18 +89,18 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         }
 
         /* Make sure we're initialized */
-        if (bind->stall_counts == NULL) {
-                bind->stall_counts =
+        if (shader->stall_counts == NULL) {
+                shader->stall_counts =
                         hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
         }
 
         /* Check if this offset has been seen yet */
-        found = hash_table_get_val(bind->stall_counts, offset);
+        found = hash_table_get_val(shader->stall_counts, offset);
         if (!found) {
                 /* We have to allocate a struct of counts */
                 memset(&profile, 0, sizeof(profile));
-                hash_table_insert(bind->stall_counts, offset, profile);
-                found = hash_table_get_val(bind->stall_counts, offset);
+                hash_table_insert(shader->stall_counts, offset, profile);
+                found = hash_table_get_val(shader->stall_counts, offset);
         }
 
         found->active     += sample->active;
@@ -135,7 +135,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         uint64_t first_found_file;
         struct deferred_eustall deferred;
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
 
         addr = (((uint64_t)sample->ip) << 3) + iba;
 
@@ -155,30 +155,18 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 
         FOR_VM(vm, {
 
-                bind = get_containing_binding(vm, addr);
+                shader = get_containing_shader(vm, addr);
 
-                if (bind == NULL) {
+                if (shader == NULL) {
                         goto next;
                 }
 
-                if (!(bind->pid)) {
+                if (!(shader->pid)) {
                         goto next;
                 }
 
-                if ((bind->type != BUFFER_TYPE_SHADER) &&
-                    (bind->type != BUFFER_TYPE_DEBUG_AREA) &&
-                    (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
-                        goto next;
-                }
-
-                start = bind->gpu_addr;
-/*                 end = start + bind->bind_size; */
+                start = shader->gpu_addr;
                 offset = addr - start;
-
-/*                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n", */
-/*                         addr, start, end, offset, */
-/*                         bind->handle, bind->vm_id, */
-/*                         bind->gpu_addr, iba); */
 
                 found++;
 
