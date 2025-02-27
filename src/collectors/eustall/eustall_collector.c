@@ -125,15 +125,19 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         return 0;
 }
 
+enum {
+        EUSTALL_SAMPLE_DEFERRED                 = (1 << 0),
+        EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED = (1 << 1),
+};
+
 #ifdef XE_DRIVER
-static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
 #else
-static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int is_deferred) {
+static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
 #endif
         int found;
         uint64_t addr;
         uint64_t start;
-/*         uint64_t end;  */
         uint64_t offset;
         uint64_t first_found_offset;
         uint32_t first_found_vm_id;
@@ -159,7 +163,6 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         }
 
         FOR_VM(vm, {
-
                 bind = get_containing_binding(vm, addr);
 
                 if (bind == NULL) {
@@ -170,20 +173,17 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                         goto next;
                 }
 
-                if ((bind->type != BUFFER_TYPE_SHADER) &&
-                    (bind->type != BUFFER_TYPE_DEBUG_AREA) &&
-                    (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
-                        goto next;
+                if (!(flags & EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED)) {
+                        if ((bind->type != BUFFER_TYPE_SHADER)
+                        &&  (bind->type != BUFFER_TYPE_DEBUG_AREA)
+                        &&  (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
+
+                                goto next;
+                        }
                 }
 
                 start = bind->gpu_addr;
-/*                 end = start + bind->bind_size; */
                 offset = addr - start;
-
-/*                 debug_printf("addr=0x%lx start=0x%lx end=0x%lx offset=0x%lx handle=%u vm_id=%u gpu_addr=0x%lx iba=0x%lx\n", */
-/*                         addr, start, end, offset, */
-/*                         bind->handle, bind->vm_id, */
-/*                         bind->gpu_addr, iba); */
 
                 found++;
 
@@ -200,7 +200,7 @@ next:;
 none_found:
         /* Now that we've found 0+ matches, print or store them. */
         if (found == 0) {
-                if (!is_deferred) {
+                if (!(flags & EUSTALL_SAMPLE_DEFERRED)) {
                         deferred.sample    = *sample;
                         deferred.satisfied = 0;
 
@@ -257,7 +257,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                         break;
                 }
 
-                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
+                handle_eustall_sample(sample, time, 0);
         }
 
         return EUSTALL_STATUS_OK;
@@ -276,7 +276,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
-                handle_eustall_sample(sample, time, /* is_deferred = */ 0);
+                handle_eustall_sample(sample, time, 0);
         }
 
         return EUSTALL_STATUS_OK;
@@ -312,7 +312,7 @@ void handle_deferred_eustalls() {
         /* Try to satisfy each pending eustall. */
         n_satisfied = 0;
         array_traverse(*working, stall) {
-                stall->satisfied = handle_eustall_sample(&stall->sample, stall->time, 1);
+                stall->satisfied = handle_eustall_sample(&stall->sample, stall->time, EUSTALL_SAMPLE_DEFERRED);
                 n_satisfied += !!stall->satisfied;
         }
 
@@ -375,6 +375,8 @@ void handle_remaining_eustalls() {
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
+                handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED);
+
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
                 if (verbose) {
                         print_eustall_drop(&it->sample, addr, time);
