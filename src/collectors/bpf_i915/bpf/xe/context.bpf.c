@@ -68,7 +68,7 @@ int BPF_PROG(xe_vm_create_ioctl, struct drm_device *dev, void *data,
 
         args = (struct drm_xe_vm_create *)data;
         vm_id = BPF_CORE_READ(args, vm_id);
-        DEBUG_PRINTK("vm_create(ret): vm_id=%u", vm_id);
+        DEBUG_PRINTK("vm_create vm_id=%u file=0x%lx", vm_id, file);
 
         /* Reserve some space on the ringbuffer */
         info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_create_info), 0);

@@ -404,9 +404,11 @@ next_level_loaded:;
                              
                         ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
                         
-                        cxt->has_ksps = 1;
-                        BB_PRINTK("  KSP: 0x%llx", ksp);
-                        bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
+                        if (ksp) {
+                                cxt->has_ksps = 1;
+                                BB_PRINTK("  KSP: 0x%llx", ksp);
+                                bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
+                        }
                         
                 } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
                         cxt->iba = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFF000);

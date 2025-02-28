@@ -50,7 +50,7 @@ static char get_insn_text(struct shader_binding *shader, uint64_t offset,
 
         if (bin == NULL) {
                 if (debug) {
-                        WARN("Can't find a shader at 0x%lx\n", shader->gpu_addr);
+                        WARN("Can't find a shader's binary at 0x%lx\n", shader->gpu_addr);
                 }
                 retval = -1;
                 goto out;

@@ -89,8 +89,8 @@ int handle_vm_bind(void *data_arg)
 
         if (!vm) {
                 if (debug) {
-                        WARN("Got a vm_bind to vm_id=%u gpu_addr=0x%llx, for which there was no VM.\n",
-                            info->vm_id, info->gpu_addr);
+                        WARN("Got a vm_bind to vm_id=%u file=0x%llx gpu_addr=0x%llx, for which there was no VM.\n",
+                            info->vm_id, info->file, info->gpu_addr);
                 }
                 vm_bind_bpf_counter++;
                 goto cleanup;
@@ -242,18 +242,27 @@ int handle_ksp(void *data_arg)
                 return 0;
         }
 
-        shader_bind = get_or_create_shader(vm, iba + info->addr);
-        shader_bind->type               = SHADER_TYPE_SHADER;
+        shader_bind = get_shader(vm, iba + info->addr);
+        if (!shader_bind) {
+                shader_bind = create_shader(vm, iba + info->addr);
+                if (!shader_bind) {
+                        goto exit;
+                }
+                shader_bind->type = SHADER_TYPE_SHADER;
+                debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
+                             vm->vm_id, shader_bind->gpu_addr);
+                debug_printf("  Shader in buffer: gpu_addr=0x%lx size=0x%lx\n",
+                             shader_bind->binding_addr, shader_bind->binding_size);
+        }
+        
         shader_bind->pid                = exec->pid;
         shader_bind->vm_id              = exec->vm_id;
         shader_bind->execbuf_ustack_str = exec->ustack_str;
         shader_bind->execbuf_kstack_str = exec->kstack_str;
         memcpy(shader_bind->proc_name, exec->name, TASK_COMM_LEN);
-        debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
-                        vm->vm_id, shader_bind->gpu_addr);
 
+exit:
         release_vm_profile(vm);
-
         wakeup_eustall_deferred_attrib_thread();
 
         return 0;
@@ -264,7 +273,7 @@ int handle_sip(void *data_arg)
         struct sip_info       *info;
         struct live_execbuf   *exec;
         struct vm_profile     *vm;
-        struct shader_binding *shader;
+        struct shader_binding *shader_bind;
 
         info = (struct sip_info *)data_arg;
         exec = hash_table_get_val(live_execbufs, info->eb_id);
@@ -280,20 +289,24 @@ int handle_sip(void *data_arg)
                 return 0;
         }
 
-        shader = get_or_create_shader(vm, iba + info->addr);
-        if (shader != NULL) {
-                shader->type               = SHADER_TYPE_SYSTEM_ROUTINE;
-                shader->pid                = exec->pid;
-                shader->vm_id              = exec->vm_id;
-                shader->execbuf_ustack_str = exec->ustack_str;
-                shader->execbuf_kstack_str = exec->kstack_str;
-                memcpy(shader->proc_name, exec->name, TASK_COMM_LEN);
-                debug_printf("  Marked shader as a SIP shader: vm_id=%u gpu_addr=0x%lx\n",
-                                vm->vm_id, shader->gpu_addr);
-        } else {
-                debug_printf("  Did not find the SIP shader for gpu_addr=0x%llx\n", iba + info->addr);
+        shader_bind = get_shader(vm, iba + info->addr);
+        if (!shader_bind) {
+                shader_bind = create_shader(vm, iba + info->addr);
+                if (!shader_bind) {
+                        goto exit;
+                }
+                shader_bind->type               = SHADER_TYPE_SYSTEM_ROUTINE;
+                debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
+                             vm->vm_id, shader_bind->gpu_addr);
         }
+        
+        shader_bind->pid                = exec->pid;
+        shader_bind->vm_id              = exec->vm_id;
+        shader_bind->execbuf_ustack_str = exec->ustack_str;
+        shader_bind->execbuf_kstack_str = exec->kstack_str;
+        memcpy(shader_bind->proc_name, exec->name, TASK_COMM_LEN);
 
+exit:
         release_vm_profile(vm);
 
         return 0;

@@ -48,7 +48,9 @@ enum shader_type {
 
 struct shader_binding {
         enum shader_type type;
-        struct buffer_binding *buff_bind;
+        
+        /* The buffer that this shader is in */
+        uint64_t binding_addr, binding_size;
         
         uint32_t pid;
         uint32_t vm_id;
@@ -105,7 +107,7 @@ struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr);
 struct shader_binding *get_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_ordered_binding(uint32_t vm_bind_order);
 struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr);
-struct shader_binding *get_or_create_shader(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *create_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr);
 struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu_addr);
 void delete_binding(struct vm_profile *vm, uint64_t gpu_addr);
@@ -183,8 +185,15 @@ do {                                                                \
         pthread_rwlock_unlock(&vm_profiles_lock);                   \
 } while (0)
 
-#define FOR_SHADER_CLEANUP()                                       \
+#define FOR_SHADER_NOLOCK(vm, bind, ...)                            \
 do {                                                                \
-        unlock_vm_profile(tree_it_val(_vit));                       \
-        pthread_rwlock_unlock(&vm_profiles_lock);                   \
+        tree_it(file_vm_pair_struct, vm_profile_ptr) _vit;          \
+        tree_it(uint64_t, shader_binding_struct)     _bit;          \
+        tree_traverse(vm_profiles, _vit) {                          \
+                (vm) = tree_it_val(_vit);                           \
+                tree_traverse((vm)->shaders, _bit) {               \
+                        (bind) = &tree_it_val(_bit);                \
+                        __VA_ARGS__                                 \
+                }                                                   \
+        }                                                           \
 } while (0)
