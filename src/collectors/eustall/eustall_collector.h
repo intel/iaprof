@@ -169,4 +169,11 @@ struct __attribute__((__packed__)) eustall_sample {
 };
 #endif
 
+struct deferred_eustall {
+        unsigned long long time;
+        struct eustall_sample sample;
+        char satisfied;
+};
+
+
 void handle_remaining_eustalls();

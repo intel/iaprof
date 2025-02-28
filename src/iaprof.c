@@ -393,8 +393,13 @@ next:;
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
-        handle_remaining_eustalls();
         store_interval_flames();
+
+        handle_remaining_eustalls();
+
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        store_unknown_flames(eustall_waitlist);
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
 
         return NULL;
 }

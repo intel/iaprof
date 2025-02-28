@@ -30,8 +30,13 @@ void print_flamegraph()
                         gpu_line   = 0;
                 }
 
-                printf("%s;", flame.proc_name);
-                printf("%u;", flame.pid);
+                if (flame.proc_name) {
+                        printf("%s;", flame.proc_name);
+                }
+
+                if (flame.pid != 0) {
+                        printf("%u;", flame.pid);
+                }
 
                 ustack_str = flame.ustack_str;
                 kstack_str = flame.kstack_str;

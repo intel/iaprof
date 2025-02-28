@@ -9,6 +9,7 @@
 #include "gpu_parsers/shader_decoder.h"
 
 #include "utils/hash_table.h"
+#include "utils/array.h"
 
 /***************************************
 * Proto Flamegraph
@@ -48,8 +49,21 @@ static inline int proto_flame_equ(const struct proto_flame a, const struct proto
         if (a.offset     != b.offset)              { return 0; }
         if (a.stall_type != b.stall_type)          { return 0; }
 
-        if (strcmp(a.insn_text, b.insn_text) != 0) { return 0; }
-        if (strcmp(a.proc_name, b.proc_name) != 0) { return 0; }
+        if (a.insn_text == NULL || b.insn_text == NULL) {
+                if (a.insn_text != b.insn_text) {
+                        return 0;
+                }
+        } else if (strcmp(a.insn_text, b.insn_text) != 0) {
+                return 0;
+        }
+
+        if (a.proc_name == NULL || b.proc_name == NULL) {
+                if (a.proc_name != b.proc_name) {
+                        return 0;
+                }
+        } else if (strcmp(a.proc_name, b.proc_name) != 0) {
+                return 0;
+        }
 
         return 1;
 }
@@ -60,3 +74,4 @@ extern hash_table(proto_flame_struct, uint64_t) flame_samples;
 
 void init_flames();
 void store_interval_flames();
+void store_unknown_flames(array_t *waitlist);

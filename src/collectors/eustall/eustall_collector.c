@@ -30,12 +30,6 @@ array_t *eustall_waitlist;
 static array_t eustall_waitlist_a;
 static array_t eustall_waitlist_b;
 
-struct deferred_eustall {
-        unsigned long long time;
-        struct eustall_sample sample;
-        char satisfied;
-};
-
 uint64_t uint64_t_hash(uint64_t i)
 {
         return i;

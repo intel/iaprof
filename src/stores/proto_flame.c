@@ -11,6 +11,8 @@
 
 hash_table(proto_flame_struct, uint64_t) flame_samples;
 
+static char *failed_decode = "[failed_decode]";
+
 static uint64_t proto_flame_hash(const struct proto_flame a) {
         uint64_t hash;
 
@@ -23,8 +25,13 @@ static uint64_t proto_flame_hash(const struct proto_flame a) {
 
         hash ^= ((a.addr + a.offset) >> 3) << a.stall_type;
 
-        hash ^= str_hash(a.insn_text);
-        hash ^= str_hash(a.proc_name);
+        if (a.insn_text != NULL) {
+                hash ^= str_hash(a.insn_text);
+        }
+
+        if (a.proc_name != NULL) {
+                hash ^= str_hash(a.proc_name);
+        }
 
         return hash;
 }
@@ -96,14 +103,16 @@ static void update_flame(const struct proto_flame *flame, uint64_t count) {
         uint64_t           *lookup;
         struct proto_flame  flame_copy;
 
+        if (count == 0) { return; }
+
         lookup = hash_table_get_val(flame_samples, *flame);
 
         if (lookup != NULL) {
                 *lookup += count;
         } else {
                 memcpy(&flame_copy, flame, sizeof(flame_copy));
-                flame_copy.proc_name = strdup(flame_copy.proc_name);
-                flame_copy.insn_text = strdup(flame_copy.insn_text);
+                flame_copy.insn_text = flame_copy.insn_text ? strdup(flame_copy.insn_text) : NULL;
+                flame_copy.proc_name = flame_copy.proc_name ? strdup(flame_copy.proc_name) : NULL;
 
                 hash_table_insert(flame_samples, flame_copy, count);
         }
@@ -115,7 +124,6 @@ void store_kernel_flames(struct buffer_binding *bind)
         struct proto_flame flame;
         uint64_t offset, addr;
         struct offset_profile *profile;
-        char *failed_decode = "[failed_decode]";
         char retval;
         char *insn_text;
         size_t insn_text_len;
@@ -171,6 +179,33 @@ void store_kernel_flames(struct buffer_binding *bind)
         }
 
         free(flame.proc_name);
+}
+
+void store_unknown_flames(array_t *waitlist) {
+        struct proto_flame       flame;
+        struct deferred_eustall *it;
+
+        memset(&flame, 0, sizeof(flame));
+
+        flame.insn_text = failed_decode;
+        flame.offset    = 0;
+
+        array_traverse(*waitlist, it) {
+                flame.addr = (((uint64_t)it->sample.ip) << 3) + iba;
+
+                flame.stall_type = STALL_TYPE_ACTIVE;     update_flame(&flame, it->sample.active);
+                flame.stall_type = STALL_TYPE_CONTROL;    update_flame(&flame, it->sample.control);
+                flame.stall_type = STALL_TYPE_PIPESTALL;  update_flame(&flame, it->sample.pipestall);
+                flame.stall_type = STALL_TYPE_SEND;       update_flame(&flame, it->sample.send);
+                flame.stall_type = STALL_TYPE_DIST_ACC;   update_flame(&flame, it->sample.dist_acc);
+                flame.stall_type = STALL_TYPE_SBID;       update_flame(&flame, it->sample.sbid);
+                flame.stall_type = STALL_TYPE_SYNC;       update_flame(&flame, it->sample.sync);
+                flame.stall_type = STALL_TYPE_INST_FETCH; update_flame(&flame, it->sample.inst_fetch);
+                flame.stall_type = STALL_TYPE_OTHER;      update_flame(&flame, it->sample.other);
+#ifdef XE_DRIVER
+                flame.stall_type = STALL_TYPE_TDR;        update_flame(&flame, it->sample.tdr);
+#endif
+        }
 }
 
 void store_interval_flames()

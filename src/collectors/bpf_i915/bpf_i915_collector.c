@@ -79,6 +79,7 @@ int handle_vm_bind(void *data_arg)
         struct vm_profile *vm;
         struct buffer_binding *bind;
 
+
         info = (struct vm_bind_info *)data_arg;
         if (verbose) {
                 print_vm_bind(info, vm_bind_bpf_counter);
