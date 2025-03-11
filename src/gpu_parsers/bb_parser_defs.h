@@ -20,30 +20,35 @@
 #define CMD_TYPE_UNKNOWN (1)
 #define CMD_XY           (2)
 #define CMD_GFXPIPE      (3)
+#define CMD_EXEC         (5)
 
 #define OP_LEN_MI      (9)
 #define OP_LEN_XY      (10)
 #define OP_LEN_GFXPIPE (16)
 #define OP_LEN_MFX_VC  (16)
 #define OP_LEN_VEBOX   (16)
+#define OP_LEN_EXEC    (6)
 
 /* GFXPIPE Commands: Pipeline Type(28:27) Opcode(26:24) Sub Opcode(23:16) */
 #define OP_GFXPIPE(sub_type, opcode, sub_opcode) \
         ((3 << 13) | ((sub_type) << 11) | ((opcode) << 8) | (sub_opcode))
 #define OP_3D    ((3 << 13) | (0xF << 11) | (0xF << 8) | (0xFF))
 
+/* The top three bits (31:29) are the command type */
 #define CMD_TYPE(dword) (((dword) >> 29) & 7)
 
 #define CMD_TYPE_LEN(cmd_type)                 \
 ( ((cmd_type) == CMD_MI)      ? OP_LEN_MI      \
 : ((cmd_type) == CMD_GFXPIPE) ? OP_LEN_GFXPIPE \
 : ((cmd_type) == CMD_XY)      ? OP_LEN_XY      \
+: ((cmd_type) == CMD_EXEC)    ? OP_LEN_EXEC    \
 : 0)
 
 #define CMD_TYPE_OPCODE_MASK(cmd_type)         \
 ( ((cmd_type) == CMD_MI)      ? -1             \
 : ((cmd_type) == CMD_GFXPIPE) ? OP_3D          \
 : ((cmd_type) == CMD_XY)      ? 0x7f           \
+: ((cmd_type) == CMD_EXEC)    ? 0x7            \
 : 0)
 
 #define GET_OPCODE(dword) (((dword) >> (32 - CMD_TYPE_LEN(CMD_TYPE(dword)))) & CMD_TYPE_OPCODE_MASK(CMD_TYPE(dword)))
@@ -90,6 +95,7 @@
         X(SET_PREDICATE,                       CMD_MI,        0x01,                                  1)   \
         X(MEM_COPY,                            CMD_XY,        0x5a,                                 10)   \
         X(MEM_SET,                             CMD_XY,        0x5b,                                  7)   \
+        X(RESOURCE_BARRIER,                    CMD_EXEC,      0x3,                                   5)   \
         X(_3DSTATE_CPS_POINTERS,               CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x00, 0x22),          2)   \
         X(PIPE_CONTROL,                        CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x02, 0x00),          6)   \
         X(PIPELINE_SELECT,                     CMD_GFXPIPE,   OP_GFXPIPE(0x01, 0x01, 0x04),          1)   \
@@ -102,6 +108,7 @@
         X(STATE_SYSTEM_MEM_FENCE_ADDRESS,      CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x01, 0x09),          3)   \
         X(STATE_CONTEXT_DATA_BASE_ADDRESS,     CMD_GFXPIPE,   OP_GFXPIPE(0X00, 0X01, 0X0b),          3)   \
         X(CFE_STATE,                           CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x00),          6)   \
+        X(STATE_BYTE_STRIDE,                   CMD_GFXPIPE,   OP_GFXPIPE(0x00, 0x00, 0x05),          2)   \
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC,   CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)   \
         X(_3DSTATE_CONSTANT_ALL,               CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x00, 0x6d),          1)   \
         X(_3DSTATE_BINDING_TABLE_POINTERS_VS,  CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x00, 0x26),          2)   \
