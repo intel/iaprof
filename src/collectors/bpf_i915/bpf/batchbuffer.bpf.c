@@ -345,7 +345,7 @@ int parse_next(struct parse_cxt *cxt) {
 
 
                 if (op == NOOP) {
-                    return BB_TRY_AGAIN;
+                        return BB_TRY_AGAIN;
                 }
 
 
