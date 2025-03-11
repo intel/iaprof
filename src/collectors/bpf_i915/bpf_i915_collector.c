@@ -216,7 +216,7 @@ int handle_iba(void *data_arg)
 
         release_vm_profile(vm);
 
-        wakeup_eustall_deferred_attrib_thread();
+/*         wakeup_eustall_deferred_attrib_thread(); */
 
         return 0;
 }
@@ -241,7 +241,6 @@ int handle_ksp(void *data_arg)
                      exec->vm_id);
                 return 0;
         }
-
         shader_bind = get_shader(vm, iba + info->addr);
         if (!shader_bind) {
                 shader_bind = create_shader(vm, iba + info->addr);
@@ -249,8 +248,8 @@ int handle_ksp(void *data_arg)
                         goto exit;
                 }
                 shader_bind->type = SHADER_TYPE_SHADER;
-                debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
-                             vm->vm_id, shader_bind->gpu_addr);
+                debug_printf("  Marked buffer as a shader: file=0x%lx vm_id=%u gpu_addr=0x%lx\n",
+                             exec->file, vm->vm_id, shader_bind->gpu_addr);
                 debug_printf("  Shader in buffer: gpu_addr=0x%lx size=0x%lx\n",
                              shader_bind->binding_addr, shader_bind->binding_size);
         }
@@ -263,7 +262,7 @@ int handle_ksp(void *data_arg)
 
 exit:
         release_vm_profile(vm);
-        wakeup_eustall_deferred_attrib_thread();
+/*         wakeup_eustall_deferred_attrib_thread(); */
 
         return 0;
 }
@@ -296,7 +295,7 @@ int handle_sip(void *data_arg)
                         goto exit;
                 }
                 shader_bind->type               = SHADER_TYPE_SYSTEM_ROUTINE;
-                debug_printf("  Marked buffer as a shader: vm_id=%u gpu_addr=0x%lx\n",
+                debug_printf("  Marked buffer as a SIP: vm_id=%u gpu_addr=0x%lx\n",
                              vm->vm_id, shader_bind->gpu_addr);
         }
         
