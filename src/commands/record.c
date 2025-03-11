@@ -61,7 +61,30 @@ static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
 static _Atomic char collect_threads_enabled = 3;
 static _Atomic char main_thread_should_stop = 0;
-static uint64_t     interval_number = 0;
+
+/* Intervals */
+struct timespec interval_start, interval_end, interval_diff;
+static uint64_t interval_number = 0;
+static uint32_t interval_time_ms = 10;
+
+enum { NS_PER_SECOND = 1000000000 };
+void sub_timespec(struct timespec *t1, struct timespec *t2, struct timespec *td)
+{
+    td->tv_nsec = t2->tv_nsec - t1->tv_nsec;
+    td->tv_sec  = t2->tv_sec - t1->tv_sec;
+    if (td->tv_sec > 0 && td->tv_nsec < 0) {
+            td->tv_nsec += NS_PER_SECOND;
+            td->tv_sec--;
+    }
+    else if (td->tv_sec < 0 && td->tv_nsec > 0) {
+            td->tv_nsec -= NS_PER_SECOND;
+            td->tv_sec++;
+    }
+}
+uint32_t timespec_to_ms(struct timespec *t1)
+{
+  return ((t1->tv_sec * 1000) + (t1->tv_nsec / 1000000));
+}
 
 /*******************
 * COMMANDLINE ARGS *
@@ -71,15 +94,14 @@ int pid = 0;
 char bb_debug = 0;
 char quiet = 0;
 char debug_collector = 1;
-char *g_sidecar = NULL;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
                                         { "quiet", no_argument, 0, 'q' },
-                                        { "batchbuffer-debug", no_argument, 0,
-                                          'b' },
+                                        { "batchbuffer-debug", no_argument, 0, 'b' },
                                         { "no-debug-collector", no_argument, 0, 'g' },
-                                        { "version", no_argument, 0, 0 },
+                                        { "version", no_argument, 0, 'v' },
+                                        { "interval", required_argument, 0, 'i' },
                                         { 0 } };
 
 void usage()
@@ -93,7 +115,9 @@ void usage()
         printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
         printf("        -g, --no-debug-collector disable the i915 debugger\n");
         printf("        -h, --help               help\n");
+        printf("        -v, --version            version information\n");
         printf("        -q, --quiet              quiet\n");
+        printf("        -i, --interval           interval time in milliseconds\n");
         printf("        command                  profile system-wide while command runs\n\n");
         printf("Version: %s\n", GIT_COMMIT_HASH);
 }
@@ -108,12 +132,12 @@ void check_permissions()
 
 int read_opts(int argc, char **argv)
 {
-        int option_index, size = 0;
+        int option_index;
         char c;
 
         while (1) {
                 option_index = 0;
-                c = getopt_long(argc, argv, "dbghqe", long_options,
+                c = getopt_long(argc, argv, "dbghi:qv", long_options,
                                 &option_index);
                 if (c == -1) {
                         break;
@@ -132,36 +156,23 @@ int read_opts(int argc, char **argv)
                         usage();
                         exit(0);
                         /* no fallthrough */
+                case 'i':
+                        interval_time_ms = strtoul(optarg, NULL, 10);
+                        printf("setting interval_time_ms to %u\n", interval_time_ms);
+                        break;
                 case 'q':
                         quiet = 1;
                         break;
+                case 'v':
+                        printf("Version: %s\n", GIT_COMMIT_HASH);
+                        exit(0);
                 case 0:
-                        if (strcmp(long_options[option_index].name,
-                                   "version") == 0) {
-                                printf("Version: %s\n", GIT_COMMIT_HASH);
-                                exit(0);
-                        } else {
-                                printf("option %s\n",
-                                       long_options[option_index].name);
-                        }
+                        printf("option %s\n",
+                               long_options[option_index].name);
                         break;
                 }
         }
         
-        printf("optind: %d, argc: %d\n", optind, argc);
-
-        if ((optind < argc) && (optind != 1)) {
-                for (int i = optind; i < argc; i++) {
-                        size += strlen(argv[i]) + 2; /* Make room for trailing space and NULL terminator. */
-                }
-                g_sidecar = malloc(size);
-                for (int i = optind, size = 0; i < argc; i++) {
-                        size += sprintf(g_sidecar + size, "%s ", argv[i]);
-                }
-                g_sidecar[--size] = '\0';
-        }
-        
-
         return 0;
 }
 
@@ -244,7 +255,6 @@ pthread_t bpf_collect_thread_id;
 pthread_t debug_i915_collect_thread_id;
 pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
-pthread_t sidecar_thread_id;
 timer_t interval_timer;
 
 void stop_collect_threads()
@@ -296,11 +306,6 @@ int handle_eustall_read(int fd, struct device_info *devinfo)
                 handle_eustall_samples(eustall_info.perf_buf, len, devinfo);
         }
 
-        store_interval_profile(interval_number++);
-
-        /* Reset for the next interval */
-        clear_interval_profiles();
-
         return 0;
 }
 
@@ -349,10 +354,23 @@ void *eustall_collect_thread_main(void *a) {
 
         flags = fcntl(pollfd.fd, F_GETFL, 0);
         fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
+        
+        /* Initialize the time */
+        clock_gettime(CLOCK_MONOTONIC, &interval_start);
 
         while (collect_threads_should_stop == 0) {
                 n_ready = poll(&pollfd, 1, 100);
-
+                
+                /* How long were we asleep...? */
+                clock_gettime(CLOCK_MONOTONIC, &interval_end);
+                sub_timespec(&interval_start, &interval_end, &interval_diff);
+                if (timespec_to_ms(&interval_diff) < interval_time_ms) {
+                        /* If we haven't been asleep long enough, go back to sleep! */
+                        nanosleep(&interval_diff, NULL);
+                        errno = 0;
+                        goto next;
+                }
+                
                 if (n_ready < 0) {
                         switch (errno) {
                                 case EINTR:
@@ -363,7 +381,7 @@ void *eustall_collect_thread_main(void *a) {
                                         ERR("poll failed with fatal error %d.\n", errno);
                         }
                 }
-
+                
                 if (n_ready) {
                         if (main_thread_should_stop != STOP_NOW) {
                                 main_thread_should_stop &= ~EUSTALL_DONE;
@@ -374,6 +392,11 @@ void *eustall_collect_thread_main(void *a) {
                                 main_thread_should_stop |= EUSTALL_DONE;
                         }
                 }
+                
+                store_interval_profile(interval_number++);
+                clear_interval_profiles();
+
+                clock_gettime(CLOCK_MONOTONIC, &interval_start);
 next:;
         }
 
@@ -413,7 +436,7 @@ void *bpf_collect_thread_main(void *a) {
         pollfd.events = POLLIN;
 
         while (collect_threads_should_stop == 0) {
-                n_ready = poll(&pollfd, 1, 100);
+                n_ready = poll(&pollfd, 1, 10);
 
                 if (n_ready < 0) {
                         switch (errno) {
@@ -557,16 +580,6 @@ int start_thread(void *(*fn)(void*), pthread_t *out_pthread) {
 }
 
 /*******************
-*      SIDECAR     *
-*******************/
-
-void *sidecar_thread_main(void *a)
-{
-        system(g_sidecar);
-        return NULL;
-}
-
-/*******************
 *       MAIN       *
 *******************/
 
@@ -616,13 +629,6 @@ void record(int argc, char **argv)
         }
         print_status("Profiling, Ctrl-C to exit...\n");
 
-        /* Start the sidecar */
-        if (g_sidecar) {
-                if (start_thread(sidecar_thread_main, &sidecar_thread_id) != 0) {
-                        ERR("Failed to start the provided command.\n");
-                }
-        }
-
         sa.sa_flags = 0;
         sa.sa_handler = handle_sigint;
         sigemptyset(&sa.sa_mask);
@@ -633,26 +639,21 @@ void record(int argc, char **argv)
         gettimeofday(&tv, NULL);
         startsecs = (int)tv.tv_sec;
 
-        /* The collector thread is starting profiling roughly now.. */
-        if (g_sidecar) {
-                /* Wait until sidecar command finishes */
-                pthread_join(sidecar_thread_id, NULL);
-        } else {
-                /* Wait until we get a signal (Ctrl-C) */
-                while (main_thread_should_stop != STOP_NOW) {
-                        nanosleep(&request, &leftover);
+        /* Wait until we get a signal (Ctrl-C) */
+        while (main_thread_should_stop != STOP_NOW) {
+                nanosleep(&request, &leftover);
 
-                        gettimeofday(&tv, NULL);
+                gettimeofday(&tv, NULL);
 
-                        if (!main_thread_should_stop) {
-                                print_status_table((int)tv.tv_sec - startsecs);
-                        }
+                if (!main_thread_should_stop) {
+                        print_status_table((int)tv.tv_sec - startsecs);
+                }
 
-                        if (*bpf_info.dropped_event) {
-                                ERR("Dropped information in BPF... aborting.\n");
-                        }
+                if (*bpf_info.dropped_event) {
+                        ERR("Dropped information in BPF... aborting.\n");
                 }
         }
+        
         if (collect_threads_profiling) {
                 print_status("\nProfile stopped. Assembling output...\n");
         } else {
