@@ -3,8 +3,8 @@
 #include "iaprof.h"
 #include "proto_flame.h"
 #include "stores/buffer_profile.h"
-#include "collectors/bpf_i915/bpf_i915_collector.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+#include "collectors/bpf/bpf_collector.h"
+#include "collectors/debug/debug_collector.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "gpu_parsers/shader_decoder.h"
 #include "utils/utils.h"
@@ -50,7 +50,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
 
         retval = 0;
 
-        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+        pthread_mutex_lock(&debug_shader_binaries_lock);
         bin = get_shader_binary(bind->gpu_addr);
 
         if (bin == NULL) {
@@ -94,7 +94,7 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
 out:;
-        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
+        pthread_mutex_unlock(&debug_shader_binaries_lock);
 
         return retval;
 }

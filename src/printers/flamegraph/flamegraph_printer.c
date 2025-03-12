@@ -3,7 +3,7 @@
 #include "printers/stack/stack_printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
 #include "stores/proto_flame.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+#include "collectors/debug/debug_collector.h"
 
 
 void print_flamegraph()
@@ -23,7 +23,7 @@ void print_flamegraph()
                 count = *countp;
 
                 /* Ensure we've got a GPU symbol */
-                err = debug_i915_get_sym(flame.pid, flame.addr, &gpu_symbol, &gpu_file, &gpu_line);
+                err = debug_get_sym(flame.pid, flame.addr, &gpu_symbol, &gpu_file, &gpu_line);
                 if (err) {
                         gpu_symbol = NULL;
                         gpu_file   = NULL;

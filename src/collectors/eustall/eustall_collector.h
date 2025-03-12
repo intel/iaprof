@@ -5,7 +5,7 @@
 
 #include "drm_helpers/drm_helpers.h"
 
-#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/bpf/bpf_collector.h"
 
 #include "utils/array.h"
 

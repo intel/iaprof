@@ -24,8 +24,8 @@
 
 #include "bpf/main.h"
 #include "bpf/main.skel.h"
-#include "bpf_i915_collector.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+#include "bpf_collector.h"
+#include "collectors/debug/debug_collector.h"
 
 #include "utils/utils.h"
 #include "utils/hash_table.h"
@@ -66,8 +66,8 @@ int handle_vm_create(void *data_arg)
         create_vm_profile(info->file, info->vm_id);
 
         if (debug_collector) {
-                /* Register the PID with the debug_i915 collector */
-                init_debug_i915(devinfo.fd, info->pid);
+                /* Register the PID with the debug collector */
+                init_debug(devinfo.fd, info->pid);
         }
 
         return 0;
@@ -87,7 +87,7 @@ int handle_vm_bind(void *data_arg)
 
 #ifdef SLOW_MODE
         if (debug_collector) {
-                pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                pthread_mutex_lock(&debug_vm_bind_lock);
         }
 #endif
 
@@ -116,10 +116,10 @@ cleanup:
 
                 /* @TODO: Wait until bpf ring buffer is emtpy. */
 
-                /* Signal the debug_i915 collector that there's a new vm_bind event */
-                pthread_cond_signal(&debug_i915_vm_bind_cond);
+                /* Signal the debug collector that there's a new vm_bind event */
+                pthread_cond_signal(&debug_vm_bind_cond);
         }
-        pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+        pthread_mutex_unlock(&debug_vm_bind_lock);
 #endif
 
         vm_bind_bpf_counter++;
@@ -353,7 +353,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
 * BPF Setup
 ***************************************/
 
-int deinit_bpf_i915()
+int deinit_bpf()
 {
         uint64_t i;
         int retval;
@@ -377,7 +377,7 @@ int deinit_bpf_i915()
         return 0;
 }
 
-int init_bpf_i915()
+int init_bpf()
 {
         int err, stack_limit;
         FILE *file;

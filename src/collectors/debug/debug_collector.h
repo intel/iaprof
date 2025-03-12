@@ -4,9 +4,9 @@
 #include <pthread.h>
 
 /******************************************************************************
-* debug_i915
+* debug
 * *********
-* The debug_i915 collector uses i915's `debugger` interface (via `ioctl`) to
+* The debug collector uses the driver's `debugger` interface (via `ioctl`) to
 * gather debug symbols from GPU programs that are currently running.
 * In order to do this, it must open a per-PID file descriptor, poll on those
 * file descriptors, and read events when they're ready.
@@ -20,12 +20,12 @@
 /******************************************************************************
 * Information
 * *********
-* Keeps track of open i915 debuggers, per-PID
+* Keeps track of open debuggers, per-PID
 ******************************************************************************/
 #define MAX_PIDS 64
 #define MAX_EVENT_SIZE 4096
 
-struct i915_symbol_entry {
+struct symbol_entry {
         uint64_t start_addr;
         uint64_t size;
         char *symbol;
@@ -33,13 +33,13 @@ struct i915_symbol_entry {
         int linenum;
 };
 
-struct i915_symbol_table {
+struct symbol_table {
         int pid;
         size_t num_syms;
-        struct i915_symbol_entry *symtab;
+        struct symbol_entry *symtab;
 };
 
-struct debug_i915_info_t {
+struct debug_info_t {
         /* Keep track of PIDs that we've opened with the debug interface,
            as well as their fd */
         int pids[MAX_PIDS];
@@ -48,15 +48,15 @@ struct debug_i915_info_t {
 
         /* Store symbols to be printed later, in parallel with the `pids` and
            `fds` arrays above. */
-        struct i915_symbol_table symtabs[MAX_PIDS];
+        struct symbol_table symtabs[MAX_PIDS];
 };
 
-extern struct debug_i915_info_t debug_i915_info;
-extern pthread_rwlock_t debug_i915_info_lock;
+extern struct debug_info_t debug_info;
+extern pthread_rwlock_t debug_info_lock;
 
 #ifdef SLOW_MODE
-extern pthread_cond_t debug_i915_vm_bind_cond;
-extern pthread_mutex_t debug_i915_vm_bind_lock;
+extern pthread_cond_t debug_vm_bind_cond;
+extern pthread_mutex_t debug_vm_bind_lock;
 #endif
 
 struct shader_binary {
@@ -65,23 +65,23 @@ struct shader_binary {
         unsigned char bytes[];
 };
 
-extern pthread_mutex_t debug_i915_shader_binaries_lock;
+extern pthread_mutex_t debug_shader_binaries_lock;
 
 /******************************************************************************
 * Initialization
 * **************
-* Adds a PID to be profiled with the i915 debugger.
+* Adds a PID to be profiled with the debugger.
 ******************************************************************************/
 
-void deinit_debug_i915(int pid);
-void init_debug_i915(int i915_fd, int pid);
-int read_debug_i915_event(int fd, int pid_index);
-void read_debug_i915_events(int fd, int pid_index);
-int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
+void deinit_debug(int pid);
+void init_debug(int fd, int pid);
+int read_debug_event(int fd, int pid_index);
+void read_debug_events(int fd, int pid_index);
+int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
 
-void free_debug_i915();
+void free_debug();
 
-/* debug_i915_shader_binaries_lock must be locked when calling this and held
+/* debug_shader_binaries_lock must be locked when calling this and held
  * as long as the returned struct shader_binary pointer may be used. */
 struct shader_binary *get_shader_binary(uint64_t gpu_addr);
 
@@ -107,4 +107,4 @@ static char *debug_events[] = {
         "PRELIM_DRM_I915_DEBUG_EVENT_PAGE_FAULT",
 };
 
-char *debug_i915_event_to_str(int debug_event);
+char *debug_event_to_str(int debug_event);

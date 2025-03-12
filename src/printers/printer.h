@@ -3,7 +3,7 @@
 #include <bpf/bpf.h>
 
 #include "stores/buffer_profile.h"
-#include "collectors/bpf_i915/bpf/main.h"
+#include "collectors/bpf/bpf/main.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #define EVENT_LEN 14

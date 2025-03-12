@@ -116,14 +116,14 @@ if [ -z ${IAPROF_XE_DRIVER} ]; then
         ${CC} ${COMMON_FLAGS} -c \
           ${DRIVER_HELPERS_DIR}/i915_helpers.c \
           -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
-        
+
         DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/i915_helpers.o"
 else
-        
+
         ${CC} ${COMMON_FLAGS} -c \
           ${DRIVER_HELPERS_DIR}/xe_helpers.c \
           -o ${DRIVER_HELPERS_DIR}/xe_helpers.o
-        
+
         DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/xe_helpers.o"
 fi
 
@@ -181,7 +181,7 @@ ${CC} ${COMMON_FLAGS} -c \
 COLLECTORS_DIR="${SRC_DIR}/collectors"
 echo "Building ${COLLECTORS_DIR}..."
 
-cd ${COLLECTORS_DIR}/bpf_i915/bpf
+cd ${COLLECTORS_DIR}/bpf/bpf
 source build.sh
 cd ${BASE_DIR}
 
@@ -190,15 +190,15 @@ IAPROF_COLLECTORS=""
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -std=c2x \
-  ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.c \
-  -o ${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o
-IAPROF_COLLECTORS+="${COLLECTORS_DIR}/bpf_i915/bpf_i915_collector.o "
+  ${COLLECTORS_DIR}/bpf/bpf_collector.c \
+  -o ${COLLECTORS_DIR}/bpf/bpf_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/bpf/bpf_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.c \
-  -o ${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o
-IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug_i915/debug_i915_collector.o "
+  ${COLLECTORS_DIR}/debug/debug_collector.c \
+  -o ${COLLECTORS_DIR}/debug/debug_collector.o
+IAPROF_COLLECTORS+="${COLLECTORS_DIR}/debug/debug_collector.o "
 
 ${CC} ${COMMON_FLAGS} -c \
       -I${PREFIX}/include \

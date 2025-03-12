@@ -7,7 +7,7 @@
 #include "drm_helpers/drm_helpers.h"
 #include "stores/buffer_profile.h"
 #include "collectors/eustall/eustall_collector.h"
-#include "collectors/bpf_i915/bpf_i915_collector.h"
+#include "collectors/bpf/bpf_collector.h"
 #include "gpu_parsers/shader_decoder.h"
 #include "printers/printer.h"
 

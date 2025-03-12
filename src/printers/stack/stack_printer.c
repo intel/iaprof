@@ -11,8 +11,8 @@
 #include "bpf_helpers/trace_helpers.h"
 #include "utils/utils.h"
 
-#include "collectors/bpf_i915/bpf_i915_collector.h"
-#include "collectors/bpf_i915/bpf/main.skel.h"
+#include "collectors/bpf/bpf_collector.h"
+#include "collectors/bpf/bpf/main.skel.h"
 
 #include "printers/stack/stack_printer.h"
 

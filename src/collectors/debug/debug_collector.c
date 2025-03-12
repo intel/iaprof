@@ -21,7 +21,7 @@
 #endif
 
 #include "iaprof.h"
-#include "debug_i915_collector.h"
+#include "debug_collector.h"
 #include "stores/buffer_profile.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
@@ -31,12 +31,12 @@
 static uint32_t vm_bind_counter = 0;
 #endif
 
-struct debug_i915_info_t debug_i915_info;
-pthread_rwlock_t debug_i915_info_lock;
+struct debug_info_t debug_info;
+pthread_rwlock_t debug_info_lock;
 
 /* For waiting on vm_bind events from BPF */
-pthread_cond_t debug_i915_vm_bind_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t debug_i915_vm_bind_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t debug_vm_bind_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t debug_vm_bind_lock = PTHREAD_MUTEX_INITIALIZER;
 
 typedef char *sym_str_t;
 
@@ -53,58 +53,58 @@ use_tree(uint64_t, shader_binary_ptr);
 
 static tree(uint64_t, shader_binary_ptr) shader_binaries;
 
-pthread_mutex_t debug_i915_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t debug_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void deinit_debug_i915(int index)
+void deinit_debug(int index)
 {
 
-        pthread_rwlock_wrlock(&debug_i915_info_lock);
-        close(debug_i915_info.pollfds[index].fd);
-        memset(debug_i915_info.pollfds + index, 0, sizeof(struct pollfd));
-        debug_i915_info.pids[index] = 0;
+        pthread_rwlock_wrlock(&debug_info_lock);
+        close(debug_info.pollfds[index].fd);
+        memset(debug_info.pollfds + index, 0, sizeof(struct pollfd));
+        debug_info.pids[index] = 0;
 
         /* Free symtab info */
-/*         debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid; */
+/*         debug_info.symtabs[debug_info.num_pids].pid = pid; */
 
-/*         debug_i915_info.num_pids--; */
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+/*         debug_info.num_pids--; */
+        pthread_rwlock_unlock(&debug_info_lock);
 }
 
-void init_debug_i915(int i915_fd, int pid)
+void init_debug(int fd, int pid)
 {
         int debug_fd;
         int i;
         int flags;
 
         /* This is called from the bpf_collect_thread when we see a new
-         * PID. We must protect debug_i915_info from data races when it
+         * PID. We must protect debug_info from data races when it
          * is likely to be simultaneously accessed from
-         * debug_i915_collect_thread. */
+         * debug_collect_thread. */
 
-        pthread_rwlock_rdlock(&debug_i915_info_lock);
+        pthread_rwlock_rdlock(&debug_info_lock);
 
         if (shader_binaries == NULL) {
                 shader_binaries = tree_make(uint64_t, shader_binary_ptr);
         }
 
         /* First, check if we've already initialized this PID. */
-        for (i = 0; i < debug_i915_info.num_pids; i++) {
-                if (debug_i915_info.pids[i] == pid) {
+        for (i = 0; i < debug_info.num_pids; i++) {
+                if (debug_info.pids[i] == pid) {
                         goto out_unlock;
                 }
         }
 
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+        pthread_rwlock_unlock(&debug_info_lock);
 
         /* Open the fd to begin debugging this PID */
 #ifdef XE_DRIVER
         struct drm_xe_eudebug_connect open = {};
         open.pid = pid;
-        debug_fd = ioctl(i915_fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
+        debug_fd = ioctl(fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
 #else
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
-        debug_fd = ioctl(i915_fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+        debug_fd = ioctl(fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
 #endif
 
         if (debug_fd < 0) {
@@ -115,33 +115,33 @@ void init_debug_i915(int i915_fd, int pid)
         flags = fcntl(debug_fd, F_GETFL, 0);
         fcntl(debug_fd, F_SETFL, flags | O_NONBLOCK);
 
-        pthread_rwlock_wrlock(&debug_i915_info_lock);
+        pthread_rwlock_wrlock(&debug_info_lock);
 
         /* @TODO: check for MAX_PIDS */
 
         /* Add the PID and fd to the arrays */
-        debug_i915_info.pollfds[debug_i915_info.num_pids].fd = debug_fd;
-        debug_i915_info.pollfds[debug_i915_info.num_pids].events = POLLIN;
-        debug_i915_info.pids[debug_i915_info.num_pids] = pid;
-        debug_i915_info.symtabs[debug_i915_info.num_pids].pid = pid;
-        debug_i915_info.num_pids++;
+        debug_info.pollfds[debug_info.num_pids].fd = debug_fd;
+        debug_info.pollfds[debug_info.num_pids].events = POLLIN;
+        debug_info.pids[debug_info.num_pids] = pid;
+        debug_info.symtabs[debug_info.num_pids].pid = pid;
+        debug_info.num_pids++;
 
 out_unlock:;
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+        pthread_rwlock_unlock(&debug_info_lock);
 out:;
 }
 
-int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
+int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
 {
         int i, j;
-        struct i915_symbol_table *table;
-        struct i915_symbol_entry *entry;
+        struct symbol_table *table;
+        struct symbol_entry *entry;
 
         debug_printf("Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
 
-        for (i = 0; i < debug_i915_info.num_pids; i++) {
+        for (i = 0; i < debug_info.num_pids; i++) {
                 /* Find the addr range in this PID's symbol table */
-                table = &(debug_i915_info.symtabs[i]);
+                table = &(debug_info.symtabs[i]);
 
                 if (table->pid != pid) { continue; }
 
@@ -169,20 +169,20 @@ int debug_i915_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out
         return -1;
 }
 
-void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filename, int linenum, int pid_index) {
-        struct i915_symbol_table *table;
+void debug_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filename, int linenum, int pid_index) {
+        struct symbol_table *table;
         int num_syms;
-        struct i915_symbol_entry *entry;
+        struct symbol_entry *entry;
 
-        pthread_rwlock_wrlock(&debug_i915_info_lock);
+        pthread_rwlock_wrlock(&debug_info_lock);
 
-        table = &(debug_i915_info.symtabs[pid_index]);
+        table = &(debug_info.symtabs[pid_index]);
 
         /* Grow the symbol table */
         table->num_syms++;
         num_syms = table->num_syms;
         table->symtab = realloc(table->symtab,
-                                sizeof(struct i915_symbol_entry) * num_syms);
+                                sizeof(struct symbol_entry) * num_syms);
 
         /* Add this symbol to the table */
         entry = &(table->symtab[table->num_syms - 1]);
@@ -193,10 +193,10 @@ void debug_i915_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *
         entry->filename = filename;
         entry->linenum = linenum;
 
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+        pthread_rwlock_unlock(&debug_info_lock);
 }
 
-void debug_i915_add_shader_binary(Elf_Scn *section) {
+void debug_add_shader_binary(Elf_Scn *section) {
         Elf64_Shdr *shdr;
         uint64_t address;
         tree_it(uint64_t, shader_binary_ptr) it;
@@ -222,9 +222,9 @@ void debug_i915_add_shader_binary(Elf_Scn *section) {
 
         memcpy(bin->bytes, data->d_buf, bin->size);
 
-        pthread_mutex_lock(&debug_i915_shader_binaries_lock);
+        pthread_mutex_lock(&debug_shader_binaries_lock);
         tree_insert(shader_binaries, bin->start, bin);
-        pthread_mutex_unlock(&debug_i915_shader_binaries_lock);
+        pthread_mutex_unlock(&debug_shader_binaries_lock);
 }
 
 /* Adds a symbol to the per-PID symbol table.
@@ -267,10 +267,10 @@ void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
         debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, address, symbol->st_size, filename, linenum, pid_index);
+        debug_add_sym(name, address, symbol->st_size, filename, linenum, pid_index);
 
         section = elf_getscn(elf, symbol->st_shndx);
-        debug_i915_add_shader_binary(section);
+        debug_add_shader_binary(section);
 }
 
 void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
@@ -468,8 +468,8 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
         debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
                 name, filename, linenum);
 
-        debug_i915_add_sym(name, address, section_header->sh_size, filename, linenum, pid_index);
-        debug_i915_add_shader_binary(section);
+        debug_add_sym(name, address, section_header->sh_size, filename, linenum, pid_index);
+        debug_add_shader_binary(section);
 }
 
 void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
@@ -483,9 +483,9 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         int retval;
         size_t string_table_index;
 
-        pthread_rwlock_rdlock(&debug_i915_info_lock);
-        debug_printf("ELF for pid %d\n", debug_i915_info.pids[pid_index]);
-        pthread_rwlock_unlock(&debug_i915_info_lock);
+        pthread_rwlock_rdlock(&debug_info_lock);
+        debug_printf("ELF for pid %d\n", debug_info.pids[pid_index]);
+        pthread_rwlock_unlock(&debug_info_lock);
 
         /* Initialize the ELF from the buffer */
         elf = elf_memory((char *)data, data_size);
@@ -678,7 +678,7 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
            to associate it with! */
         found = 0;
         while (!found) {
-                pthread_mutex_lock(&debug_i915_vm_bind_lock);
+                pthread_mutex_lock(&debug_vm_bind_lock);
 
                 FOR_BINDING(vm, bind, {
                         if (bind->vm_bind_order == vm_bind_counter) {
@@ -687,9 +687,9 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                         }
                 });
 
-                if (pthread_cond_wait(&debug_i915_vm_bind_cond, &debug_i915_vm_bind_lock) != 0) {
-                        fprintf(stderr, "Failed to wait on the debug_i915 condition.\n");
-                        pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+                if (pthread_cond_wait(&debug_vm_bind_cond, &debug_vm_bind_lock) != 0) {
+                        fprintf(stderr, "Failed to wait on the debug condition.\n");
+                        pthread_mutex_unlock(&debug_vm_bind_lock);
                         goto cleanup;
                 }
 
@@ -700,7 +700,7 @@ void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *even
                         }
                 });
 out:;
-                pthread_mutex_unlock(&debug_i915_vm_bind_lock);
+                pthread_mutex_unlock(&debug_vm_bind_lock);
         }
 
 cleanup:
@@ -712,7 +712,7 @@ cleanup:
 
 #ifdef XE_DRIVER
 /* Returns whether an event was actually read. */
-int read_debug_i915_event(int fd, int pid_index)
+int read_debug_event(int fd, int pid_index)
 {
         int retval, ack_retval;
         struct drm_xe_eudebug_ack_event ack_event = {};
@@ -769,7 +769,7 @@ int read_debug_i915_event(int fd, int pid_index)
 }
 #else
 /* Returns whether an event was actually read. */
-int read_debug_i915_event(int fd, int pid_index)
+int read_debug_event(int fd, int pid_index)
 {
         int retval, ack_retval;
         struct prelim_drm_i915_debug_event_ack ack_event = {};
@@ -824,24 +824,24 @@ int read_debug_i915_event(int fd, int pid_index)
 }
 #endif
 
-void read_debug_i915_events(int fd, int pid_index)
+void read_debug_events(int fd, int pid_index)
 {
-        while (read_debug_i915_event(fd, pid_index));
+        while (read_debug_event(fd, pid_index));
 }
 
-char *debug_i915_event_to_str(int debug_event)
+char *debug_event_to_str(int debug_event)
 {
         return debug_events[debug_event];
 }
 
-void free_debug_i915() {
+void free_debug() {
         int i;
-        struct i915_symbol_table *symtab;
+        struct symbol_table *symtab;
         int n;
-        struct i915_symbol_entry *entry;
+        struct symbol_entry *entry;
 
         for (i = 0; i < MAX_PIDS; i += 1) {
-                symtab = &debug_i915_info.symtabs[i];
+                symtab = &debug_info.symtabs[i];
 
                 for (n = 0; n < symtab->num_syms; n += 1) {
                         entry = symtab->symtab + n;

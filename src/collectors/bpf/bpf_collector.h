@@ -1,7 +1,7 @@
 #pragma once
 
 /***************************************
-* bpf_i915
+* bpf
 ***************
 * This file receives samples from the BPF programs'
 * ringbuffer. Its primary purpose is maintaining
@@ -37,8 +37,8 @@ extern _Atomic uint64_t iba;
 * in the BPF program.
 ***************************************/
 
-int deinit_bpf_i915();
-int init_bpf_i915();
+int deinit_bpf();
+int init_bpf();
 
 /* Stores information about the BPF programs, ringbuffer, etc. */
 struct bpf_info_t {

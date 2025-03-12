@@ -5,7 +5,7 @@
 #include <linux/types.h>
 #include <pthread.h>
 
-#include "collectors/bpf_i915/bpf/main.h"
+#include "collectors/bpf/bpf/main.h"
 #include "gpu_parsers/shader_decoder.h"
 #include "collectors/eustall/eustall_collector.h"
 

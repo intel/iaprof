@@ -35,10 +35,10 @@
 
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
-#include "collectors/bpf_i915/bpf_i915_collector.h"
-#include "collectors/bpf_i915/bpf/main.h"
-#include "collectors/bpf_i915/bpf/main.skel.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+#include "collectors/bpf/bpf_collector.h"
+#include "collectors/bpf/bpf/main.h"
+#include "collectors/bpf/bpf/main.skel.h"
+#include "collectors/debug/debug_collector.h"
 
 /* Printers */
 #include "printers/printer.h"
@@ -54,11 +54,11 @@
  * GLOBALS        *
  ******************/
 enum {
-    STOP_REQUESTED  = (1 << 0),
-    EUSTALL_DONE    = (1 << 1),
-    BPF_DONE        = (1 << 2),
-    DEBUG_i915_DONE = (1 << 3),
-    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_i915_DONE),
+    STOP_REQUESTED = (1 << 0),
+    EUSTALL_DONE   = (1 << 1),
+    BPF_DONE       = (1 << 2),
+    DEBUG_DONE     = (1 << 3),
+    STOP_NOW       = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_DONE),
 };
 static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
@@ -102,7 +102,7 @@ void usage()
         printf("\noptional arguments:\n");
         printf("        -d, --debug              debug\n");
         printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
-        printf("        -g, --no-debug-collector disable the i915 debugger\n");
+        printf("        -g, --no-debug-collector disable the debugger interface collector\n");
         printf("        -h, --help               help\n");
         printf("        -q, --quiet              quiet\n");
         printf("        -v, --verbose            verbose\n");
@@ -254,7 +254,7 @@ struct eustall_info_t eustall_info = {};
 /* Thread and interval */
 
 pthread_t bpf_collect_thread_id;
-pthread_t debug_i915_collect_thread_id;
+pthread_t debug_collect_thread_id;
 pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
 pthread_t sidecar_thread_id;
@@ -280,7 +280,7 @@ void init_driver()
 {
         int retval;
 
-        /* We'll need the i915 driver for multiple collectors */
+        /* We'll need the driver for multiple collectors */
         retval = open_first_driver(&devinfo);
         if (retval != 0) {
                 ERR("Failed to open any drivers.\n");
@@ -344,7 +344,7 @@ void *eustall_collect_thread_main(void *a) {
                 ERR("Error blocking signal.\n");
         }
 
-        /* EU stall collector. Add to the epoll_fd that the bpf_i915
+        /* EU stall collector. Add to the epoll_fd that the bpf
            collector created. */
         if (init_eustall(&devinfo)) {
                 ERR("Failed to configure EU stalls.\n");
@@ -418,7 +418,7 @@ void *bpf_collect_thread_main(void *a) {
                 ERR("Error blocking signal.\n");
         }
 
-        init_bpf_i915();
+        init_bpf();
         errno = 0;
 
         if (debug) {
@@ -427,7 +427,7 @@ void *bpf_collect_thread_main(void *a) {
 
         collect_threads_profiling += 1;
 
-        /* bpf_i915 collector. Note that libbpf sets event->data.fd to
+        /* bpf collector. Note that libbpf sets event->data.fd to
            ring_cnt, which, because we only have one ringbuffer, is zero. */
 
         pollfd.fd = bpf_info.rb_fd;
@@ -464,13 +464,13 @@ void *bpf_collect_thread_main(void *a) {
                 }
         }
 
-        deinit_bpf_i915();
+        deinit_bpf();
         deinit_syms_cache();
 
         return NULL;
 }
 
-void *debug_i915_collect_thread_main(void *a) {
+void *debug_collect_thread_main(void *a) {
         sigset_t       mask;
         array_t        pollfds;
         array_t        pollfds_indices;
@@ -498,22 +498,22 @@ void *debug_i915_collect_thread_main(void *a) {
         collect_threads_profiling += 1;
 
         while (collect_threads_should_stop == 0) {
-                /* Copy the pollfds array from debug_i915_info so that we don't
+                /* Copy the pollfds array from debug_info so that we don't
                  * need to hold the lock while we poll. */
-                pthread_rwlock_rdlock(&debug_i915_info_lock);
+                pthread_rwlock_rdlock(&debug_info_lock);
 
-                n_fds = debug_i915_info.num_pids;
+                n_fds = debug_info.num_pids;
 
                 array_clear(pollfds);
                 array_clear(pollfds_indices);
                 for (i = 0; i < n_fds; i += 1) {
-                        if (debug_i915_info.pollfds[i].fd > 0) {
-                                array_push(pollfds, debug_i915_info.pollfds[i]);
+                        if (debug_info.pollfds[i].fd > 0) {
+                                array_push(pollfds, debug_info.pollfds[i]);
                                 array_push(pollfds_indices, i);
                         }
                 }
 
-                pthread_rwlock_unlock(&debug_i915_info_lock);
+                pthread_rwlock_unlock(&debug_info_lock);
 
                 n_ready = poll(array_data(pollfds), array_len(pollfds), 100);
 
@@ -531,11 +531,11 @@ void *debug_i915_collect_thread_main(void *a) {
 
                 if (n_ready) {
                         if (main_thread_should_stop != STOP_NOW) {
-                                main_thread_should_stop &= ~DEBUG_i915_DONE;
+                                main_thread_should_stop &= ~DEBUG_DONE;
                         }
 
                         if (!debug_collector && debug) {
-                                WARN("GPU symbols were disabled, but we got a debug_i915 event.\n");
+                                WARN("GPU symbols were disabled, but we got a debug event.\n");
                         }
 
 
@@ -543,18 +543,18 @@ void *debug_i915_collect_thread_main(void *a) {
                                 pfd = array_item(pollfds, i);
                                 index = *(int*)array_item(pollfds_indices, i);
                                 if (pfd->revents & POLLIN) {
-                                        /* We don't hold the debug_i915_info_lock at
+                                        /* We don't hold the debug_info_lock at
                                          * this point going down this call stack, but
                                          * it may get grabbed within it (e.g. by
-                                         * debug_i915_add_sym). */
-                                        read_debug_i915_events(pfd->fd, index);
+                                         * debug_add_sym). */
+                                        read_debug_events(pfd->fd, index);
                                 } else {
-                                        deinit_debug_i915(index);
+                                        deinit_debug(index);
                                 }
                         }
                 } else {
                         if (main_thread_should_stop) {
-                                main_thread_should_stop |= DEBUG_i915_DONE;
+                                main_thread_should_stop |= DEBUG_DONE;
                         }
                 }
         }
@@ -626,7 +626,7 @@ int main(int argc, char **argv)
         if (start_thread(bpf_collect_thread_main, &bpf_collect_thread_id) != 0) {
                 ERR("Failed to start the BPF collection thread.\n");
         }
-        if (start_thread(debug_i915_collect_thread_main, &debug_i915_collect_thread_id) != 0) {
+        if (start_thread(debug_collect_thread_main, &debug_collect_thread_id) != 0) {
                 ERR("Failed to start the debug collection thread.\n");
         }
         if (start_thread(eustall_collect_thread_main, &eustall_collect_thread_id) != 0) {
@@ -689,7 +689,7 @@ int main(int argc, char **argv)
         /* Wait for the collection thread to finish */
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
-        pthread_join(debug_i915_collect_thread_id, NULL);
+        pthread_join(debug_collect_thread_id, NULL);
         pthread_join(eustall_collect_thread_id, NULL);
         wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
