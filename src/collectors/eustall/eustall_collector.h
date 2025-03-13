@@ -137,7 +137,7 @@ struct offset_profile {
   * 85 to 92  sync count
   * 93 to 100  inst_fetch count
 ***************************************/
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 struct __attribute__((__packed__)) eustall_sample {
         unsigned int ip : 29;
         unsigned short tdr : 8;
@@ -154,7 +154,7 @@ struct __attribute__((__packed__)) eustall_sample {
         unsigned short end_flag : 1;
         unsigned short unused_bits : 15;
 };
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 struct __attribute__((__packed__)) eustall_sample {
         unsigned int ip : 29;
         unsigned short active : 8;

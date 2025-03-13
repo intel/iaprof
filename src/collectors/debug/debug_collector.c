@@ -15,7 +15,7 @@
 #include <libelf.h>
 #include <elfutils/libdw.h>
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #endif
@@ -97,11 +97,11 @@ void init_debug(int fd, int pid)
         pthread_rwlock_unlock(&debug_info_lock);
 
         /* Open the fd to begin debugging this PID */
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         struct drm_xe_eudebug_connect open = {};
         open.pid = pid;
         debug_fd = ioctl(fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
         debug_fd = ioctl(fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
@@ -576,10 +576,10 @@ cleanup:
         }
 }
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event,
                        int pid_index)
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
                        int pid_index)
 #endif
@@ -588,7 +588,7 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
         unsigned char *data;
         uint64_t size;
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         struct drm_xe_eudebug_event_metadata *uuid;
         struct drm_xe_eudebug_read_metadata read_uuid = {};
         uuid = (struct drm_xe_eudebug_event_metadata *)event;
@@ -609,7 +609,7 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
 
         data = (unsigned char *)read_uuid.ptr;
         size = read_uuid.size;
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         struct prelim_drm_i915_debug_event_uuid *uuid;
         struct prelim_drm_i915_debug_read_uuid read_uuid = {};
         uuid = (struct prelim_drm_i915_debug_event_uuid *)event;
@@ -710,7 +710,7 @@ cleanup:
 }
 #endif
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 /* Returns whether an event was actually read. */
 int read_debug_event(int fd, int pid_index)
 {
@@ -767,7 +767,7 @@ int read_debug_event(int fd, int pid_index)
 
         return 1;
 }
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 /* Returns whether an event was actually read. */
 int read_debug_event(int fd, int pid_index)
 {

@@ -11,11 +11,11 @@
 #include <inttypes.h>
 #include <sys/types.h>
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_i915
+#include <drm/i915_drm_prelim.h>
+#elif GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
-#else
-#include <drm/i915_drm_prelim.h>
 #endif
 
 #include "drm_helpers/drm_helpers.h"
@@ -183,11 +183,11 @@ int get_drm_device_info(device_info *devinfo)
                 return -1;
         }
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         if (strcmp(devinfo->name, "xe") == 0) {
                 struct drm_xe_device_query dq;
                 struct drm_xe_query_config *qc;
-                
+
                 /* Get the size that we need to allocate */
                 memset(&dq, 0, sizeof(dq));
                 dq.query = DRM_XE_DEVICE_QUERY_CONFIG;
@@ -196,7 +196,7 @@ int get_drm_device_info(device_info *devinfo)
                         ioctl_err(errno);
                         return -1;
                 }
-                
+
                 /* Fill in qc */
                 qc = malloc(dq.size);
                 dq.data = (uint64_t)qc;
@@ -205,14 +205,14 @@ int get_drm_device_info(device_info *devinfo)
                         ioctl_err(errno);
                         return -1;
                 }
-                
+
                 fprintf(stderr, "Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
                 fprintf(stderr, "VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
-                
+
                 devinfo->id = qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID] & 0xffff;
                 devinfo->va_bits = qc->info[DRM_XE_QUERY_CONFIG_VA_BITS];
                 free(qc);
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         uint32_t devid = 0;
         if (strcmp(devinfo->name, "i915") == 0) {
                 struct drm_i915_getparam gp;
@@ -249,9 +249,9 @@ int get_drm_device_info(device_info *devinfo)
 void free_driver(device_info *devinfo)
 {
         close(devinfo->fd);
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         free(devinfo->gt_info);
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         free(devinfo->engine_info);
 #endif
         free(devinfo);

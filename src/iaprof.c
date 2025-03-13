@@ -27,9 +27,9 @@
 
 /* Helpers */
 #include "drm_helpers/drm_helpers.h"
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 #include "driver_helpers/xe_helpers.h"
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 #include "driver_helpers/i915_helpers.h"
 #endif
 
@@ -291,7 +291,7 @@ void init_driver()
                 ERR("Failed to get device info.\n");
         }
 
-#ifndef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_i915
         if (i915_query_engines(devinfo.fd, &(devinfo.engine_info)) != 0) {
                 ERR("Failed to get engine info.\n");
         }

@@ -12,12 +12,12 @@
 #include "printers/printer.h"
 
 /* Driver-specific stuff */
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #include <uapi/drm/xe_drm_eudebug.h>
 #include "driver_helpers/xe_helpers.h"
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 #include <drm/i915_drm_prelim.h>
 #include "driver_helpers/i915_helpers.h"
 #endif
@@ -49,7 +49,7 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         total += sample->sbid;
         total += sample->sync;
         total += sample->inst_fetch;
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         total += sample->tdr;
 #endif
 
@@ -111,7 +111,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         found->sbid       += sample->sbid;
         found->sync       += sample->sync;
         found->inst_fetch += sample->inst_fetch;
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         found->tdr        += sample->tdr;
 #endif
 
@@ -124,11 +124,7 @@ enum {
         EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED = (1 << 1),
 };
 
-#ifdef XE_DRIVER
 static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
-#else
-static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
-#endif
         int found;
         uint64_t addr;
         uint64_t start;
@@ -229,7 +225,7 @@ none_found:
         return found > 0;
 }
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
@@ -256,7 +252,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 
         return EUSTALL_STATUS_OK;
 }
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
@@ -334,11 +330,11 @@ int init_eustall(device_info *devinfo)
 {
         int fd;
 
-        #ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         fd = xe_init_eustall(devinfo);
-        #else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         fd = i915_init_eustall(devinfo);
-        #endif
+#endif
 
         if (fd <= 0) {
                 fprintf(stderr, "Failed to initialize eustalls. Aborting.\n");

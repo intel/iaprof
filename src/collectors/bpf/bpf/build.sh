@@ -8,9 +8,7 @@ BPF_CFLAGS=${BPF_CFLAGS:--O2}
 LLVM_STRIP=${LLVM_STRIP:-llvm-strip}
 
 BPF_CFLAGS+=" -DDEBUG"
-if [ ! -z ${IAPROF_XE_DRIVER} ]; then
-        BPF_CFLAGS+=" -DXE_DRIVER"
-fi
+BPF_CFLAGS+="${CONFIG_CFLAGS}"
 
 GENERATED_HEADERS="${DIR}/generated_headers"
 mkdir -p ${GENERATED_HEADERS}
@@ -25,47 +23,28 @@ if [ $RETVAL -ne 0 ]; then
   exit 1
 fi
 
-if [ -z ${IAPROF_XE_DRIVER} ]; then
 
-  # Also get i915's BTF information
-  ${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${GENERATED_HEADERS}/i915.h
+if [[ ${GPU_DRIVER} == "i915" ]] || [[ ${GPU_DRIVER} == "xe" ]]; then
+  ${BPFTOOL} btf dump file /sys/kernel/btf/${GPU_DRIVER} format c > ${GENERATED_HEADERS}/${GPU_DRIVER}.h
   RETVAL="$?"
   if [ $RETVAL -ne 0 ]; then
-    echo "    I can't find the BTF information for i915! Trying to"
-    echo "    modprobe i915..."
-    sudo modprobe i915
+    echo "    I can't find the BTF information for ${GPU_DRIVER}! Trying to"
+    echo "    modprobe ${GPU_DRIVER}..."
+    sudo modprobe ${GPU_DRIVER}
   fi
-  ${BPFTOOL} btf dump file /sys/kernel/btf/i915 format c > ${GENERATED_HEADERS}/i915.h
+  ${BPFTOOL} btf dump file /sys/kernel/btf/${GPU_DRIVER} format c > ${GENERATED_HEADERS}/${GPU_DRIVER}.h
   RETVAL="$?"
   if [ $RETVAL -ne 0 ]; then
-    echo "    I can't find the BTF information for i915! Bailing out."
+    echo "    I can't find the BTF information for ${GPU_DRIVER}! Bailing out."
     exit 1
   fi
 
-else
-
-  # Also get xe's BTF information
-  ${BPFTOOL} btf dump file /sys/kernel/btf/xe format c > ${GENERATED_HEADERS}/xe.h
+  ${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
   RETVAL="$?"
   if [ $RETVAL -ne 0 ]; then
-    echo "    I can't find the BTF information for xe! Trying to"
-    echo "    modprobe xe..."
-    sudo modprobe xe
-  fi
-  ${BPFTOOL} btf dump file /sys/kernel/btf/xe format c > ${GENERATED_HEADERS}/xe.h
-  RETVAL="$?"
-  if [ $RETVAL -ne 0 ]; then
-    echo "    I can't find the BTF information for xe! Bailing out."
+    echo "    I can't find the BTF information for drm! Aborting."
     exit 1
   fi
-
-fi
-
-${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
-RETVAL="$?"
-if [ $RETVAL -ne 0 ]; then
-  echo "    I can't find the BTF information for drm! Aborting."
-  exit 1
 fi
 
 # Compile the BPF object code

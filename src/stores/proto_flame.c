@@ -202,7 +202,7 @@ void store_unknown_flames(array_t *waitlist) {
                 flame.stall_type = STALL_TYPE_SYNC;       update_flame(&flame, it->sample.sync);
                 flame.stall_type = STALL_TYPE_INST_FETCH; update_flame(&flame, it->sample.inst_fetch);
                 flame.stall_type = STALL_TYPE_OTHER;      update_flame(&flame, it->sample.other);
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
                 flame.stall_type = STALL_TYPE_TDR;        update_flame(&flame, it->sample.tdr);
 #endif
         }

@@ -17,9 +17,29 @@ CFLAGS+=" -DDEBUG"
 LDFLAGS="${LSAN:-}"
 
 BPFTOOL=${BPFTOOL:-bpftool}
-export IAPROF_XE_DRIVER=""
-#CFLAGS+=" -DXE_DRIVER"
 
+export GPU_PLATFORM="pvc"
+# export GPU_PLATFORM="xe2"
+
+export GPU_DRIVER="i915"
+# export GPU_PLATFORM="xe"
+
+export KERNEL_LAUNCH_COLLECTOR="driver"
+# export KERNEL_LAUNCH_COLLECTOR="uprobe"
+
+CONFIG_CFLAGS=""
+CONFIG_CFLAGS+=" -DGPU_PLATFORM_pvc=1"
+CONFIG_CFLAGS+=" -DGPU_PLATFORM_xe=2"
+CONFIG_CFLAGS+=" -DGPU_PLATFORM=GPU_PLATFORM_${GPU_PLATFORM}"
+CONFIG_CFLAGS+=" -DGPU_DRIVER_i915=1"
+CONFIG_CFLAGS+=" -DGPU_DRIVER_xe=2"
+CONFIG_CFLAGS+=" -DGPU_DRIVER=GPU_DRIVER_${GPU_DRIVER}"
+CONFIG_CFLAGS+=" -DCOLLECTOR_driver=1"
+CONFIG_CFLAGS+=" -DCOLLECTOR_uprobe=2"
+CONFIG_CFLAGS+=" -DKERNEL_LAUNCH_COLLECTOR=COLLECTOR_${KERNEL_LAUNCH_COLLECTOR}"
+export CONFIG_CFLAGS
+
+CFLAGS+="${CONFIG_CFLAGS}"
 LDFLAGS+=" $(${LLVM_CONFIG} --ldflags --libs demangle)"
 
 DEPS_DIR="${BASE_DIR}/deps"
@@ -95,7 +115,7 @@ fi
 ####################
 DRIVER_HELPERS_DIR="${SRC_DIR}/driver_helpers"
 echo "Building ${DRIVER_HELPERS_DIR}..."
-if [ -z ${IAPROF_XE_DRIVER} ]; then
+if [[ ${GPU_DRIVER} == "i915" ]]; then
 
         # If applicable, find the i915 prelim headers from the DKMS version
         # of i915. Copy them locally, fix them up, and include them where necessary.
@@ -118,7 +138,7 @@ if [ -z ${IAPROF_XE_DRIVER} ]; then
           -o ${DRIVER_HELPERS_DIR}/i915_helpers.o
 
         DRIVER_HELPER_FLAGS="${DRIVER_HELPERS_DIR}/i915_helpers.o"
-else
+elif [[ ${GPU_DRIVER} == "xe" ]]; then
 
         ${CC} ${COMMON_FLAGS} -c \
           ${DRIVER_HELPERS_DIR}/xe_helpers.c \

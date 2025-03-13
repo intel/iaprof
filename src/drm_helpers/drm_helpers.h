@@ -2,10 +2,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 #include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
 #endif
@@ -22,10 +22,10 @@ typedef struct device_info {
         int fd;
         uint64_t record_size, va_bits;
         unsigned graphics_ver, graphics_rel;
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
         struct drm_xe_query_gt_list *gt_info;
         struct drm_xe_query_eu_stall *stall_info;
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
         struct drm_i915_query_engine_info *engine_info;
         struct drm_i915_query_memory_regions *memory_regions;
 #endif
@@ -47,7 +47,7 @@ static const uint32_t pci_ids[] = {
         0x0be0,
         0x0be1,
         0x0be5,
-        
+
         /* LNL */
         0x6420,
         0x64a0,

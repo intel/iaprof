@@ -4,9 +4,9 @@
 #include "iaprof.h"
 #include "shader_decoder.h"
 
-#ifdef XE_DRIVER
+#if GPU_PLATFORM == GPU_PLATFORM_xe2
 #define IGA_PLAT IGA_XE2
-#else
+#elif GPU_PLATFORM == GPU_PLATFORM_pvc
 #define IGA_PLAT IGA_XE_HPC
 #endif
 

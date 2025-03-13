@@ -1,6 +1,55 @@
+
+#if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_i915
+#include "i915.h"
+#elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_xe
+#include "xe.h"
+#endif
+
+
+/* #include <linux/bpf.h> */
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
+
+extern int LINUX_KERNEL_VERSION __kconfig;
+
+#include "main.h"
+
+
+#if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver
+#include "gpu_parsers/bb_parser_defs.h"
+#endif
+
+#define ERR_PRINTK(...) bpf_printk("ERROR:   " __VA_ARGS__)
+#ifdef DEBUG
+#define DEBUG_PRINTK(...) bpf_printk("         " __VA_ARGS__)
+#define WARN_PRINTK(...) bpf_printk("WARNING: " __VA_ARGS__)
+#else
+#define DEBUG_PRINTK(...) ;
+#define WARN_PRINTK(...) ;
+#endif
+
+
+
+int dropped_event;
+
 /***************************************
-n* i915 GEM Tracer
+* RINGBUFFER
 *
+* This is the "output" map, which userspace reads to get information
+* about GPU kernels running on the system.
+***************************************/
+
+struct {
+        __uint(type, BPF_MAP_TYPE_RINGBUF);
+        __uint(max_entries, RINGBUF_SIZE);
+} rb SEC(".maps");
+
+#if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_uprobe
+        #include "uprobe/L0_NEO.bpf.c"
+#elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver
+
+/***************************************
 * The purpose of this eBPF program is to trace, and send to userspace,
 * all GEMs that are associated with an executing batchbuffer in the i915
 * driver.  This includes at a minimum the virtual address and size of the
@@ -47,72 +96,15 @@ n* i915 GEM Tracer
 * B. i915_gem_context_create_ioctl
 *    - Context ID
 *    - VM ID
-***************************************/
-
-#ifdef XE_DRIVER
-#include "xe.h"
-#else
-#include "i915.h"
-#endif
-
-/* #include <linux/bpf.h> */
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
-
-extern int LINUX_KERNEL_VERSION __kconfig;
-
-#include "main.h"
-#include "gpu_parsers/bb_parser_defs.h"
-
-#define ERR_PRINTK(...) bpf_printk("ERROR:   " __VA_ARGS__)
-#ifdef DEBUG
-#define DEBUG_PRINTK(...) bpf_printk("         " __VA_ARGS__)
-#define WARN_PRINTK(...) bpf_printk("WARNING: " __VA_ARGS__)
-#else
-#define DEBUG_PRINTK(...) ;
-#define WARN_PRINTK(...) ;
-#endif
-
-/***************************************
-* HACKY DECLARATIONS
 *
-* These are definitions of macros that aren't available from the BTF
-* dump of the i915 module; for example, those that are defined inside
-* structs. Many of these *are* included in the regular uapi headers,
-* but including those alongside BPF skeleton headers causes a host of
-* compile errors, so this is the path of least resistance.
-***************************************/
-
-#ifdef XE_DRIVER
-
-#else
-#define MAX_ENGINE_INSTANCE 8
-#define I915_CONTEXT_CREATE_FLAGS_USE_EXTENSIONS (1u << 0)
-#define I915_CONTEXT_CREATE_EXT_SETPARAM 0
-#define I915_CONTEXT_PARAM_VM 0x9
-#endif
-
-int dropped_event;
-
-/***************************************
-* RINGBUFFER
 *
-* This is the "output" map, which userspace reads to get information
-* about GPU kernels running on the system.
-***************************************/
-
-struct {
-        __uint(type, BPF_MAP_TYPE_RINGBUF);
-        __uint(max_entries, RINGBUF_SIZE);
-} rb SEC(".maps");
-
-/***************************************
 * GPU->CPU Map
 *
 * This map uses `i915_gem_mmap_ioctl`, `i915_gem_mmap_offset_ioctl`, `i915_gem_mmap`
 * to maintain a map of GPU addresses to CPU ones.
+*
 ***************************************/
+
 struct cpu_mapping {
         u64 addr;
         u64 size;
@@ -135,7 +127,8 @@ struct {
         __type(key, struct cpu_mapping);
         __type(value, struct gpu_mapping);
 } cpu_gpu_map SEC(".maps");
-#ifdef XE_DRIVER
+
+#if GPU_DRIVER == GPU_DRIVER_xe
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
         __uint(max_entries, MAX_PAGE_ENTRIES);
@@ -146,20 +139,32 @@ struct {
 
 #include "batchbuffer.bpf.c"
 
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_i915
+    /***************************************
+     * HACKY DECLARATIONS
+     *
+     * These are definitions of macros that aren't available from the BTF
+     * dump of the i915 module; for example, those that are defined inside
+     * structs. Many of these *are* included in the regular uapi headers,
+     * but including those alongside BPF skeleton headers causes a host of
+     * compile errors, so this is the path of least resistance.
+     ***************************************/
 
-#include "xe/mmap.bpf.c"
-#include "xe/vm_bind.bpf.c"
-#include "xe/context.bpf.c"
-#include "xe/exec.bpf.c"
+    #define MAX_ENGINE_INSTANCE 8
+    #define I915_CONTEXT_CREATE_FLAGS_USE_EXTENSIONS (1u << 0)
+    #define I915_CONTEXT_CREATE_EXT_SETPARAM 0
+    #define I915_CONTEXT_PARAM_VM 0x9
 
-#else
-
-#include "i915/mmap.bpf.c"
-#include "i915/context.bpf.c"
-#include "i915/vm_bind.bpf.c"
-#include "i915/execbuffer.bpf.c"
-
+    #include "i915/mmap.bpf.c"
+    #include "i915/context.bpf.c"
+    #include "i915/vm_bind.bpf.c"
+    #include "i915/execbuffer.bpf.c"
+#elif GPU_DRIVER == GPU_DRIVER_xe
+    #include "xe/mmap.bpf.c"
+    #include "xe/vm_bind.bpf.c"
+    #include "xe/context.bpf.c"
+    #include "xe/exec.bpf.c"
+#endif
 #endif
 
 char LICENSE[] SEC("license") = "GPL";

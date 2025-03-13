@@ -60,7 +60,7 @@
  *   command type.
  */
 
-#ifdef XE_DRIVER
+#if GPU_PLATFORM == GPU_PLATFORM_xe2
 
 #define PLATFORM_HAS_MI_MATH (0)
 
@@ -97,7 +97,8 @@
         X(CFE_STATE,                         CMD_GFXPIPE,   OP_GFXPIPE(0x02, 0x02, 0x00),          6)   \
         X(_3DSTATE_BINDING_TABLE_POOL_ALLOC, CMD_GFXPIPE,   OP_GFXPIPE(0x03, 0x01, 0x19),          4)
 #define COMPUTE_WALKER_KSP_DWORD 20
-#else
+
+#elif GPU_PLATFORM == GPU_PLATFORM_pvc
 
 #define PLATFORM_HAS_MI_MATH (1)
 
