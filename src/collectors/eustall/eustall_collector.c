@@ -128,11 +128,14 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         uint64_t addr;
         uint64_t start;
 /*         uint64_t end;  */
+        
         uint64_t offset;
-        uint64_t first_found_shader_addr;
-        uint64_t first_found_offset;
-        uint32_t first_found_vm_id;
-        uint64_t first_found_file;
+        uint64_t low_offset_shader_addr;
+        uint64_t low_offset_offset;
+        uint32_t low_offset_vm_id;
+        uint64_t low_offset_file;
+        uint64_t low_offset_addr;
+        
         struct deferred_eustall deferred;
         struct vm_profile *vm;
         struct shader_binding *shader;
@@ -145,15 +148,16 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 one the EU stall is associated with */
         found = 0;
 
-        first_found_shader_addr = 0;
-        first_found_offset = 0;
-        first_found_vm_id = 0;
-        first_found_file = 0;
+        low_offset_shader_addr = 0;
+        low_offset_offset = (uint64_t)-1;
+        low_offset_vm_id = 0;
+        low_offset_file = 0;
+        low_offset_addr = 0;
 
         if (!iba) {
 /*                 goto none_found; */
         }
-
+        
         FOR_VM(vm, {
 
                 shader = get_containing_shader(vm, addr);
@@ -169,17 +173,14 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 start = shader->gpu_addr;
                 offset = addr - start;
                 
-                if (debug) {
-                        fprintf(stderr, "start: 0x%lx, offset: 0x%lx, addr: 0x%lx\n", start, offset, addr);
-                }
-
                 found++;
 
-                if (found == 1) {
-                        first_found_shader_addr = start;
-                        first_found_offset = offset;
-                        first_found_vm_id = vm->vm_id;
-                        first_found_file = vm->file;
+                if (offset < low_offset_offset) {
+                        low_offset_shader_addr = start;
+                        low_offset_offset = offset;
+                        low_offset_vm_id = vm->vm_id;
+                        low_offset_file = vm->file;
+                        low_offset_addr = addr;
                 }
 
 /* Jump here instead of continue so that the macro invokes the unlock functions. */
@@ -200,24 +201,25 @@ next:;
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
-                associate_sample(sample, first_found_file, first_found_vm_id,
-                                 first_found_shader_addr, first_found_offset,
+          
+                associate_sample(sample, low_offset_file, low_offset_vm_id,
+                                 low_offset_shader_addr, low_offset_offset,
                                  time);
                 eustall_info.matched += num_stalls_in_sample(sample);
-                if (addr == 0xffff6340) {
-                        fprintf(stderr, "Chose from the shaders:\n");
-                        FOR_SHADER(vm, shader, {
-                                fprintf(stderr, "Shader: 0x%lx\n", shader->gpu_addr);
-                        });
-                }
         } else if (found > 1) {
+        
                 /* We have to guess. Choose the last one that we've found. */
-                associate_sample(sample, first_found_file, first_found_vm_id,
-                                 first_found_shader_addr, first_found_offset,
+                associate_sample(sample, low_offset_file, low_offset_vm_id,
+                                 low_offset_shader_addr, low_offset_offset,
                                  time);
                 eustall_info.guessed += num_stalls_in_sample(sample);
         }
-
+        
+        if (found) {
+                debug_printf("file=0x%lx vm_id=%u shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", low_offset_file, low_offset_vm_id,
+                            low_offset_shader_addr, low_offset_offset, low_offset_addr);
+        }
+        
         return found > 0;
 }
 

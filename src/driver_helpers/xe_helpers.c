@@ -124,7 +124,7 @@ int xe_init_eustall(struct device_info *devinfo)
         index = 0;
         properties = NULL;
         xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_SAMPLE_RATE, stall_info->sampling_rates[stall_info->num_sampling_rates - 1]);
-        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_WAIT_NUM_REPORTS, 100);
+        xe_add_prop(&properties, &index, DRM_XE_EU_STALL_PROP_WAIT_NUM_REPORTS, 1);
         
         found = 0;
         for_each_gt(qg, gt)

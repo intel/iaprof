@@ -95,11 +95,10 @@ struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu
                 
         it = tree_gtr(vm->shaders, gpu_addr);
         tree_it_prev(it);
-
+        
         if (!tree_it_good(it)) {
                 return NULL;
         }
-
         shader = &tree_it_val(it);
         
         if (!(shader->binding_addr) || !(shader->binding_size)) {
@@ -108,8 +107,6 @@ struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu
 
         if ((gpu_addr < shader->gpu_addr) || 
             (gpu_addr >= (shader->binding_addr + shader->binding_size))) {
-                debug_printf("gpu_addr=0x%lx is out of range for buffer gpu_addr=0x%lx bind_size=0x%lx\n",
-                     gpu_addr, shader->binding_addr, shader->binding_size);
                 /* XXX: WARNING: We do NOT check the size of the shader, since we have no
                    way of knowing it. This can lead to mis-association if we don't know
                    the addresses of ALL shaders. */

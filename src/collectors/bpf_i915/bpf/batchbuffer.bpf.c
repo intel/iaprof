@@ -345,7 +345,7 @@ int parse_next(struct parse_cxt *cxt) {
 
 
                 if (op == NOOP) {
-                    return BB_TRY_AGAIN;
+                        return BB_TRY_AGAIN;
                 }
 
 
@@ -403,7 +403,7 @@ next_level_loaded:;
                            || (((op == _3DSTATE_HS) && (which_dword == 3)))
                            || (((op == _3DSTATE_PS) && ((which_dword == 2) || (which_dword == 9) || (which_dword == 11))))
 #endif
-			   ) {
+        			  ) {
                              
                         ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
                         
