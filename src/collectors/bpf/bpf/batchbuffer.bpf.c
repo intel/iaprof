@@ -386,7 +386,7 @@ next_level_loaded:;
 
                 } else if (
                            ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD))
-#ifdef XE_DRIVER
+#if GPU_PLATFORM == GPU_PLATFORM_xe2
                            || (((op == _3DSTATE_VS) || (op == _3DSTATE_GS) || (op == _3DSTATE_DS)) && (which_dword == 2))
                            || (((op == _3DSTATE_HS) && (which_dword == 3)))
                            || (((op == _3DSTATE_PS) && ((which_dword == 2) || (which_dword == 9) || (which_dword == 11))))

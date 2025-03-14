@@ -30,9 +30,9 @@
 
 /* Driver helpers */
 #include "drm_helpers/drm_helpers.h"
-#ifdef XE_DRIVER
+#if GPU_DRIVER == GPU_DRIVER_xe
 #include "driver_helpers/xe_helpers.h"
-#else
+#elif GPU_DRIVER == GPU_DRIVER_i915
 #include "driver_helpers/i915_helpers.h"
 #endif
 
