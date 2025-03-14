@@ -64,7 +64,7 @@ static _Atomic char main_thread_should_stop = 0;
 /* Intervals */
 struct timespec interval_start, interval_end, interval_diff;
 static uint64_t interval_number = 0;
-static uint32_t interval_time_ms = 10;
+static uint32_t interval_time_ms = 500;
 
 enum { NS_PER_SECOND = 1000000000 };
 void sub_timespec(struct timespec *t1, struct timespec *t2, struct timespec *td)
