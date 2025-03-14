@@ -6,8 +6,8 @@
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
 #elif GPU_DRIVER == GPU_DRIVER_i915
-#include <drm/i915_drm_prelim.h>
 #include <drm/i915_drm.h>
+#include <drm/i915_drm_prelim.h>
 #endif
 
 /*******************
@@ -32,7 +32,7 @@ typedef struct device_info {
 } device_info;
 
 #define IP_VER(ver, rel) ((ver) << 8 | (rel))
-static const int num_pci_ids = 15;
+static const int num_pci_ids = 16;
 static const uint32_t pci_ids[] = {
         /* PVC */
         0x0b69,
@@ -51,7 +51,10 @@ static const uint32_t pci_ids[] = {
         /* LNL */
         0x6420,
         0x64a0,
-        0x64b0
+        0x64b0,
+        
+        /* BMG */
+        0xe20b
 };
 
 void ioctl_err(int err);

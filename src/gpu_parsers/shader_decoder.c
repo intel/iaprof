@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "iaprof.h"
+#include "printers/debug/debug_printer.h"
 #include "shader_decoder.h"
 
 #if GPU_PLATFORM == GPU_PLATFORM_xe2
@@ -17,10 +17,8 @@ struct kv_t *iga_init(unsigned char *buff, size_t buff_len)
 
         kv = kv_create(IGA_PLAT, (void *)buff, buff_len, &status, NULL, 0, 0);
         if (status != IGA_SUCCESS) {
-                if (debug) {
-                        WARN("IGA decoding error: '%s'.\n",
+                debug_printf("IGA decoding error: '%s'.\n",
                              iga_status_to_string(status));
-                }
                 /* We're going to return kv anyway, since it could still disassemble
                    some insns successfully (and usually does!). */
         }
@@ -43,22 +41,16 @@ char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text,
         opcode = kv_get_opcode(kv, offset);
         status = iga_opspec_from_op(IGA_PLAT, opcode, &op);
         if (status != IGA_SUCCESS) {
-                if (debug) {
-                        WARN("Failed to disassemble insn.\n");
-                        fprintf(stderr, "Error was: '%s'\n",
-                                iga_status_to_string(status));
-                }
+                debug_printf("Failed to disassemble insn. Error was: '%s'\n",
+                             iga_status_to_string(status));
                 return -1;
         }
 
         /* Get the length that insn_text needs to be. */
         status = iga_opspec_mnemonic(op, NULL, &new_insn_text_len);
         if (status != IGA_SUCCESS) {
-                if (debug) {
-                        WARN("Failed to disassemble insn.\n");
-                        fprintf(stderr, "Error was: '%s'\n",
-                                iga_status_to_string(status));
-                }
+                debug_printf("Failed to disassemble insn. Error was: '%s'\n",
+                             iga_status_to_string(status));
                 return -1;
         }
         if (new_insn_text_len > *insn_text_len) {
@@ -70,11 +62,8 @@ char iga_disassemble_insn(struct kv_t *kv, uint64_t offset, char **insn_text,
         /* Set *insn_text to the mnemonic */
         status = iga_opspec_mnemonic(op, *insn_text, &new_insn_text_len);
         if (status != IGA_SUCCESS) {
-                if (debug) {
-                        WARN("Failed to disassemble insn.\n");
-                        fprintf(stderr, "Error was: '%s'\n",
-                                iga_status_to_string(status));
-                }
+                debug_printf("Failed to disassemble insn. Error was: '%s'\n",
+                             iga_status_to_string(status));
                 return -1;
         }
 

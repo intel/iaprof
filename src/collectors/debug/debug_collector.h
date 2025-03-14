@@ -31,6 +31,8 @@ struct symbol_entry {
         char *symbol;
         char *filename;
         int linenum;
+        
+        uint64_t symbol_id, filename_id;
 };
 
 struct symbol_table {
@@ -54,11 +56,6 @@ struct debug_info_t {
 extern struct debug_info_t debug_info;
 extern pthread_rwlock_t debug_info_lock;
 
-#ifdef SLOW_MODE
-extern pthread_cond_t debug_vm_bind_cond;
-extern pthread_mutex_t debug_vm_bind_lock;
-#endif
-
 struct shader_binary {
         uint64_t      start;
         uint64_t      size;
@@ -77,7 +74,7 @@ void deinit_debug(int pid);
 void init_debug(int fd, int pid);
 int read_debug_event(int fd, int pid_index);
 void read_debug_events(int fd, int pid_index);
-int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line);
+int debug_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id);
 
 void free_debug();
 

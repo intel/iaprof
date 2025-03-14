@@ -8,6 +8,7 @@
 #define RINGBUF_SIZE        (512 * 1024 * 1024) /* 512 MB */
 #define PAGE_SIZE           (4096)
 #define PAGE_MASK           (~0xfff)
+#define UPPER_MASK          (~0xffff000000000000)
 
 #define MAX_BB_DWORDS       (1024)
 #define MAX_BB_DWORDS_IDX   (MAX_BB_DWORDS - 1)

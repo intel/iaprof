@@ -1,19 +1,24 @@
 #include <stdbool.h>
 
 #include "iaprof.h"
-#include "proto_flame.h"
-#include "stores/buffer_profile.h"
+#include "stores/interval_profile.h"
+#include "printers/interval/interval_printer.h"
+#include "printers/debug/debug_printer.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "collectors/bpf/bpf_collector.h"
 #include "collectors/debug/debug_collector.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "gpu_parsers/shader_decoder.h"
 #include "utils/utils.h"
 
-hash_table(proto_flame_struct, uint64_t) flame_samples;
+hash_table(sample_struct, uint64_t) interval_profile;
 
-static char *failed_decode = "[failed_decode]";
+void init_interval_profile()
+{
+        print_initial_strings();
+}
 
-static uint64_t proto_flame_hash(const struct proto_flame a) {
+static uint64_t sample_hash(const struct sample a) {
         uint64_t hash;
 
         hash = 2654435761ULL;
@@ -25,24 +30,14 @@ static uint64_t proto_flame_hash(const struct proto_flame a) {
 
         hash ^= ((a.addr + a.offset) >> 3) << a.stall_type;
 
-        if (a.insn_text != NULL) {
-                hash ^= str_hash(a.insn_text);
-        }
-
-        if (a.proc_name != NULL) {
-                hash ^= str_hash(a.proc_name);
-        }
+        hash ^= a.insn_id << 8;
+        hash ^= str_hash(a.proc_name);
 
         return hash;
 }
 
-void init_flames() {
-        flame_samples = hash_table_make(proto_flame_struct, uint64_t, proto_flame_hash);
-}
-
-
 /* Returns 0 on success, -1 for failure */
-static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
+static char get_insn_text(struct shader_binding *shader, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
@@ -51,11 +46,11 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         retval = 0;
 
         pthread_mutex_lock(&debug_shader_binaries_lock);
-        bin = get_shader_binary(bind->gpu_addr);
+        bin = get_shader_binary(shader->gpu_addr);
 
         if (bin == NULL) {
                 if (debug) {
-                        WARN("Can't find a shader at 0x%lx\n", bind->gpu_addr);
+                        WARN("Can't find a shader's binary at 0x%lx\n", shader->gpu_addr);
                 }
                 retval = -1;
                 goto out;
@@ -72,9 +67,9 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
         /* Initialize the kernel view */
-        if (!bind->kv) {
-                bind->kv = iga_init(bin->bytes, bin->size);
-                if (!bind->kv) {
+        if (!shader->kv) {
+                shader->kv = iga_init(bin->bytes, bin->size);
+                if (!shader->kv) {
                         if (debug) {
                                 WARN("Failed to initialize IGA.\n");
                         }
@@ -84,11 +79,11 @@ static char get_insn_text(struct buffer_binding *bind, uint64_t offset,
         }
 
         /* Disassemble */
-        retval = iga_disassemble_insn(bind->kv, offset, insn_text,
+        retval = iga_disassemble_insn(shader->kv, offset, insn_text,
                                       insn_text_len);
         if (retval != 0) {
                 if (debug) {
-                        WARN("Disassembly failed on shader at 0x%lx\n", bind->gpu_addr);
+                        WARN("Disassembly failed on shader at 0x%lx\n", shader->gpu_addr);
                 }
                 goto out;
         }
@@ -99,29 +94,26 @@ out:;
         return retval;
 }
 
-static void update_flame(const struct proto_flame *flame, uint64_t count) {
+static void update_sample(const struct sample *samp, uint64_t count) {
         uint64_t           *lookup;
-        struct proto_flame  flame_copy;
+        struct sample      samp_copy;
 
         if (count == 0) { return; }
-
-        lookup = hash_table_get_val(flame_samples, *flame);
+        lookup = hash_table_get_val(interval_profile, *samp);
 
         if (lookup != NULL) {
                 *lookup += count;
         } else {
-                memcpy(&flame_copy, flame, sizeof(flame_copy));
-                flame_copy.insn_text = flame_copy.insn_text ? strdup(flame_copy.insn_text) : NULL;
-                flame_copy.proc_name = flame_copy.proc_name ? strdup(flame_copy.proc_name) : NULL;
-
-                hash_table_insert(flame_samples, flame_copy, count);
+                memcpy(&samp_copy, samp, sizeof(samp_copy));
+                samp_copy.proc_name = strdup(samp_copy.proc_name);
+                hash_table_insert(interval_profile, samp_copy, count);
         }
 }
 
-/* Prints the flamegraph for a single kernel */
-void store_kernel_flames(struct buffer_binding *bind)
+/* Stores a profile for a single kernel */
+void store_kernel_profile(struct shader_binding *shader)
 {
-        struct proto_flame flame;
+        struct sample samp;
         uint64_t offset, addr;
         struct offset_profile *profile;
         char retval;
@@ -130,55 +122,50 @@ void store_kernel_flames(struct buffer_binding *bind)
         int stall_type;
         uint64_t count;
 
-        if (debug) {
-                debug_printf("storing flamegraph for vm_id=%u gpu_addr=0x%lx pid=%d\n", bind->vm_id, bind->gpu_addr,
-                       bind->pid);
-        }
+        memset(&samp, 0, sizeof(samp));
 
-        memset(&flame, 0, sizeof(flame));
-
-        flame.proc_name  = strdup(bind->name);
-        flame.pid        = bind->pid;
-        flame.ustack_str = bind->execbuf_ustack_str;
-        flame.kstack_str = bind->execbuf_kstack_str;
-        flame.is_debug   = bind->type == BUFFER_TYPE_DEBUG_AREA;
-        flame.is_sys     = bind->type == BUFFER_TYPE_SYSTEM_ROUTINE;
+        samp.proc_name   = strdup(shader->proc_name);
+        samp.pid         = shader->pid;
+        samp.ustack_str  = shader->execbuf_ustack_str;
+        samp.kstack_str  = shader->execbuf_kstack_str;
+        samp.is_debug    = shader->type == SHADER_TYPE_DEBUG_AREA;
+        samp.is_sys      = shader->type == SHADER_TYPE_SYSTEM_ROUTINE;
 
         /* Iterate over the offsets that we have EU stalls for */
-        hash_table_traverse(bind->stall_counts, offset, profile) {
-                addr = bind->gpu_addr + offset;
+        hash_table_traverse(shader->stall_counts, offset, profile) {
+                addr = shader->gpu_addr + offset;
 
-                flame.addr = addr;
-                flame.offset = offset;
+                samp.addr = addr;
+                samp.offset = offset;
 
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
                 insn_text_len = 0;
-                retval = get_insn_text(bind, offset, &insn_text, &insn_text_len);
+                retval = get_insn_text(shader, offset, &insn_text, &insn_text_len);
                 if (retval != 0) {
-                        insn_text = failed_decode;
+                        samp.insn_id = failed_decode_id;
+                } else {
+                        samp.insn_id = print_string(insn_text);
                 }
 
-                flame.insn_text = insn_text;
-
                 /* NOTE: We do late symbolization of GPU addresses because we may be slightly behind
-                 * collecting collecting ELF info from the debug interface. See print_flamegraph(). */
+                 * collecting ELF info from the debug interface. See print_flamegraph(). */
 
                 for (stall_type = 0; stall_type < NR_STALL_TYPES; stall_type += 1) {
-                        flame.stall_type = stall_type;
+                        samp.stall_type = stall_type;
 
                         count = profile->counts[stall_type];
                         if (count > 0) {
-                                update_flame(&flame, count);
+                                update_sample(&samp, count);
                         }
                 }
 
-                if (insn_text != failed_decode) {
+                if (samp.insn_id != failed_decode_id) {
                         free(insn_text);
                 }
         }
 
-        free(flame.proc_name);
+        free(samp.proc_name);
 }
 
 void store_unknown_flames(array_t *waitlist) {
@@ -208,21 +195,27 @@ void store_unknown_flames(array_t *waitlist) {
         }
 }
 
-void store_interval_flames()
+void store_interval_profile(uint64_t interval)
 {
         struct vm_profile *vm;
-        struct buffer_binding *bind;
-
-        FOR_BINDING(vm, bind, {
+        struct shader_binding *shader;
+        
+        interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
+        
+        FOR_SHADER(vm, shader, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
-                if (bind->stall_counts == NULL) {
+                if (shader->stall_counts == NULL) {
                         goto next;
                 }
 
-                store_kernel_flames(bind);
+                store_kernel_profile(shader);
 
 /* Jump here so that the macro releases locks. */
 next:;
         });
+        
+        print_interval(interval);
+        
+        hash_table_free(interval_profile);
 }

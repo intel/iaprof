@@ -20,16 +20,15 @@
 #include <uapi/drm/xe_drm.h>
 #endif
 
-#include "iaprof.h"
+#include "commands/record.h"
+
+#include "printers/interval/interval_printer.h"
+#include "printers/debug/debug_printer.h"
 #include "debug_collector.h"
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 #include "utils/demangle.h"
-
-#ifdef SLOW_MODE
-static uint32_t vm_bind_counter = 0;
-#endif
 
 struct debug_info_t debug_info;
 pthread_rwlock_t debug_info_lock;
@@ -131,7 +130,7 @@ out_unlock:;
 out:;
 }
 
-int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_file, int *out_gpu_line)
+int debug_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id)
 {
         int i, j;
         struct symbol_table *table;
@@ -148,14 +147,11 @@ int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_
                 for (j = 0; j < table->num_syms; j++) {
                         entry = &(table->symtab[j]);
                         if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
-                                if (out_gpu_symbol != NULL) {
-                                        *out_gpu_symbol = entry->symbol;
+                                if (out_symbol_id != NULL) {
+                                        *out_symbol_id = entry->symbol_id;
                                 }
-                                if (out_gpu_file != NULL) {
-                                        *out_gpu_file = entry->filename;
-                                }
-                                if (out_gpu_line != NULL) {
-                                        *out_gpu_line = entry->linenum;
+                                if (out_file_id != NULL) {
+                                        *out_file_id = entry->filename_id;
                                 }
                                 return 0;
                         }
@@ -164,7 +160,7 @@ int debug_get_sym(int pid, uint64_t addr, char **out_gpu_symbol, char **out_gpu_
                 break;
         }
 
-        WARN("Couldn't find a symbol for addr=0x%lx\n", addr);
+        debug_printf("Couldn't find a symbol for addr=0x%lx\n", addr);
 
         return -1;
 }
@@ -173,6 +169,7 @@ void debug_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filen
         struct symbol_table *table;
         int num_syms;
         struct symbol_entry *entry;
+        char file_and_line[MAX_GPU_FILE_LEN];
 
         pthread_rwlock_wrlock(&debug_info_lock);
 
@@ -192,6 +189,15 @@ void debug_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filen
         entry->symbol = symbol;
         entry->filename = filename;
         entry->linenum = linenum;
+        
+        entry->symbol_id = print_string(symbol);
+        if (linenum) {
+                snprintf(file_and_line, MAX_GPU_FILE_LEN,
+                         "%s line %d", filename, linenum);
+                entry->filename_id = print_string(file_and_line);
+        } else {
+                entry->filename_id = print_string(filename);
+        }
 
         pthread_rwlock_unlock(&debug_info_lock);
 }
@@ -646,70 +652,6 @@ cleanup:
 }
 
 
-#ifdef SLOW_MODE
-void handle_event_vm_bind(int debug_fd, struct prelim_drm_i915_debug_event *event,
-                          int pid_index)
-{
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-        struct prelim_drm_i915_debug_event_vm_bind *vm_bind;
-        uint64_t gpu_addr;
-        char found;
-
-        vm_bind = (struct prelim_drm_i915_debug_event_vm_bind *)event;
-
-        if (!(event->flags & PRELIM_DRM_I915_DEBUG_EVENT_CREATE)) {
-                return;
-        }
-
-        /* If any of the top 16 bits are set, it's an invalid address. We only want
-           the bottom 48 bits. */
-        gpu_addr = vm_bind->va_start;
-        if (gpu_addr & 0xffff000000000000) {
-                vm_bind_counter++;
-                return;
-        }
-
-        debug_printf("vm_bind_debug vm_handle=%llu va_start=0x%lx va_length=%llu num_uuids=%u vm_bind_counter=%u\n",
-               vm_bind->vm_handle, gpu_addr, vm_bind->va_length, vm_bind->num_uuids,
-               vm_bind_counter);
-
-        /* Wait on this VM_BIND to happen in BPF, so that we can know which VM
-           to associate it with! */
-        found = 0;
-        while (!found) {
-                pthread_mutex_lock(&debug_vm_bind_lock);
-
-                FOR_BINDING(vm, bind, {
-                        if (bind->vm_bind_order == vm_bind_counter) {
-                                found = 1;
-                                FOR_BINDING_CLEANUP(); goto out;
-                        }
-                });
-
-                if (pthread_cond_wait(&debug_vm_bind_cond, &debug_vm_bind_lock) != 0) {
-                        fprintf(stderr, "Failed to wait on the debug condition.\n");
-                        pthread_mutex_unlock(&debug_vm_bind_lock);
-                        goto cleanup;
-                }
-
-                FOR_BINDING(vm, bind, {
-                        if (bind->vm_bind_order == vm_bind_counter) {
-                                found = 1;
-                                FOR_BINDING_CLEANUP(); goto out;
-                        }
-                });
-out:;
-                pthread_mutex_unlock(&debug_vm_bind_lock);
-        }
-
-cleanup:
-        vm_bind_counter++;
-
-        return;
-}
-#endif
-
 #if GPU_DRIVER == GPU_DRIVER_xe
 /* Returns whether an event was actually read. */
 int read_debug_event(int fd, int pid_index)
@@ -747,10 +689,6 @@ int read_debug_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == DRM_XE_EUDEBUG_EVENT_METADATA) {
                 handle_event_uuid(fd, event, pid_index);
-#ifdef SLOW_MODE
-        } else if (event->type == DRM_XE_EUDEBUG_EVENT_VM_BIND) {
-                handle_event_vm_bind(fd, event, pid_index);
-#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */
@@ -802,10 +740,6 @@ int read_debug_event(int fd, int pid_index)
         /* Handle the event */
         if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_UUID) {
                 handle_event_uuid(fd, event, pid_index);
-#ifdef SLOW_MODE
-        } else if (event->type == PRELIM_DRM_I915_DEBUG_EVENT_VM_BIND) {
-                handle_event_vm_bind(fd, event, pid_index);
-#endif
         }
 
         /* ACK the event, otherwise the workload will stall. */

@@ -35,6 +35,7 @@ int BPF_PROG(xe_vm_bind_ioctl,
 
         /* For getting the cpu_addr */
         struct file_handle_pair pair = {};
+        struct binding_info bindinfo = {};
 
         /* Read the argument struct (which is large) into a per-cpu array */
         tmp_arg_key = 0;
@@ -92,6 +93,14 @@ int BPF_PROG(xe_vm_bind_ioctl,
                 /* Get the CPU address from any mappings that have happened */
                 pair.handle = info->handle;
                 pair.file = (u64)file;
+                
+                bindinfo.gpu_addr = info->gpu_addr;
+                bindinfo.size = info->size;
+                bindinfo.vm_id = args->vm_id;
+                
+                /* Add this binding to the file_handle_binding map */
+                bpf_map_update_elem(&file_handle_binding, &pair, &bindinfo, 0);
+                
                 lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
                 if (!lookup) {
                         WARN_PRINTK("vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", info->gpu_addr, pair.handle);
@@ -124,78 +133,5 @@ int BPF_PROG(xe_vm_bind_ioctl,
 
         return 0;
 }
-
-#if 0
-SEC("fentry/i915_gem_vm_unbind_ioctl")
-int BPF_PROG(i915_gem_vm_unbind_ioctl,
-             struct drm_device *dev, void *data,
-             struct drm_file *file)
-{
-        struct vm_unbind_info *info;
-        struct prelim_drm_i915_gem_vm_bind *arg;
-        u64 status, gpu_addr;
-        u32 vm_id;
-        struct gpu_mapping gmapping = {};
-        struct cpu_mapping cmapping = {};
-        int retval = 0;
-        void *lookup;
-
-        arg = (struct prelim_drm_i915_gem_vm_bind *)data;
-
-        /* Get the address and VM that's getting unbound */
-        vm_id = BPF_CORE_READ(arg, vm_id);
-        gpu_addr = BPF_CORE_READ(arg, start);
-
-        /* Find the CPU mapping for this GPU address */
-        gmapping.vm_id = vm_id;
-        gmapping.addr = gpu_addr;
-        gmapping.file = (u64)file;
-        lookup = bpf_map_lookup_elem(&gpu_cpu_map, &gmapping);
-        if (!lookup) {
-                WARN_PRINTK("vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
-                return 0;
-        }
-        __builtin_memcpy(&cmapping, lookup,
-                         sizeof(struct cpu_mapping));
-
-        /* Delete the element from the gpu_cpu_map and cpu_gpu_map */
-        retval = bpf_map_delete_elem(&gpu_cpu_map, &gmapping);
-        if (retval < 0) {
-                WARN_PRINTK("vm_unbind_ioctl failed to delete gpu_addr=0x%lx from the gpu_cpu_map.", gpu_addr);
-        }
-        retval = bpf_map_delete_elem(&cpu_gpu_map, &cmapping);
-        if (retval < 0) {
-                WARN_PRINTK("vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
-        }
-
-        /* Reserve some space on the ringbuffer */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
-        if (!info) {
-                WARN_PRINTK("vm_unbind_ioctl failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
-        /* vm_unbind specific values */
-        info->type = BPF_EVENT_TYPE_VM_UNBIND;
-        info->file = (u64)file;
-        info->handle = BPF_CORE_READ(arg, handle);
-        info->vm_id = vm_id;
-        info->gpu_addr = gpu_addr;
-        info->size = BPF_CORE_READ(arg, length);
-        info->offset = BPF_CORE_READ(arg, offset);
-
-        info->cpu = bpf_get_smp_processor_id();
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-        info->tid = bpf_get_current_pid_tgid();
-        info->time = bpf_ktime_get_ns();
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
-
-        return 0;
-}
-#endif
 
 #endif

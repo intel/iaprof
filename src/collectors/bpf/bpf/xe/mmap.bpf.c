@@ -48,6 +48,19 @@ struct {
         __type(value, u64);
 } file_handle_mapping SEC(".maps");
 
+struct binding_info {
+        u64 size;
+        u64 gpu_addr;
+        u32 vm_id;
+};
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_MAPPINGS);
+        __type(key, struct file_handle_pair);
+        __type(value, struct binding_info);
+} file_handle_binding SEC(".maps");
+
 int mmap_wait_for_unmap_insert(u64 file, u32 handle, u64 addr_arg, u64 vm_pgoff)
 {
         struct file_handle_pair unmap_val = {};
@@ -132,9 +145,11 @@ int BPF_PROG(drm_gem_ttm_mmap,
              struct vm_area_struct *vma)
 {
         u64 vm_pgoff, vm_start, vm_end, status;
-        void *lookup;
+        void *lookup, *bind_lookup;
+        struct binding_info *binding;
         struct mmap_offset_wait_for_mmap_val offset_val;
         struct file_handle_pair pair = {};
+        u64 page_idx, num_pages, page_addr;
 
         vm_pgoff = BPF_CORE_READ(vma, vm_pgoff);
         vm_start = BPF_CORE_READ(vma, vm_start);
@@ -155,6 +170,29 @@ int BPF_PROG(drm_gem_ttm_mmap,
         pair.handle = offset_val.handle;
         pair.file = offset_val.file;
         bpf_map_update_elem(&file_handle_mapping, &pair, &vm_start, 0);
+        
+        /* Look up to see if we've seen a binding on this file/handle pair */
+        bind_lookup = bpf_map_lookup_elem(&file_handle_binding, &pair);
+        if (!bind_lookup) {
+                WARN_PRINTK("drm_gem_ttm_mmap failed to find a GPU address for file=0x%lx handle=%u.", pair.file, pair.handle);
+        } else {
+                /* Maintain a map of GPU->CPU addrs */
+                binding = (struct binding_info *)bind_lookup;
+                struct cpu_mapping cmapping = {};
+                struct gpu_mapping gmapping = {};
+                cmapping.size = binding->size;
+                cmapping.addr = vm_start;
+                gmapping.addr = binding->gpu_addr;
+                gmapping.vm_id = binding->vm_id;
+                gmapping.file = (u64)pair.file;
+                bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
+                bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
+                num_pages = binding->size / PAGE_SIZE;
+                bpf_for(page_idx, 0, num_pages) {
+                        page_addr = gmapping.addr + (page_idx * PAGE_SIZE);
+                        bpf_map_update_elem(&page_map, &page_addr, &(gmapping.addr), 0);
+                }
+        }
 
         DEBUG_PRINTK("drm_gem_ttm_mmap cpu_addr=0x%lx handle=%u file=0x%lx", vm_start, offset_val.handle, pair.file);
 

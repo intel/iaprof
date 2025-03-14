@@ -5,11 +5,11 @@
 
 #include "iaprof.h"
 #include "drm_helpers/drm_helpers.h"
-#include "stores/buffer_profile.h"
+#include "stores/gpu_kernel_stalls.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf/bpf_collector.h"
 #include "gpu_parsers/shader_decoder.h"
-#include "printers/printer.h"
+#include "printers/debug/debug_printer.h"
 
 /* Driver-specific stuff */
 #if GPU_DRIVER == GPU_DRIVER_xe
@@ -63,43 +63,37 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         struct offset_profile *found;
         struct offset_profile profile;
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
 
         vm = acquire_vm_profile(file, vm_id);
 
         if (!vm) {
-                WARN("associate_sample didn't find vm_id=%u\n",
-                     vm_id);
+                debug_printf("associate_sample didn't find vm_id=%u\n", vm_id);
                 return -1;
         }
 
-        bind = get_containing_binding(vm, gpu_addr);
+        shader = get_shader(vm, gpu_addr);
 
-        if (!bind) {
-                WARN("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
+        if (!shader) {
+                debug_printf("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
                      vm_id, gpu_addr);
                 release_vm_profile(vm);
                 return -1;
         }
 
         /* Make sure we're initialized */
-        if (bind->stall_counts == NULL) {
-                bind->stall_counts =
+        if (shader->stall_counts == NULL) {
+                shader->stall_counts =
                         hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
         }
 
-        if (verbose) {
-                print_eustall(sample, gpu_addr, offset, bind->handle,
-                              time);
-        }
-
         /* Check if this offset has been seen yet */
-        found = hash_table_get_val(bind->stall_counts, offset);
+        found = hash_table_get_val(shader->stall_counts, offset);
         if (!found) {
                 /* We have to allocate a struct of counts */
                 memset(&profile, 0, sizeof(profile));
-                hash_table_insert(bind->stall_counts, offset, profile);
-                found = hash_table_get_val(bind->stall_counts, offset);
+                hash_table_insert(shader->stall_counts, offset, profile);
+                found = hash_table_get_val(shader->stall_counts, offset);
         }
 
         found->active     += sample->active;
@@ -121,7 +115,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
 
 enum {
         EUSTALL_SAMPLE_DEFERRED                 = (1 << 0),
-        EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED = (1 << 1),
+        EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED = (1 << 1),
 };
 
 static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
@@ -129,12 +123,15 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         uint64_t addr;
         uint64_t start;
         uint64_t offset;
-        uint64_t first_found_offset;
-        uint32_t first_found_vm_id;
-        uint64_t first_found_file;
+        uint64_t low_offset_shader_addr;
+        uint64_t low_offset_offset;
+        uint32_t low_offset_vm_id;
+        uint64_t low_offset_file;
+        uint64_t low_offset_addr;
+        
         struct deferred_eustall deferred;
         struct vm_profile *vm;
-        struct buffer_binding *bind;
+        struct shader_binding *shader;
 
         addr = (((uint64_t)sample->ip) << 3) + iba;
 
@@ -144,26 +141,28 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 one the EU stall is associated with */
         found = 0;
 
-        first_found_offset = 0;
-        first_found_vm_id = 0;
-        first_found_file = 0;
+        low_offset_shader_addr = 0;
+        low_offset_offset = (uint64_t)-1;
+        low_offset_vm_id = 0;
+        low_offset_file = 0;
+        low_offset_addr = 0;
 
         if (!iba) {
-                goto none_found;
+/*                 goto none_found; */
         }
-
+        
         FOR_VM(vm, {
-                bind = get_containing_binding(vm, addr);
 
-                if (bind == NULL) {
+                shader = get_containing_shader(vm, addr);
+                if (shader == NULL) {
                         goto next;
                 }
 
-                if (!(bind->pid)) {
+                if (!(shader->pid)) {
                         goto next;
                 }
 
-                if (!(flags & EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED)) {
+                if (!(flags & EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED)) {
                         if ((bind->type != BUFFER_TYPE_SHADER)
                         &&  (bind->type != BUFFER_TYPE_DEBUG_AREA)
                         &&  (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
@@ -177,17 +176,19 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 
                 found++;
 
-                if (found == 1) {
-                        first_found_offset = offset;
-                        first_found_vm_id = vm->vm_id;
-                        first_found_file = vm->file;
+                if (offset < low_offset_offset) {
+                        low_offset_shader_addr = start;
+                        low_offset_offset = offset;
+                        low_offset_vm_id = vm->vm_id;
+                        low_offset_file = vm->file;
+                        low_offset_addr = addr;
                 }
 
 /* Jump here instead of continue so that the macro invokes the unlock functions. */
 next:;
         });
 
-none_found:
+/* none_found: */
         /* Now that we've found 0+ matches, print or store them. */
         if (found == 0) {
                 if (!(flags & EUSTALL_SAMPLE_DEFERRED)) {
@@ -198,30 +199,28 @@ none_found:
                         array_push(*eustall_waitlist, deferred);
                         pthread_mutex_unlock(&eustall_waitlist_mtx);
 
-                        if (verbose) {
-                                print_eustall_defer(sample, addr, time);
-                        }
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         } else if (found == 1) {
-                associate_sample(sample, first_found_file, first_found_vm_id,
-                                 addr, first_found_offset,
+          
+                associate_sample(sample, low_offset_file, low_offset_vm_id,
+                                 low_offset_shader_addr, low_offset_offset,
                                  time);
                 eustall_info.matched += num_stalls_in_sample(sample);
         } else if (found > 1) {
+        
                 /* We have to guess. Choose the last one that we've found. */
-                if (verbose) {
-                        print_eustall_churn(sample, addr,
-                                            first_found_offset,
-                                            time);
-                }
-
-                associate_sample(sample, first_found_file, first_found_vm_id,
-                                 addr, first_found_offset,
+                associate_sample(sample, low_offset_file, low_offset_vm_id,
+                                 low_offset_shader_addr, low_offset_offset,
                                  time);
                 eustall_info.guessed += num_stalls_in_sample(sample);
         }
-
+        
+        if (found) {
+                debug_printf("file=0x%lx vm_id=%u shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", low_offset_file, low_offset_vm_id,
+                            low_offset_shader_addr, low_offset_offset, low_offset_addr);
+        }
+        
         return found > 0;
 }
 
@@ -243,7 +242,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                 /* We're going to read from the end of the header until the end of these records */
                 if (sample > ((struct eustall_sample *)(perf_buf + len))) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
-                        WARN("EU stall reading would put us back the end of the buffer.\n");
+                        debug_printf("EU stall reading would put us back the end of the buffer.\n");
                         break;
                 }
 
@@ -354,18 +353,11 @@ void wakeup_eustall_deferred_attrib_thread() {
 }
 
 void handle_remaining_eustalls() {
-        struct timespec          spec;
-        unsigned long long       time;
         struct deferred_eustall *it;
-        uint64_t                 addr;
-
-        /* Get the timestamp */
-        clock_gettime(CLOCK_MONOTONIC, &spec);
-        time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
-                handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQIURED);
+                handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED);
 
                 addr = (((uint64_t)it->sample.ip) << 3) + iba;
                 if (verbose) {

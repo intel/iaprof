@@ -7,7 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "iaprof.h"
+#include "printers/debug/debug_printer.h"
 #include "utils/utils.h"
 
 #define MAX_CHARS_ADDR 16
@@ -264,3 +264,7 @@ uint64_t str_hash(char *s) {
 }
 
 int str_equ(char *a, char *b) { return strcmp(a, b) == 0; }
+
+uint64_t noop_hash(uint64_t key) {
+  return key;
+}

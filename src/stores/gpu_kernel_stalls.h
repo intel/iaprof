@@ -6,7 +6,6 @@
 #include <pthread.h>
 
 #include "collectors/bpf/bpf/main.h"
-#include "gpu_parsers/shader_decoder.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #include "utils/hash_table.h"
@@ -17,19 +16,10 @@ use_hash_table(uint64_t, offset_profile_struct);
 
 void clear_interval_profiles();
 void clear_unbound_buffers();
-void print_buffer_profiles();
 
-enum buffer_type {
-        BUFFER_TYPE_UNKNOWN = 0,
-        BUFFER_TYPE_BATCHBUFFER,
-        BUFFER_TYPE_SHADER,
-        BUFFER_TYPE_SYSTEM_ROUTINE,
-        BUFFER_TYPE_DEBUG_AREA,
-};
+struct kv_t;
 
 struct buffer_binding {
-        enum buffer_type type;
-
         uint64_t file;
         uint32_t handle;
 
@@ -46,23 +36,43 @@ struct buffer_binding {
         uint64_t bind_size;
         uint32_t vm_bind_order;
         int      unbound;
+};
 
-        /* The stack where this buffer was execbuffer'd */
+enum shader_type {
+        SHADER_TYPE_UNKNOWN = 0,
+        SHADER_TYPE_SHADER,
+        SHADER_TYPE_SYSTEM_ROUTINE,
+        SHADER_TYPE_DEBUG_AREA,
+};
+
+struct shader_binding {
+        enum shader_type type;
+        
+        /* The buffer that this shader is in */
+        uint64_t binding_addr, binding_size;
+        
+        uint32_t pid;
+        uint32_t vm_id;
+        char proc_name[TASK_COMM_LEN];
+        uint64_t gpu_addr;
+        
+        /* The stacks from which this shader was execbuffer'd */
         const char *execbuf_ustack_str;
         const char *execbuf_kstack_str;
-
-        /* Set if EU stalls are associated with this buffer */
+        
+        /* Set if EU stalls are associated with this shader */
         struct kv_t *kv;
-
+        
         /* The EU stalls. Key is the offset into the binary,
            value is a pointer to the struct of EU stall counts */
         hash_table(uint64_t, offset_profile_struct) stall_counts;
 };
 
 typedef struct buffer_binding buffer_binding_struct;
+typedef struct shader_binding shader_binding_struct;
 
 use_tree(uint64_t, buffer_binding_struct);
-
+use_tree(uint64_t, shader_binding_struct);
 
 struct vm_profile {
         uint64_t file;
@@ -73,6 +83,7 @@ struct vm_profile {
         _Atomic pthread_t lock_holder;
         char active;
         tree(uint64_t, buffer_binding_struct) bindings;
+        tree(uint64_t, shader_binding_struct) shaders;
 };
 
 struct file_vm_pair {
@@ -92,9 +103,12 @@ extern pthread_rwlock_t vm_profiles_lock;
 
 void init_profiles();
 struct buffer_binding *get_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *get_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_ordered_binding(uint32_t vm_bind_order);
 struct buffer_binding *get_or_create_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *create_shader(struct vm_profile *vm, uint64_t gpu_addr);
 struct buffer_binding *get_containing_binding(struct vm_profile *vm, uint64_t gpu_addr);
+struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu_addr);
 void delete_binding(struct vm_profile *vm, uint64_t gpu_addr);
 void free_profiles();
 
@@ -151,4 +165,34 @@ do {                                                                \
 do {                                                                \
         unlock_vm_profile(tree_it_val(_vit));                       \
         pthread_rwlock_unlock(&vm_profiles_lock);                   \
+} while (0)
+
+#define FOR_SHADER(vm, bind, ...)                                  \
+do {                                                                \
+        tree_it(file_vm_pair_struct, vm_profile_ptr) _vit;          \
+        tree_it(uint64_t, shader_binding_struct)     _bit;          \
+        pthread_rwlock_rdlock(&vm_profiles_lock);                   \
+        tree_traverse(vm_profiles, _vit) {                          \
+                (vm) = tree_it_val(_vit);                           \
+                lock_vm_profile((vm));                              \
+                tree_traverse((vm)->shaders, _bit) {               \
+                        (bind) = &tree_it_val(_bit);                \
+                        __VA_ARGS__                                 \
+                }                                                   \
+                unlock_vm_profile((vm));                            \
+        }                                                           \
+        pthread_rwlock_unlock(&vm_profiles_lock);                   \
+} while (0)
+
+#define FOR_SHADER_NOLOCK(vm, bind, ...)                            \
+do {                                                                \
+        tree_it(file_vm_pair_struct, vm_profile_ptr) _vit;          \
+        tree_it(uint64_t, shader_binding_struct)     _bit;          \
+        tree_traverse(vm_profiles, _vit) {                          \
+                (vm) = tree_it_val(_vit);                           \
+                tree_traverse((vm)->shaders, _bit) {               \
+                        (bind) = &tree_it_val(_bit);                \
+                        __VA_ARGS__                                 \
+                }                                                   \
+        }                                                           \
 } while (0)

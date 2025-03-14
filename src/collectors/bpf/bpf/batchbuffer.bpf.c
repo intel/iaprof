@@ -8,7 +8,7 @@
 #pragma once
 
 
-/* #define BB_DEBUG */
+#define BB_DEBUG
 
 #define BB_PRINTK(...) ;
 
@@ -184,25 +184,48 @@ u32 dword_to_op(u32 dword) {
         return GET_OPCODE(dword);
 }
 
-#if PLATFORM_HAS_MI_MATH
 
+/* Returns the length of a command. In the case of a few commands,
+   can be based on the value of some bits in the dword. */
 __attribute__((noinline))
 u8 command_len(u32 op, u32 dword) {
+#if PLATFORM_HAS_MI_MATH
         if (op == MATH) {
                 return dword & 7;
         }
+#endif
+#if PLATFORM_HAS_3DSTATE_CONSTANT_ALL
+        if (op == _3DSTATE_CONSTANT_ALL) {
+                return ((dword & 0xff) + 2);
+        }
+#endif
+#if PLATFORM_HAS_3DSTATE_VERTEX_BUFFERS
+        if (op == _3DSTATE_VERTEX_BUFFERS) {
+                return ((dword & 0xff) + 2);
+        }
+#endif
+#if PLATFORM_HAS_3DSTATE_VERTEX_ELEMENTS
+        if (op == _3DSTATE_VERTEX_ELEMENTS) {
+                return ((dword & 0xff) + 2);
+        }
+#endif
+#if PLATFORM_HAS_3DPRIMITIVE
+        if (op == _3DPRIMITIVE) {
+                return ((dword & 0xff) + 2);
+        }
+#endif
+#if PLATFORM_HAS_3DSTATE_BTD
+        if (op == _3DSTATE_BTD) {
+                return ((dword & 0xff) + 2);
+        }
+#endif
+        if (op == LOAD_REGISTER_IMM) {
+                return ((dword & 0xff) + 2);
+        }
+        
         return bb_cmd_lookup[op & 0x7fff];
 }
 #define COMMAND_LEN(_op, _dword) command_len((_op), (_dword))
-
-#else
-
-u8 command_len(u32 op) {
-        return bb_cmd_lookup[op & 0x7fff];
-}
-#define COMMAND_LEN(_op, _dword) command_len((_op))
-
-#endif
 
 __attribute__((noinline))
 int read_batch_buffer(u64 bbsp, struct batch_buffer *buff) {
@@ -310,7 +333,7 @@ int parse_next(struct parse_cxt *cxt) {
 
 
                 if (op == NOOP) {
-                    return BB_TRY_AGAIN;
+                        return BB_TRY_AGAIN;
                 }
 
 
@@ -318,7 +341,7 @@ int parse_next(struct parse_cxt *cxt) {
                         cxt->bb2l = MI_BATCH_BUFFER_START_2ND_LEVEL(dword);
 
                 } else if ((op == BATCH_BUFFER_START) && (which_dword == 2)) {
-                        bbsp = (((u64)dword) << 32) | last_dword;
+                        bbsp = (((u64)dword & 0xffff) << 32) | last_dword;
                         BB_PRINTK("  BBSP: 0x%llx", bbsp);
 
                         if (!!cxt->bb2l && (lvl < 2)) {
@@ -361,14 +384,23 @@ next_level_loaded:;
                         cxt->level -= 1;
                         lvl = cxt->level;
 
-                } else if ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD)) {
-                        ksp           = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
-                        cxt->has_ksps = 1;
-
-                        BB_PRINTK("  KSP: 0x%llx", ksp);
-
-                        bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
-
+                } else if (
+                           ((op == COMPUTE_WALKER) && (which_dword == COMPUTE_WALKER_KSP_DWORD))
+#ifdef XE_DRIVER
+                           || (((op == _3DSTATE_VS) || (op == _3DSTATE_GS) || (op == _3DSTATE_DS)) && (which_dword == 2))
+                           || (((op == _3DSTATE_HS) && (which_dword == 3)))
+                           || (((op == _3DSTATE_PS) && ((which_dword == 2) || (which_dword == 9) || (which_dword == 11))))
+#endif
+        			  ) {
+                             
+                        ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
+                        
+                        if (ksp) {
+                                cxt->has_ksps = 1;
+                                BB_PRINTK("  KSP: 0x%llx", ksp);
+                                bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
+                        }
+                        
                 } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
                         cxt->iba = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFF000);
                         BB_PRINTK("  IBA: 0x%llx", cxt->iba);

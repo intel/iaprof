@@ -39,13 +39,17 @@ if [[ ${GPU_DRIVER} == "i915" ]] || [[ ${GPU_DRIVER} == "xe" ]]; then
     exit 1
   fi
 
-  ${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
-  RETVAL="$?"
-  if [ $RETVAL -ne 0 ]; then
-    echo "    I can't find the BTF information for drm! Aborting."
-    exit 1
+  RETVAL=1
+  if [ -f /sys/kernel/btf/drm ]; then
+    ${BPFTOOL} btf dump file /sys/kernel/btf/drm format c > ${GENERATED_HEADERS}/drm.h
+    RETVAL="$?"
   fi
+  if [ $RETVAL -ne 0 ]; then
+    echo "    WARNING: I can't find the BTF information for drm!"
+  fi
+
 fi
+
 
 # Compile the BPF object code
 echo "  Compiling the BPF program..."
