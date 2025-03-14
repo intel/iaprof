@@ -90,8 +90,6 @@ int open_first_driver(device_info *devinfo)
 
                 /* If the driver name isn't "i915", go to the next one. */
                 if ((strcmp(version.name, "i915") != 0) && (strcmp(version.name, "xe") != 0)) {
-                        WARN("Found a driver called '%s' on device %s, but it's not supported.\n",
-                             version.name, filename);
                         close(fd);
                         fd = -1;
                         continue;

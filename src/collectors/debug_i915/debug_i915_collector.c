@@ -160,7 +160,7 @@ int debug_i915_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t
                 break;
         }
 
-        WARN("Couldn't find a symbol for addr=0x%lx\n", addr);
+        debug_printf("Couldn't find a symbol for addr=0x%lx\n", addr);
 
         return -1;
 }

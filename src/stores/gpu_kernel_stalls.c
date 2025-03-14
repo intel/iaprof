@@ -108,7 +108,7 @@ struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu
 
         if ((gpu_addr < shader->gpu_addr) || 
             (gpu_addr >= (shader->binding_addr + shader->binding_size))) {
-                WARN("gpu_addr=0x%lx is out of range for buffer gpu_addr=0x%lx bind_size=0x%lx\n",
+                debug_printf("gpu_addr=0x%lx is out of range for buffer gpu_addr=0x%lx bind_size=0x%lx\n",
                      gpu_addr, shader->binding_addr, shader->binding_size);
                 /* XXX: WARNING: We do NOT check the size of the shader, since we have no
                    way of knowing it. This can lead to mis-association if we don't know
@@ -122,7 +122,6 @@ struct shader_binding *get_containing_shader(struct vm_profile *vm, uint64_t gpu
 struct shader_binding *create_shader(struct vm_profile *vm, uint64_t gpu_addr) {
         tree_it(uint64_t, shader_binding_struct) it;
         struct shader_binding new_shader;
-        struct shader_binding *shader;
         struct buffer_binding *buff;
 
         assert(vm->lock_holder == pthread_self()
@@ -130,7 +129,7 @@ struct shader_binding *create_shader(struct vm_profile *vm, uint64_t gpu_addr) {
                 
         buff = get_containing_binding(vm, gpu_addr);
         if (!buff) {
-                WARN("create_shader couldn't find a binding for 0x%lx\n", gpu_addr);
+                debug_printf("create_shader couldn't find a binding for 0x%lx\n", gpu_addr);
                 return NULL;
         }
 
@@ -141,11 +140,6 @@ struct shader_binding *create_shader(struct vm_profile *vm, uint64_t gpu_addr) {
         
         it = tree_insert(vm->shaders, gpu_addr, new_shader);
         
-        WARN("New shader table:\n");
-        FOR_SHADER_NOLOCK(vm, shader, {
-                WARN("0x%lx\n", shader->gpu_addr);
-        });
-
         return &tree_it_val(it);
 }
 

@@ -74,15 +74,14 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         vm = acquire_vm_profile(file, vm_id);
 
         if (!vm) {
-                WARN("associate_sample didn't find vm_id=%u\n",
-                     vm_id);
+                debug_printf("associate_sample didn't find vm_id=%u\n", vm_id);
                 return -1;
         }
 
         shader = get_shader(vm, gpu_addr);
 
         if (!shader) {
-                WARN("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
+                debug_printf("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
                      vm_id, gpu_addr);
                 release_vm_profile(vm);
                 return -1;
@@ -240,7 +239,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                 /* We're going to read from the end of the header until the end of these records */
                 if (sample > ((struct eustall_sample *)(perf_buf + len))) {
                         /* Reading all of these samples would put us past the end of the buffer that we read */
-                        WARN("EU stall reading would put us back the end of the buffer.\n");
+                        debug_printf("EU stall reading would put us back the end of the buffer.\n");
                         break;
                 }
 

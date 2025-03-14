@@ -148,8 +148,6 @@ int read_opts(int argc, char **argv)
                 }
         }
         
-        printf("optind: %d, argc: %d\n", optind, argc);
-
         if ((optind < argc) && (optind != 1)) {
                 for (int i = optind; i < argc; i++) {
                         size += strlen(argv[i]) + 2; /* Make room for trailing space and NULL terminator. */

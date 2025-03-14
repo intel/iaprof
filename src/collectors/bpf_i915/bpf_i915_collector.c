@@ -377,7 +377,6 @@ int init_bpf_i915()
                 fscanf(file, "%d", &stack_limit);
                 fclose(file);
         }
-        fprintf(stderr, "Stack limit is now: %d\n", stack_limit);
 
         bpf_info.stackmap_fd = bpf_map_create(BPF_MAP_TYPE_STACK_TRACE,
                                  "stackmap", 4, sizeof(uintptr_t) * stack_limit,

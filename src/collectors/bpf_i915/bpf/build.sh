@@ -7,7 +7,7 @@ CLANG=${CLANG:-clang}
 BPF_CFLAGS=${BPF_CFLAGS:--O2}
 LLVM_STRIP=${LLVM_STRIP:-llvm-strip}
 
-BPF_CFLAGS+=" -DDEBUG"
+# BPF_CFLAGS+=" -DDEBUG"
 if [ ! -z ${IAPROF_XE_DRIVER} ]; then
         BPF_CFLAGS+=" -DXE_DRIVER"
 fi
