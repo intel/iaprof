@@ -20,7 +20,6 @@ void xe_print_props(struct drm_xe_ext_set_property *properties)
         
         proptr = properties;
         while (proptr) {
-                fprintf(stderr, "Property: 0x%x Value: 0x%llx Next: 0x%llx\n", proptr->property, proptr->value, proptr->base.next_extension);
                 proptr = (struct drm_xe_ext_set_property *)proptr->base.next_extension;
         }
 }
@@ -90,8 +89,6 @@ int xe_query_eu_stalls(int fd, struct drm_xe_query_eu_stall **stall_info)
                 return -1;
         }
         
-        fprintf(stderr, "Got a record size of: %llu\n", (*stall_info)->record_size);
-
         return 0;
 }
 

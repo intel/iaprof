@@ -107,7 +107,7 @@ void init_debug(int fd, int pid)
 #endif
 
         if (debug_fd < 0) {
-                WARN("Failed to open the debug interface for PID %d: %d.\n", pid, debug_fd);
+                debug_printf("Failed to open the debug interface for PID %d: %d.\n", pid, debug_fd);
                 goto out;
         }
 

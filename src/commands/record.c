@@ -189,50 +189,33 @@ void print_status(const char *msg)
 void print_number(uint64_t num)
 {
         if (num >= 1000000) {
-                fprintf(stderr, "%8zum", num / 1000000);
+                fprintf(stderr, "%6zum", num / 1000000);
         } else if (num > 1000) {
-                fprintf(stderr, "%8zuk", num / 1000);
+                fprintf(stderr, "%6zuk", num / 1000);
         } else {
-                fprintf(stderr, "%9zu", num);
+                fprintf(stderr, "%7zu", num);
         }
 }
 
-int first = 1;
-
-void print_table()
-{
-        if (isatty(STDERR_FILENO) && !first) {
-                fprintf(stderr,
-                        "\x1B"
-                        "[%dA",
-                        7);
-        } else {
-                first = 0;
-        }
-        fprintf(stderr, "|--------------------------------------------|\n");
-        fprintf(stderr, "|                    Stalls                  |\n");
-        fprintf(stderr, "|--------------------------------------------|\n");
-        fprintf(stderr, "|  Matched  |  Unmatched/Pending |  Guessed  |\n");
-        fprintf(stderr, "|--------------------------------------------|\n");
-        fprintf(stderr, "| ");
-        print_number(eustall_info.matched);
-        fprintf(stderr, " |          ");
-        pthread_mutex_lock(&eustall_waitlist_mtx);
-        print_number(array_len(*eustall_waitlist));
-        pthread_mutex_unlock(&eustall_waitlist_mtx);
-        fprintf(stderr, " | ");
-        print_number(eustall_info.guessed);
-        fprintf(stderr, " |\n");
-        fprintf(stderr, "|--------------------------------------------|\n");
-        fflush(stderr);
-}
-
-void print_status_table(int seconds)
+void print_table(int seconds)
 {
         if (quiet || debug)
                 return;
-
-        print_table();
+                
+        if (isatty(STDERR_FILENO)) {
+                fprintf(stderr, "\r\e[2K");
+        }
+        
+        fprintf(stderr, "Matched: ");
+        print_number(eustall_info.matched);
+        
+        fprintf(stderr, " | Unmatched: ");
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        print_number(array_len(*eustall_waitlist));
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
+        
+        fprintf(stderr, " | Guessed: ");
+        print_number(eustall_info.guessed);
 }
 
 /*******************
@@ -645,7 +628,7 @@ void record(int argc, char **argv)
                 gettimeofday(&tv, NULL);
 
                 if (!main_thread_should_stop) {
-                        print_status_table((int)tv.tv_sec - startsecs);
+                        print_table((int)tv.tv_sec - startsecs);
                 }
 
                 if (*bpf_info.dropped_event) {
@@ -654,7 +637,7 @@ void record(int argc, char **argv)
         }
         
         if (collect_threads_profiling) {
-                print_status("\nProfile stopped. Assembling output...\n");
+                print_status("Profile stopped. Assembling output...\n");
         } else {
                 print_status(
                         "Exit requested (had not yet started profiling).\n");
@@ -673,7 +656,8 @@ void record(int argc, char **argv)
           print_debug_profile();
         }
         gettimeofday(&tv, NULL);
-        print_status_table((int)tv.tv_sec - startsecs);
+        print_table((int)tv.tv_sec - startsecs);
+        fprintf(stderr, "\n");
 
         free_profiles();
         fflush(stdout);

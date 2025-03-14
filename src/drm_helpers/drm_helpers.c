@@ -200,8 +200,8 @@ int get_drm_device_info(device_info *devinfo)
                         return -1;
                 }
 
-                fprintf(stderr, "Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
-                fprintf(stderr, "VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
+                debug_printf("Device ID and revision: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID]);
+                debug_printf("VA bits: 0x%llx\n", qc->info[DRM_XE_QUERY_CONFIG_VA_BITS]);
 
                 devinfo->id = qc->info[DRM_XE_QUERY_CONFIG_REV_AND_DEVICE_ID] & 0xffff;
                 devinfo->va_bits = qc->info[DRM_XE_QUERY_CONFIG_VA_BITS];
