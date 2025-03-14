@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <linux/types.h>
-#include "collectors/bpf_i915/bpf/main.h"
+#include "collectors/bpf/bpf/main.h"
 
 enum profile_event {
         PROFILE_EVENT_STRING = 0,

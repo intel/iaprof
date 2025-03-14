@@ -169,28 +169,28 @@ void store_kernel_profile(struct shader_binding *shader)
 }
 
 void store_unknown_flames(array_t *waitlist) {
-        struct proto_flame       flame;
+        struct sample           samp;
         struct deferred_eustall *it;
 
-        memset(&flame, 0, sizeof(flame));
+        memset(&samp, 0, sizeof(samp));
 
-        flame.insn_text = failed_decode;
-        flame.offset    = 0;
+        samp.insn_id = failed_decode_id;
+        samp.offset    = 0;
 
         array_traverse(*waitlist, it) {
-                flame.addr = (((uint64_t)it->sample.ip) << 3) + iba;
+                samp.addr = (((uint64_t)it->sample.ip) << 3) + iba;
 
-                flame.stall_type = STALL_TYPE_ACTIVE;     update_flame(&flame, it->sample.active);
-                flame.stall_type = STALL_TYPE_CONTROL;    update_flame(&flame, it->sample.control);
-                flame.stall_type = STALL_TYPE_PIPESTALL;  update_flame(&flame, it->sample.pipestall);
-                flame.stall_type = STALL_TYPE_SEND;       update_flame(&flame, it->sample.send);
-                flame.stall_type = STALL_TYPE_DIST_ACC;   update_flame(&flame, it->sample.dist_acc);
-                flame.stall_type = STALL_TYPE_SBID;       update_flame(&flame, it->sample.sbid);
-                flame.stall_type = STALL_TYPE_SYNC;       update_flame(&flame, it->sample.sync);
-                flame.stall_type = STALL_TYPE_INST_FETCH; update_flame(&flame, it->sample.inst_fetch);
-                flame.stall_type = STALL_TYPE_OTHER;      update_flame(&flame, it->sample.other);
+                samp.stall_type = STALL_TYPE_ACTIVE;     update_sample(&samp, it->sample.active);
+                samp.stall_type = STALL_TYPE_CONTROL;    update_sample(&samp, it->sample.control);
+                samp.stall_type = STALL_TYPE_PIPESTALL;  update_sample(&samp, it->sample.pipestall);
+                samp.stall_type = STALL_TYPE_SEND;       update_sample(&samp, it->sample.send);
+                samp.stall_type = STALL_TYPE_DIST_ACC;   update_sample(&samp, it->sample.dist_acc);
+                samp.stall_type = STALL_TYPE_SBID;       update_sample(&samp, it->sample.sbid);
+                samp.stall_type = STALL_TYPE_SYNC;       update_sample(&samp, it->sample.sync);
+                samp.stall_type = STALL_TYPE_INST_FETCH; update_sample(&samp, it->sample.inst_fetch);
+                samp.stall_type = STALL_TYPE_OTHER;      update_sample(&samp, it->sample.other);
 #if GPU_DRIVER == GPU_DRIVER_xe
-                flame.stall_type = STALL_TYPE_TDR;        update_flame(&flame, it->sample.tdr);
+                samp.stall_type = STALL_TYPE_TDR;        update_sample(&samp, it->sample.tdr);
 #endif
         }
 }

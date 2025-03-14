@@ -235,16 +235,6 @@ PRINTERS_DIR="${SRC_DIR}/printers"
 
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
-  ${PRINTERS_DIR}/printer.c \
-  -o ${PRINTERS_DIR}/printer.o
-
-# ${CC} ${COMMON_FLAGS} -c \
-#   -I${PREFIX}/include \
-#   ${PRINTERS_DIR}/flamegraph/flamegraph_printer.c \
-#   -o ${PRINTERS_DIR}/flamegraph/flamegraph_printer.o
-
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
   ${PRINTERS_DIR}/debug/debug_printer.c \
   -o ${PRINTERS_DIR}/debug/debug_printer.o
 
@@ -331,7 +321,6 @@ ${CXX} ${LDFLAGS} \
   \
   ${IAPROF_COLLECTORS} \
   \
-  ${PRINTERS_DIR}/printer.o \
   ${PRINTERS_DIR}/stack/stack_printer.o \
   ${PRINTERS_DIR}/debug/debug_printer.o \
   ${PRINTERS_DIR}/interval/interval_printer.o \

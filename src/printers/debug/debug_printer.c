@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <linux/types.h>
 
-#include "collectors/bpf_i915/bpf/main.h"
-#include "collectors/bpf_i915/bpf/main.skel.h"
+#include "collectors/bpf/bpf/main.h"
+#include "collectors/bpf/bpf/main.skel.h"
 #include "collectors/eustall/eustall_collector.h"
 
 #include "printers/stack/stack_printer.h"

@@ -4,7 +4,7 @@
 #include "printers/debug/debug_printer.h"
 #include "printers/flamegraph/flamegraph_printer.h"
 #include "stores/interval_profile.h"
-#include "collectors/debug_i915/debug_i915_collector.h"
+#include "collectors/debug/debug_collector.h"
 #include "utils/utils.h"
 #include "printers/interval/interval_printer.h"
 
@@ -258,7 +258,7 @@ void print_eustall(struct sample *samp, uint64_t *countp)
         /* Ensure we've got a GPU symbol */
         gpu_file_id = 0;
         gpu_symbol_id = 0;
-        debug_i915_get_sym(samp->pid, samp->addr, &gpu_symbol_id, &gpu_file_id);
+        debug_get_sym(samp->pid, samp->addr, &gpu_symbol_id, &gpu_file_id);
         
         /* Construct a string to print out for the file of the GPU code */
         if (!gpu_file_id) {

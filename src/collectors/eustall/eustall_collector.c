@@ -115,7 +115,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
 
 enum {
         EUSTALL_SAMPLE_DEFERRED                 = (1 << 0),
-        EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED = (1 << 1),
+        EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED = (1 << 1),
 };
 
 static int handle_eustall_sample(struct eustall_sample *sample, unsigned long long time, int flags) {
@@ -162,16 +162,16 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                         goto next;
                 }
 
-                if (!(flags & EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED)) {
-                        if ((bind->type != BUFFER_TYPE_SHADER)
-                        &&  (bind->type != BUFFER_TYPE_DEBUG_AREA)
-                        &&  (bind->type != BUFFER_TYPE_SYSTEM_ROUTINE)) {
+                if (!(flags & EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED)) {
+                        if ((shader->type != SHADER_TYPE_SHADER)
+                        &&  (shader->type != SHADER_TYPE_DEBUG_AREA)
+                        &&  (shader->type != SHADER_TYPE_SYSTEM_ROUTINE)) {
 
                                 goto next;
                         }
                 }
 
-                start = bind->gpu_addr;
+                start = shader->gpu_addr;
                 offset = addr - start;
 
                 found++;
@@ -357,12 +357,8 @@ void handle_remaining_eustalls() {
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
-                handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_BUFFER_TYPE_NOT_REQUIRED);
+                handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED);
 
-                addr = (((uint64_t)it->sample.ip) << 3) + iba;
-                if (verbose) {
-                        print_eustall_drop(&it->sample, addr, time);
-                }
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);
