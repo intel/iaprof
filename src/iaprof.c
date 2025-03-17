@@ -30,11 +30,11 @@ static void (*command_ptrs[]) (int, char**) = {
 int main(int argc, char **argv)
 {
   int i;
-  
+
   if (argc < 2) {
           ERR("No commands specified. Aborting.\n");
   }
-  
+
   /* Determine the subcommand */
   for (i = 0; i < COMMANDS_MAX; i++) {
           if (strcmp(argv[1], command_strs[i]) == 0) {
@@ -42,7 +42,7 @@ int main(int argc, char **argv)
                   return 0;
           }
   }
-  
-  ERR("Command not recognized! Aborting.\n");
+
+  ERR("Command '%s' not recognized! Aborting.\n", argv[1]);
   return 1;
 }
