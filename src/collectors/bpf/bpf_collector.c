@@ -125,6 +125,8 @@ int handle_vm_unbind(void *data_arg)
         }
 
         vm = acquire_vm_profile(info->file, info->vm_id);
+        if (vm == NULL)
+                return 0;
 
         bind = get_binding(vm, info->gpu_addr);
         if (bind == NULL) {
