@@ -7,6 +7,11 @@ tags
 core.*
 out/
 build/
+cov-int/
+coverity
+coverity_report/
+covreport.yml
+csv.tpl
 
 reference/kernel_headers
 reference/*.deb
