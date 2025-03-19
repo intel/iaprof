@@ -6,6 +6,7 @@ tags
 /*.txt
 core.*
 out/
+build/
 
 reference/kernel_headers
 reference/*.deb

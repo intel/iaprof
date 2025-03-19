@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+set -eux
 
-cd ${DIR}/..
+readonly SCRIPT="${BASH_SOURCE[0]}"
+readonly SCRIPT_PATH="${SCRIPT%/*}"
 
-RELEASE_NAME="iaprof-$(date +%F)"
+: "${RELEASE_NAME=iaprof-$(date +%F)}"
+readonly rel_dir="build/${RELEASE_NAME}"
 
-rm -rf ${RELEASE_NAME}
-mkdir -p ${RELEASE_NAME}
+if [[ -d build ]]; then
+  rm -rf build
+fi
+install -d "${rel_dir}"/{bin,share}
+install -d "${rel_dir}"/share/doc/{flamegraph,iaprof}
+install -m 0755 "${SCRIPT_PATH}"/../iaprof "${rel_dir}/bin/"
+install -m 0755 "${SCRIPT_PATH}"/release_aiflamegraph.sh "${rel_dir}/bin/aiflamegraph.sh"
+install -m 0644 "${SCRIPT_PATH}"/license.txt "${rel_dir}/share/doc/iaprof/license.txt"
+install -m 0755 "${SCRIPT_PATH}"/../deps/flamegraph/flamegraph.pl \
+  "${rel_dir}/bin/flamegraph.pl"
+install -m 0644 "${SCRIPT_PATH}"/../deps/flamegraph/docs/cddl1.txt \
+  "${rel_dir}/share/doc/flamegraph/cddl1.txt"
 
-cp iaprof ${RELEASE_NAME}
-cp scripts/release_aiflamegraph.sh ${RELEASE_NAME}/aiflamegraph.sh
-cp scripts/license.txt ${RELEASE_NAME}/license.txt
-mkdir ${RELEASE_NAME}/deps
-cp -r deps/flamegraph ${RELEASE_NAME}/deps
-
-cat > ${RELEASE_NAME}/README.md << 'EOF'
+cat > "${rel_dir}/share/doc/iaprof/README.md" << 'EOF'
 # Intel AI Flame Graph
 
 ## Instructions
@@ -24,6 +30,3 @@ cat > ${RELEASE_NAME}/README.md << 'EOF'
 - Interrupt the script with `ctrl-C` to stop profiling.
 - Open the generated flame graph SVG file in a browser or other image viewer.
 EOF
-
-tar czf ${RELEASE_NAME}.tar.gz ${RELEASE_NAME}
-rm -rf ${RELEASE_NAME}
