@@ -130,6 +130,7 @@ int open_sysfs_dir(int fd)
         }
         if (minor(st.st_rdev) >= 128) {
                 /* We don't support renderD* file descriptors */
+                close(ret_fd);
                 return -1;
         }
         return ret_fd;
@@ -218,6 +219,7 @@ int get_drm_device_info(device_info *devinfo)
 #endif
         } else {
                 WARN("The DRM driver '%s' is not supported. Aborting.\n", devinfo->name);
+                close(sysfs_dir_fd);
                 return -1;
         }
 
@@ -234,6 +236,7 @@ int get_drm_device_info(device_info *devinfo)
                 return -1;
         }
 
+        close(sysfs_dir_fd);
         return 0;
 }
 

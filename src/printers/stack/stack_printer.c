@@ -185,6 +185,8 @@ static hll_syms_map_t get_hll_syms(int pid) {
                         tree_insert(map, sym->start, sym);
                 }
 
+                fclose(f);
+
 insert:;
                 hash_table_insert(hll_syms, pid, map);
         }

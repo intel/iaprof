@@ -87,6 +87,7 @@ int get_pid_lib_path(pid_t pid, const char *lib, char *path, size_t path_sz)
                         continue;
                 if (strnlen(path_buf, 1024) >= path_sz) {
                         warn("path size too small\n");
+                        fclose(maps);
                         return -1;
                 }
                 strcpy(path, path_buf);
