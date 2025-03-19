@@ -12,7 +12,6 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
         u32 cpu, handle, vm_id;
         u64 status, size;
         void *lookup;
-        struct vm_bind_info *info;
         struct prelim_drm_i915_gem_vm_bind *args;
         int retval = 0;
 
@@ -55,28 +54,6 @@ int BPF_PROG(i915_gem_vm_bind_ioctl,
                 }
         }
 
-        /* Reserve some space on the ringbuffer */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
-        if (!info) {
-                ERR_PRINTK("vm_bind_ioctl failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
-        /* vm_bind specific values */
-        info->type = BPF_EVENT_TYPE_VM_BIND;
-        info->file = (u64)file;
-        info->handle = handle;
-        info->vm_id = vm_id;
-        info->gpu_addr = gpu_addr;
-        info->size = size;
-        info->offset = BPF_CORE_READ(args, offset);
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
-
         return 0;
 }
 
@@ -85,7 +62,6 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
              struct drm_device *dev, void *data,
              struct drm_file *file)
 {
-        struct vm_unbind_info *info;
         struct prelim_drm_i915_gem_vm_bind *arg;
         u64 status, gpu_addr;
         u32 vm_id;
@@ -121,32 +97,6 @@ int BPF_PROG(i915_gem_vm_unbind_ioctl,
         if (retval < 0) {
                 WARN_PRINTK("vm_unbind_ioctl failed to delete cpu_addr=0x%lx from the cpu_gpu_map.", cmapping.addr);
         }
-
-        /* Reserve some space on the ringbuffer */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_unbind_info), 0);
-        if (!info) {
-                ERR_PRINTK("vm_unbind_ioctl failed to reserve in the ringbuffer.");
-                status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", status);
-                dropped_event = 1;
-                return 0;
-        }
-
-        /* vm_unbind specific values */
-        info->type = BPF_EVENT_TYPE_VM_UNBIND;
-        info->file = (u64)file;
-        info->handle = BPF_CORE_READ(arg, handle);
-        info->vm_id = vm_id;
-        info->gpu_addr = gpu_addr;
-        info->size = BPF_CORE_READ(arg, length);
-        info->offset = BPF_CORE_READ(arg, offset);
-
-        info->cpu = bpf_get_smp_processor_id();
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-        info->tid = bpf_get_current_pid_tgid();
-        info->time = bpf_ktime_get_ns();
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 
         return 0;
 }

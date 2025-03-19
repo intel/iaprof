@@ -31,9 +31,6 @@
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 
-uint32_t global_vm_id = 0;
-static uint32_t vm_bind_bpf_counter = 0;
-
 struct live_execbuf {
         uint64_t    eb_id;
         uint64_t    file;
@@ -54,94 +51,6 @@ static hash_table(uint64_t, live_execbuf_struct) live_execbufs;
 /***************************************
 * BPF Handlers
 ***************************************/
-
-int handle_vm_create(void *data_arg)
-{
-        struct vm_create_info *info;
-
-        info = (struct vm_create_info *)data_arg;
-        if (debug) {
-                print_vm_create(info);
-        }
-
-        create_vm_profile(info->file, info->vm_id);
-
-        if (debug_collector) {
-                /* Register the PID with the debug collector */
-                init_debug(devinfo.fd, info->pid);
-        }
-
-        return 0;
-}
-
-int handle_vm_bind(void *data_arg)
-{
-        struct vm_bind_info *info;
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-
-
-        info = (struct vm_bind_info *)data_arg;
-        if (debug) {
-                print_vm_bind(info, vm_bind_bpf_counter);
-        }
-
-        vm = acquire_vm_profile(info->file, info->vm_id);
-
-        if (!vm) {
-                if (debug) {
-                        WARN("Got a vm_bind to vm_id=%u file=0x%llx gpu_addr=0x%llx, for which there was no VM.\n",
-                            info->vm_id, info->file, info->gpu_addr);
-                }
-                vm_bind_bpf_counter++;
-                goto cleanup;
-        }
-
-        bind = get_or_create_binding(vm, info->gpu_addr);
-        bind->bind_size = info->size;
-        bind->pid = info->pid;
-        bind->handle = info->handle;
-        bind->file = info->file;
-        bind->vm_bind_order = vm_bind_bpf_counter;
-
-        release_vm_profile(vm);
-
-cleanup:
-
-        vm_bind_bpf_counter++;
-
-        return 0;
-}
-
-int handle_vm_unbind(void *data_arg)
-{
-        struct vm_unbind_info *info;
-        struct vm_profile *vm;
-        struct buffer_binding *bind;
-
-        info = (struct vm_unbind_info *)data_arg;
-        if (debug) {
-                print_vm_unbind(info);
-        }
-
-        vm = acquire_vm_profile(info->file, info->vm_id);
-
-        bind = get_binding(vm, info->gpu_addr);
-        if (bind == NULL) {
-                if (debug) {
-                        WARN("Got a vm_unbind on gpu_addr=0x%llx for which there wasn't a vm_bind!\n",
-                             info->gpu_addr);
-                }
-                goto cleanup;
-        }
-
-        bind->unbound = 1;
-
-cleanup:
-        release_vm_profile(vm);
-
-        return 0;
-}
 
 int handle_execbuf(void *data_arg)
 {
@@ -166,6 +75,11 @@ int handle_execbuf(void *data_arg)
         print_string(live.kstack_str);
 
         hash_table_insert(live_execbufs, info->eb_id, live);
+
+        if (debug_collector) {
+                /* Register the PID with the debug collector */
+                init_debug(devinfo.fd, info->pid);
+        }
 
         return 0;
 }
@@ -193,7 +107,6 @@ int handle_iba(void *data_arg)
 {
         struct iba_info       *info;
         struct live_execbuf   *exec;
-        struct vm_profile     *vm;
 
         if (iba) { return 0; }
 
@@ -207,28 +120,15 @@ int handle_iba(void *data_arg)
                 return 0;
         }
 
-        /* Debug Area should be in VM 1 */
-        vm = acquire_vm_profile(exec->file, 1);
-        if (vm == NULL) {
-                WARN("Unable to find a vm_profile for vm_id=%u\n",
-                     1);
-                return 0;
-        }
-
-        release_vm_profile(vm);
-
-/*         wakeup_eustall_deferred_attrib_thread(); */
-
         return 0;
 }
 
 int handle_ksp(void *data_arg)
 {
-        struct ksp_info       *info;
-        struct live_execbuf   *exec;
-        struct vm_profile     *vm;
-        uint64_t               masked_addr;
-        struct shader_binding *shader_bind;
+        struct ksp_info     *info;
+        struct live_execbuf *exec;
+        uint64_t             masked_addr;
+        struct shader       *shader;
 
         info = (struct ksp_info *)data_arg;
         exec = hash_table_get_val(live_execbufs, info->eb_id);
@@ -237,46 +137,31 @@ int handle_ksp(void *data_arg)
                 return 0;
         }
 
-        vm = acquire_vm_profile(exec->file, exec->vm_id);
-        if (vm == NULL) {
-                WARN("Unable to find a vm_profile for vm_id=%u\n",
-                     exec->vm_id);
-                return 0;
-        }
-
         masked_addr = info->addr & 0xFFFFFFFFFF00;
-        shader_bind = get_shader(vm, iba + masked_addr);
-        if (!shader_bind) {
-                shader_bind = create_shader(vm, iba + masked_addr);
-                if (!shader_bind) {
-                        goto exit;
-                }
-                shader_bind->type = SHADER_TYPE_SHADER;
-                debug_printf("  Marked buffer as a shader: file=0x%lx vm_id=%u gpu_addr=0x%lx\n",
-                             exec->file, vm->vm_id, shader_bind->gpu_addr);
-                debug_printf("  Shader in buffer: gpu_addr=0x%lx size=0x%lx\n",
-                             shader_bind->binding_addr, shader_bind->binding_size);
+        shader      = acquire_shader(iba + masked_addr);
+        if (!shader) {
+                shader = create_and_acquire_shader(iba + masked_addr);
+                shader->type = SHADER_TYPE_SHADER;
+                debug_printf("  Marked buffer as a shader: file=0x%lx gpu_addr=0x%lx\n", exec->file, shader->gpu_addr);
         }
 
-        shader_bind->pid                = exec->pid;
-        shader_bind->vm_id              = exec->vm_id;
-        shader_bind->execbuf_ustack_str = exec->ustack_str;
-        shader_bind->execbuf_kstack_str = exec->kstack_str;
-        memcpy(shader_bind->proc_name, exec->name, TASK_COMM_LEN);
+        shader->pid        = exec->pid;
+        shader->vm_id      = exec->vm_id;
+        shader->ustack_str = exec->ustack_str;
+        shader->kstack_str = exec->kstack_str;
+        memcpy(shader->proc_name, exec->name, TASK_COMM_LEN);
 
-exit:
-        release_vm_profile(vm);
-/*         wakeup_eustall_deferred_attrib_thread(); */
+        release_shader(shader);
+        wakeup_eustall_deferred_attrib_thread();
 
         return 0;
 }
 
 int handle_sip(void *data_arg)
 {
-        struct sip_info       *info;
-        struct live_execbuf   *exec;
-        struct vm_profile     *vm;
-        struct shader_binding *shader_bind;
+        struct sip_info     *info;
+        struct live_execbuf *exec;
+        struct shader       *shader;
 
         info = (struct sip_info *)data_arg;
         exec = hash_table_get_val(live_execbufs, info->eb_id);
@@ -285,35 +170,72 @@ int handle_sip(void *data_arg)
                 return 0;
         }
 
-        vm = acquire_vm_profile(exec->file, exec->vm_id);
-        if (vm == NULL) {
-                WARN("Unable to find a vm_profile for vm_id=%u\n",
-                     exec->vm_id);
-                return 0;
+        shader = acquire_shader(iba + info->addr);
+        if (!shader) {
+                shader = create_and_acquire_shader(iba + info->addr);
+                shader->type = SHADER_TYPE_SYSTEM_ROUTINE;
+                debug_printf("  Marked buffer as a SIP: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
 
-        shader_bind = get_shader(vm, iba + info->addr);
-        if (!shader_bind) {
-                shader_bind = create_shader(vm, iba + info->addr);
-                if (!shader_bind) {
-                        goto exit;
-                }
-                shader_bind->type               = SHADER_TYPE_SYSTEM_ROUTINE;
-                debug_printf("  Marked buffer as a SIP: vm_id=%u gpu_addr=0x%lx\n",
-                             vm->vm_id, shader_bind->gpu_addr);
-        }
+        shader->pid        = exec->pid;
+        shader->vm_id      = exec->vm_id;
+        shader->ustack_str = exec->ustack_str;
+        shader->kstack_str = exec->kstack_str;
+        memcpy(shader->proc_name, exec->name, TASK_COMM_LEN);
 
-        shader_bind->pid                = exec->pid;
-        shader_bind->vm_id              = exec->vm_id;
-        shader_bind->execbuf_ustack_str = exec->ustack_str;
-        shader_bind->execbuf_kstack_str = exec->kstack_str;
-        memcpy(shader_bind->proc_name, exec->name, TASK_COMM_LEN);
-
-exit:
-        release_vm_profile(vm);
+        release_shader(shader);
+        wakeup_eustall_deferred_attrib_thread();
 
         return 0;
 }
+
+int handle_uprobe_iba(void *data_arg)
+{
+        struct uprobe_iba_info *info;
+
+        if (iba) { return 0; }
+
+        info = data_arg;
+        debug_printf("  IBA: 0x%llx\n", info->addr);
+        iba = info->addr;
+
+        return 0;
+}
+
+int handle_uprobe_ksp(void *data_arg)
+{
+        struct uprobe_ksp_info *info;
+        uint64_t                masked_addr;
+        struct shader          *shader;
+
+        info = (struct uprobe_ksp_info *)data_arg;
+
+        if (debug_collector) {
+                /* Register the PID with the debug collector */
+                init_debug(devinfo.fd, info->pid);
+        }
+
+        masked_addr = info->addr & 0xFFFFFFFFFF00;
+        shader      = acquire_shader(iba + masked_addr);
+        if (!shader) {
+                shader = create_and_acquire_shader(iba + masked_addr);
+                shader->type = SHADER_TYPE_SHADER;
+                debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
+        }
+
+        shader->pid        = info->pid;
+        shader->ustack_str = store_ustack(info->pid, &info->ustack);
+        shader->kstack_str = NULL;
+        memcpy(shader->proc_name, info->name, TASK_COMM_LEN);
+
+        print_string(shader->ustack_str);
+
+        release_shader(shader);
+        wakeup_eustall_deferred_attrib_thread();
+
+        return 0;
+}
+
 
 /* Runs each time a sample from the ringbuffer is collected. */
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
@@ -323,14 +245,13 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
-                case BPF_EVENT_TYPE_VM_CREATE:   return handle_vm_create(data_arg);
-                case BPF_EVENT_TYPE_VM_BIND:     return handle_vm_bind(data_arg);
-                case BPF_EVENT_TYPE_VM_UNBIND:   return handle_vm_unbind(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF:     return handle_execbuf(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END: return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_IBA:         return handle_iba(data_arg);
                 case BPF_EVENT_TYPE_KSP:         return handle_ksp(data_arg);
                 case BPF_EVENT_TYPE_SIP:         return handle_sip(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_IBA:  return handle_uprobe_iba(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_KSP:  return handle_uprobe_ksp(data_arg);
         }
 
         ERR("Unknown data type when handling a sample: %u\n", type);

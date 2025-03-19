@@ -3,6 +3,8 @@
 #include "i915.h"
 #elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_xe
 #include "xe.h"
+#else
+#include "vmlinux.h"
 #endif
 
 

@@ -53,15 +53,13 @@ static inline void copy_comm_name(char *dst, char *src) {
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
-    BPF_EVENT_TYPE_VM_CREATE,
-    BPF_EVENT_TYPE_VM_BIND,
-    BPF_EVENT_TYPE_VM_UNBIND,
-    BPF_EVENT_TYPE_DEBUG_AREA,
     BPF_EVENT_TYPE_EXECBUF,
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_IBA,
     BPF_EVENT_TYPE_KSP,
     BPF_EVENT_TYPE_SIP,
+    BPF_EVENT_TYPE_UPROBE_IBA,
+    BPF_EVENT_TYPE_UPROBE_KSP,
 };
 
 struct execbuf_info {
@@ -109,44 +107,24 @@ struct sip_info {
         __u64 addr;
 };
 
-/* Collected from a vm_create */
-struct vm_create_info {
+struct uprobe_iba_info {
         __u8 type;
 
-        __u32 pid, tid, cpu;
-        __u64 time;
-        __u32 vm_id;
-        __u64 file;
+        __u64 addr;
 };
 
-/* Collected from a vm_bind */
-struct vm_bind_info {
-        __u8 type;
+struct uprobe_ksp_info {
+        __u8         type;
 
-        __u8 userptr;
-        __u64 file;
-        __u32 handle;
-        __u32 vm_id;
-        __u64 gpu_addr;
-        __u64 size;
-        __u64 offset;
+        __u64 addr;
 
-        __u32 pid;
-};
+        struct stack ustack;
 
-/* Collected from a vm_unbind */
-struct vm_unbind_info {
-        __u8 type;
-
-        __u64 file;
-        __u32 handle;
-        __u32 vm_id;
-        __u64 gpu_addr;
-        __u64 size;
-        __u64 offset;
-
-        __u32 pid, tid, cpu;
-        __u64 time;
+        __u64        time;
+        __u32        pid;
+        __u32        tid;
+        __u32        cpu;
+        char         name[TASK_COMM_LEN];
 };
 
 #endif

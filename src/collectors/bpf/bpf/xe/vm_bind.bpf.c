@@ -27,7 +27,6 @@ int BPF_PROG(xe_vm_bind_ioctl,
              struct drm_file *file)
 {
         void *lookup;
-        struct vm_bind_info *info;
         struct drm_xe_vm_bind *args;
         u32 tmp_arg_key;
         long retval;
@@ -65,71 +64,52 @@ int BPF_PROG(xe_vm_bind_ioctl,
                 return 0;
         }
 
-        /* Reserve some space on the ringbuffer */
-        info = bpf_ringbuf_reserve(&rb, sizeof(struct vm_bind_info), 0);
-        if (!info) {
-                ERR_PRINTK("vm_bind_ioctl failed to reserve in the ringbuffer.");
-                dropped_event = 1;
-                return 0;
-        }
-
-        /* vm_bind specific values */
-        info->type = BPF_EVENT_TYPE_VM_BIND;
-        info->file = (u64)file;
-        info->handle = args->bind.obj;
-        info->vm_id = args->vm_id;
-        info->gpu_addr = args->bind.addr;
-        info->size = args->bind.range;
-        if (args->bind.op == DRM_XE_VM_BIND_OP_MAP_USERPTR) {
-                info->userptr = 1;
-                info->offset = args->bind.userptr;
-        } else {
-                info->userptr = 0;
-                info->offset = args->bind.obj_offset;
-        }
-        info->pid = bpf_get_current_pid_tgid() >> 32;
-
         if (args->bind.op != DRM_XE_VM_BIND_OP_MAP_USERPTR) {
                 /* Get the CPU address from any mappings that have happened */
-                pair.handle = info->handle;
+                pair.handle = args->bind.obj;
                 pair.file = (u64)file;
-                
-                bindinfo.gpu_addr = info->gpu_addr;
-                bindinfo.size = info->size;
+
+                bindinfo.gpu_addr = args->bind.addr;
+                bindinfo.size = args->bind.range;
                 bindinfo.vm_id = args->vm_id;
-                
+
                 /* Add this binding to the file_handle_binding map */
                 bpf_map_update_elem(&file_handle_binding, &pair, &bindinfo, 0);
-                
+
                 lookup = bpf_map_lookup_elem(&file_handle_mapping, &pair);
                 if (!lookup) {
-                        WARN_PRINTK("vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", info->gpu_addr, pair.handle);
+                        WARN_PRINTK("vm_bind_ioctl failed to find a CPU address for gpu_addr=0x%lx handle=%u.", args->bind.addr, pair.handle);
                 } else {
                         /* Maintain a map of GPU->CPU addrs */
-                        if (info->size && info->gpu_addr) {
+                        if (args->bind.range && args->bind.addr) {
                                 struct cpu_mapping cmapping = {};
                                 struct gpu_mapping gmapping = {};
-                                cmapping.size = info->size;
+                                cmapping.size = args->bind.range;
                                 cmapping.addr = *((u64 *)lookup);
-                                gmapping.addr = info->gpu_addr;
+                                gmapping.addr = args->bind.addr;
                                 gmapping.vm_id = args->vm_id;
                                 gmapping.file = (u64)file;
                                 bpf_map_update_elem(&gpu_cpu_map, &gmapping, &cmapping, 0);
                                 bpf_map_update_elem(&cpu_gpu_map, &cmapping, &gmapping, 0);
-                                num_pages = info->size / PAGE_SIZE;
+                                num_pages = args->bind.range / PAGE_SIZE;
                                 bpf_for(page_idx, 0, num_pages) {
                                         page_addr = gmapping.addr + (page_idx * PAGE_SIZE);
                                         bpf_map_update_elem(&page_map, &page_addr, &(gmapping.addr), 0);
                                 }
                         } else {
-                                WARN_PRINTK("vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", info->gpu_addr, info->size);
+                                WARN_PRINTK("vm_bind_ioctl failed to insert into the gpu_cpu_map gpu_addr=0x%lx size=%lu", args->bind.addr, args->bind.range);
                         }
                 }
         }
 
-        DEBUG_PRINTK("vm_bind vm_id=%u handle=%u gpu_addr=0x%lx userptr=0x%lx num_binds=%u size=%lu file=0x%lx", info->vm_id, info->handle, info->gpu_addr, info->offset, args->num_binds, info->size, info->file);
+        u64 offset = 0;
+        if (args->bind.op == DRM_XE_VM_BIND_OP_MAP_USERPTR) {
+                offset = args->bind.userptr;
+        } else {
+                offset = args->bind.obj_offset;
+        }
 
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        DEBUG_PRINTK("vm_bind vm_id=%u handle=%u gpu_addr=0x%lx userptr=0x%lx num_binds=%u size=%lu file=0x%lx", args->vm_id, args->bind.obj, args->bind.addr, offset, args->num_binds, args->bind.range, (u64)file);
 
         return 0;
 }

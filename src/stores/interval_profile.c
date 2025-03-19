@@ -37,7 +37,7 @@ static uint64_t sample_hash(const struct sample a) {
 }
 
 /* Returns 0 on success, -1 for failure */
-static char get_insn_text(struct shader_binding *shader, uint64_t offset,
+static char get_insn_text(struct shader *shader, uint64_t offset,
                    char **insn_text, size_t *insn_text_len)
 {
         char retval;
@@ -111,7 +111,7 @@ static void update_sample(const struct sample *samp, uint64_t count) {
 }
 
 /* Stores a profile for a single kernel */
-void store_kernel_profile(struct shader_binding *shader)
+void store_kernel_profile(struct shader *shader)
 {
         struct sample samp;
         uint64_t offset, addr;
@@ -126,8 +126,8 @@ void store_kernel_profile(struct shader_binding *shader)
 
         samp.proc_name   = strdup(shader->proc_name);
         samp.pid         = shader->pid;
-        samp.ustack_str  = shader->execbuf_ustack_str;
-        samp.kstack_str  = shader->execbuf_kstack_str;
+        samp.ustack_str  = shader->ustack_str;
+        samp.kstack_str  = shader->kstack_str;
         samp.is_debug    = shader->type == SHADER_TYPE_DEBUG_AREA;
         samp.is_sys      = shader->type == SHADER_TYPE_SYSTEM_ROUTINE;
 
@@ -197,25 +197,21 @@ void store_unknown_flames(array_t *waitlist) {
 
 void store_interval_profile(uint64_t interval)
 {
-        struct vm_profile *vm;
-        struct shader_binding *shader;
-        
+        struct shader *shader;
+
         interval_profile = hash_table_make(sample_struct, uint64_t, sample_hash);
-        
-        FOR_SHADER(vm, shader, {
+
+        FOR_SHADER(shader, {
                 /* Make sure the buffer is a GPU kernel, that we have a valid
                    PID, and that we have a copy of it */
                 if (shader->stall_counts == NULL) {
-                        goto next;
+                        continue;
                 }
 
                 store_kernel_profile(shader);
-
-/* Jump here so that the macro releases locks. */
-next:;
         });
-        
+
         print_interval(interval);
-        
+
         hash_table_free(interval_profile);
 }

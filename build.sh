@@ -13,6 +13,11 @@ CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
 OPT="-O3"
 CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+FUZZ="no"
+if [[ "${FUZZ}" == "yes" ]]; then
+  CFLAGS+="-fsanitize=fuzzer-no-link,address -fprofile-instr-generate -fcoverage-mapping"
+  LDFLAGS+="-fsanitize=fuzzer,address -fprofile-instr-generate -fcoverage-mapping"
+fi
 CFLAGS+=" -DDEBUG"
 LDFLAGS="${LSAN:-}"
 
@@ -242,7 +247,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/interval/interval_printer.c \
@@ -280,7 +285,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
-  
+
 ####################
 #     COMMANDS     #
 ####################
@@ -292,7 +297,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   ${COMMANDS_DIR}/record.c \
   -o ${COMMANDS_DIR}/record.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
@@ -308,7 +313,8 @@ ${CC} ${COMMON_FLAGS} -c \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
 
-${CXX} ${LDFLAGS} \
+${CXX} ${LDFLAGS}  \
+  ${SRC_DIR}/iaprof.o \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
   ${DRIVER_HELPER_FLAGS} \
   \
@@ -334,7 +340,6 @@ ${CXX} ${LDFLAGS} \
   ${COMMANDS_DIR}/record.o \
   ${COMMANDS_DIR}/flame.o \
   \
-  ${SRC_DIR}/iaprof.o \
   \
   ${COMMON_FLAGS} \
   -o ${BASE_DIR}/iaprof \
@@ -342,6 +347,7 @@ ${CXX} ${LDFLAGS} \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
   -lz \
+  -lzstd \
   -lstdc++ \
   ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \

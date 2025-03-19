@@ -201,21 +201,18 @@ void print_table(int seconds)
 {
         if (quiet || debug)
                 return;
-                
+
         if (isatty(STDERR_FILENO)) {
                 fprintf(stderr, "\r\e[2K");
         }
-        
+
         fprintf(stderr, "Matched: ");
         print_number(eustall_info.matched);
-        
+
         fprintf(stderr, " | Unmatched: ");
         pthread_mutex_lock(&eustall_waitlist_mtx);
         print_number(array_len(*eustall_waitlist));
         pthread_mutex_unlock(&eustall_waitlist_mtx);
-        
-        fprintf(stderr, " | Guessed: ");
-        print_number(eustall_info.guessed);
 }
 
 /*******************
@@ -316,7 +313,7 @@ void *eustall_collect_thread_main(void *a) {
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 ERR("Error blocking signal.\n");
         }
-        
+
         init_interval_profile();
 
         /* EU stall collector. Add to the epoll_fd that the bpf
@@ -324,7 +321,7 @@ void *eustall_collect_thread_main(void *a) {
         if (init_eustall(&devinfo)) {
                 ERR("Failed to configure EU stalls.\n");
         }
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized EU stall collector.\n");
         }
@@ -336,13 +333,13 @@ void *eustall_collect_thread_main(void *a) {
 
         flags = fcntl(pollfd.fd, F_GETFL, 0);
         fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
-        
+
         /* Initialize the time */
         clock_gettime(CLOCK_MONOTONIC, &interval_start);
 
         while (collect_threads_should_stop == 0) {
                 n_ready = poll(&pollfd, 1, 100);
-                
+
                 /* How long were we asleep...? */
                 clock_gettime(CLOCK_MONOTONIC, &interval_end);
                 sub_timespec(&interval_start, &interval_end, &interval_diff);
@@ -352,7 +349,7 @@ void *eustall_collect_thread_main(void *a) {
                         errno = 0;
                         goto next;
                 }
-                
+
                 if (n_ready < 0) {
                         switch (errno) {
                                 case EINTR:
@@ -363,7 +360,7 @@ void *eustall_collect_thread_main(void *a) {
                                         ERR("poll failed with fatal error %d.\n", errno);
                         }
                 }
-                
+
                 if (n_ready) {
                         if (main_thread_should_stop != STOP_NOW) {
                                 main_thread_should_stop &= ~EUSTALL_DONE;
@@ -374,7 +371,7 @@ void *eustall_collect_thread_main(void *a) {
                                 main_thread_should_stop |= EUSTALL_DONE;
                         }
                 }
-                
+
                 store_interval_profile(interval_number++);
                 clear_interval_profiles();
 
@@ -404,7 +401,7 @@ void *bpf_collect_thread_main(void *a) {
 
         init_bpf();
         errno = 0;
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized BPF collector.\n");
         }
@@ -474,7 +471,7 @@ void *debug_collect_thread_main(void *a) {
 
         pollfds         = array_make(struct pollfd);
         pollfds_indices = array_make(int);
-        
+
         if (debug) {
                 fprintf(stderr, "Initialized debug collector.\n");
         }
@@ -635,7 +632,7 @@ void record(int argc, char **argv)
                         ERR("Dropped information in BPF... aborting.\n");
                 }
         }
-        
+
         if (collect_threads_profiling) {
                 print_status("Profile stopped. Assembling output...\n");
         } else {

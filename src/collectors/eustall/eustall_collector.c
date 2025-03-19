@@ -56,28 +56,16 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         return total;
 }
 
-int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
-                     uint64_t gpu_addr, uint64_t offset,
-                     unsigned long long time)
+int associate_sample(struct eustall_sample *sample, uint64_t gpu_addr, uint64_t offset, unsigned long long time)
 {
         struct offset_profile *found;
         struct offset_profile profile;
-        struct vm_profile *vm;
-        struct shader_binding *shader;
+        struct shader *shader;
 
-        vm = acquire_vm_profile(file, vm_id);
-
-        if (!vm) {
-                debug_printf("associate_sample didn't find vm_id=%u\n", vm_id);
-                return -1;
-        }
-
-        shader = get_shader(vm, gpu_addr);
+        shader = acquire_shader(gpu_addr);
 
         if (!shader) {
-                debug_printf("associate_sample didn't find vm_id=%u gpu_addr=0x%lx\n",
-                     vm_id, gpu_addr);
-                release_vm_profile(vm);
+                debug_printf("associate_sample didn't find gpu_addr=0x%lx\n", gpu_addr);
                 return -1;
         }
 
@@ -109,7 +97,7 @@ int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_i
         found->tdr        += sample->tdr;
 #endif
 
-        release_vm_profile(vm);
+        release_shader(shader);
         return 0;
 }
 
@@ -123,17 +111,9 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         uint64_t addr;
         uint64_t start;
         uint64_t offset;
-        uint64_t low_offset_shader_addr;
-        uint64_t low_offset_offset;
-        uint32_t low_offset_vm_id;
-        uint64_t low_offset_file;
-        uint64_t low_offset_addr;
-        
-        struct deferred_eustall deferred;
-        struct vm_profile *vm;
-        struct shader_binding *shader;
 
-        addr = (((uint64_t)sample->ip) << 3) + iba;
+        struct deferred_eustall deferred;
+        struct shader *shader;
 
         /* Look up this sample by the GPU address (sample->ip). If we find
                 multiple matches, that means that multiple contexts are using
@@ -141,56 +121,29 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 one the EU stall is associated with */
         found = 0;
 
-        low_offset_shader_addr = 0;
-        low_offset_offset = (uint64_t)-1;
-        low_offset_vm_id = 0;
-        low_offset_file = 0;
-        low_offset_addr = 0;
+        addr = (((uint64_t)sample->ip) << 3) + iba;
 
-        if (!iba) {
-/*                 goto none_found; */
-        }
-        
-        FOR_VM(vm, {
+        shader = acquire_containing_shader(addr);
 
-                shader = get_containing_shader(vm, addr);
-                if (shader == NULL) {
-                        goto next;
-                }
+        if (shader != NULL
+        &&  shader->pid != 0
+        &&  ((flags & EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED) ||
+             shader->type == SHADER_TYPE_SHADER                ||
+             shader->type == SHADER_TYPE_DEBUG_AREA            ||
+             shader->type == SHADER_TYPE_SYSTEM_ROUTINE)) {
 
-                if (!(shader->pid)) {
-                        goto next;
-                }
-
-                if (!(flags & EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED)) {
-                        if ((shader->type != SHADER_TYPE_SHADER)
-                        &&  (shader->type != SHADER_TYPE_DEBUG_AREA)
-                        &&  (shader->type != SHADER_TYPE_SYSTEM_ROUTINE)) {
-
-                                goto next;
-                        }
-                }
-
-                start = shader->gpu_addr;
+                start  = shader->gpu_addr;
                 offset = addr - start;
+                found  = 1;
+        }
 
-                found++;
+        release_shader(shader);
 
-                if (offset < low_offset_offset) {
-                        low_offset_shader_addr = start;
-                        low_offset_offset = offset;
-                        low_offset_vm_id = vm->vm_id;
-                        low_offset_file = vm->file;
-                        low_offset_addr = addr;
-                }
-
-/* Jump here instead of continue so that the macro invokes the unlock functions. */
-next:;
-        });
-
-/* none_found: */
-        /* Now that we've found 0+ matches, print or store them. */
-        if (found == 0) {
+        if (found) {
+                associate_sample(sample, start, offset, time);
+                eustall_info.matched += num_stalls_in_sample(sample);
+                debug_printf("shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", start, offset, addr);
+        } else {
                 if (!(flags & EUSTALL_SAMPLE_DEFERRED)) {
                         deferred.sample    = *sample;
                         deferred.satisfied = 0;
@@ -201,27 +154,9 @@ next:;
 
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
-        } else if (found == 1) {
-          
-                associate_sample(sample, low_offset_file, low_offset_vm_id,
-                                 low_offset_shader_addr, low_offset_offset,
-                                 time);
-                eustall_info.matched += num_stalls_in_sample(sample);
-        } else if (found > 1) {
-        
-                /* We have to guess. Choose the last one that we've found. */
-                associate_sample(sample, low_offset_file, low_offset_vm_id,
-                                 low_offset_shader_addr, low_offset_offset,
-                                 time);
-                eustall_info.guessed += num_stalls_in_sample(sample);
         }
-        
-        if (found) {
-                debug_printf("file=0x%lx vm_id=%u shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", low_offset_file, low_offset_vm_id,
-                            low_offset_shader_addr, low_offset_offset, low_offset_addr);
-        }
-        
-        return found > 0;
+
+        return found;
 }
 
 #if GPU_DRIVER == GPU_DRIVER_xe
