@@ -6,8 +6,7 @@ struct {
 } setKernelStartPointer_wait_for_appendLaunchKernelWithParams SEC(".maps");
 
 
-/* SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore21tagSTATE_BASE_ADDRESS25setInstructionBaseAddressEm") */
-SEC("uprobe/*:_ZN3NEO9XeHpcCore21tagSTATE_BASE_ADDRESS25setInstructionBaseAddressEm")
+SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore21tagSTATE_BASE_ADDRESS25setInstructionBaseAddressEm")
 int BPF_UPROBE(setInstructionBaseAddress, void *this, u64 addr) {
         struct uprobe_iba_info *info;
         long                    err;
@@ -30,8 +29,7 @@ int BPF_UPROBE(setInstructionBaseAddress, void *this, u64 addr) {
         return 0;
 }
 
-/* SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore28tagINTERFACE_DESCRIPTOR_DATA21setKernelStartPointerEm") */
-SEC("uprobe/*:_ZN3NEO9XeHpcCore28tagINTERFACE_DESCRIPTOR_DATA21setKernelStartPointerEm")
+SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore28tagINTERFACE_DESCRIPTOR_DATA21setKernelStartPointerEm")
 int BPF_UPROBE(setKernelStartPointer, void *this, u64 addr) {
         u32 zero = 0;
         bpf_map_update_elem(&setKernelStartPointer_wait_for_appendLaunchKernelWithParams, &zero, &addr, 0);
@@ -39,8 +37,7 @@ int BPF_UPROBE(setKernelStartPointer, void *this, u64 addr) {
 }
 
 
-/* SEC("uretprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN2L021CommandListCoreFamilyIL14GFXCORE_FAMILY3080EE28appendLaunchKernelWithParamsEPNS_6KernelERK17_ze_group_count_tPNS_5EventERNS_25CmdListKernelLaunchParamsE") */
-SEC("uretprobe/*:_ZN2L021CommandListCoreFamilyIL14GFXCORE_FAMILY3080EE28appendLaunchKernelWithParamsEPNS_6KernelERK17_ze_group_count_tPNS_5EventERNS_25CmdListKernelLaunchParamsE")
+SEC("uretprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN2L021CommandListCoreFamilyIL14GFXCORE_FAMILY3080EE28appendLaunchKernelWithParamsEPNS_6KernelERK17_ze_group_count_tPNS_5EventERNS_25CmdListKernelLaunchParamsE")
 int BPF_URETPROBE(appendLaunchKernelWithParams) {
         u64                    *lookup;
         u32                     zero = 0;
