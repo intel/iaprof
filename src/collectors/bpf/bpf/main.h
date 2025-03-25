@@ -86,13 +86,6 @@ struct execbuf_end_info {
         __u64 eb_id;
 };
 
-struct iba_info {
-        __u8  type;
-
-        __u64 eb_id;
-        __u64 addr;
-};
-
 struct ksp_info {
         __u8  type;
 
@@ -104,12 +97,6 @@ struct sip_info {
         __u8  type;
 
         __u64 eb_id;
-        __u64 addr;
-};
-
-struct uprobe_iba_info {
-        __u8 type;
-
         __u64 addr;
 };
 

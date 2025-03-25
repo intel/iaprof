@@ -6,29 +6,6 @@ struct {
 } setKernelStartPointer_wait_for_appendLaunchKernelWithParams SEC(".maps");
 
 
-SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore21tagSTATE_BASE_ADDRESS25setInstructionBaseAddressEm")
-int BPF_UPROBE(setInstructionBaseAddress, void *this, u64 addr) {
-        struct uprobe_iba_info *info;
-        long                    err;
-
-        info = bpf_ringbuf_reserve(&rb, sizeof(*info), 0);
-        if (!info) {
-                ERR_PRINTK("setInstructionBaseAddress failed to reserve in the ringbuffer.");
-                err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                DEBUG_PRINTK("Unconsumed data: %lu", err);
-                dropped_event = 1;
-                return 0;
-        }
-
-        info->type = BPF_EVENT_TYPE_UPROBE_IBA;
-
-        info->addr = addr;
-
-        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
-
-        return 0;
-}
-
 SEC("uprobe//home/ubuntu/intc/iaprof_scripts/tools/prefix/intel_graphics_stack_fp/lib/libze_intel_gpu.so.1:_ZN3NEO9XeHpcCore28tagINTERFACE_DESCRIPTOR_DATA21setKernelStartPointerEm")
 int BPF_UPROBE(setKernelStartPointer, void *this, u64 addr) {
         u32 zero = 0;
