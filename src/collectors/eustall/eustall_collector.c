@@ -5,7 +5,7 @@
 
 #include "iaprof.h"
 #include "drm_helpers/drm_helpers.h"
-#include "stores/gpu_kernel_stalls.h"
+#include "stores/gpu_kernel.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/bpf/bpf_collector.h"
 #include "gpu_parsers/shader_decoder.h"
@@ -30,11 +30,6 @@ array_t *eustall_waitlist;
 static array_t eustall_waitlist_a;
 static array_t eustall_waitlist_b;
 
-uint64_t uint64_t_hash(uint64_t i)
-{
-        return i;
-}
-
 uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 {
         uint64_t total;
@@ -56,24 +51,10 @@ uint64_t num_stalls_in_sample(struct eustall_sample *sample)
         return total;
 }
 
-int associate_sample(struct eustall_sample *sample, uint64_t gpu_addr, uint64_t offset, unsigned long long time)
+int associate_sample(struct eustall_sample *sample, struct shader *shader, uint64_t offset, unsigned long long time)
 {
         struct offset_profile *found;
         struct offset_profile profile;
-        struct shader *shader;
-
-        shader = acquire_shader(gpu_addr);
-
-        if (!shader) {
-                debug_printf("associate_sample didn't find gpu_addr=0x%lx\n", gpu_addr);
-                return -1;
-        }
-
-        /* Make sure we're initialized */
-        if (shader->stall_counts == NULL) {
-                shader->stall_counts =
-                        hash_table_make(uint64_t, offset_profile_struct, uint64_t_hash);
-        }
 
         /* Check if this offset has been seen yet */
         found = hash_table_get_val(shader->stall_counts, offset);
@@ -97,7 +78,6 @@ int associate_sample(struct eustall_sample *sample, uint64_t gpu_addr, uint64_t 
         found->tdr        += sample->tdr;
 #endif
 
-        release_shader(shader);
         return 0;
 }
 
@@ -121,7 +101,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 one the EU stall is associated with */
         found = 0;
 
-        addr = (((uint64_t)sample->ip) << 3) + iba;
+        addr = ((uint64_t)sample->ip) << 3;
 
         shader = acquire_containing_shader(addr);
 
@@ -137,10 +117,9 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 found  = 1;
         }
 
-        release_shader(shader);
 
         if (found) {
-                associate_sample(sample, start, offset, time);
+                associate_sample(sample, shader, offset, time);
                 eustall_info.matched += num_stalls_in_sample(sample);
                 debug_printf("shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", start, offset, addr);
         } else {
@@ -155,6 +134,8 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                         eustall_info.deferred += num_stalls_in_sample(sample);
                 }
         }
+
+        release_shader(shader);
 
         return found;
 }

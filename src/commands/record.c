@@ -39,10 +39,10 @@
 /* Printers */
 #include "printers/stack/stack_printer.h"
 #include "printers/debug/debug_printer.h"
+#include "printers/interval/interval_printer.h"
 
 /* Stores */
-#include "stores/gpu_kernel_stalls.h"
-#include "stores/interval_profile.h"
+#include "stores/gpu_kernel.h"
 
 #include "commands/record.h"
 
@@ -60,6 +60,7 @@ static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
 static _Atomic char collect_threads_enabled = 3;
 static _Atomic char main_thread_should_stop = 0;
+static _Atomic char eustall_deferred_attrib_thread_should_stop = 0;
 
 /* Intervals */
 struct timespec interval_start, interval_end, interval_diff;
@@ -92,7 +93,7 @@ uint32_t timespec_to_ms(struct timespec *t1)
 int pid = 0;
 char bb_debug = 0;
 char quiet = 0;
-char debug_collector = 1;
+char eudebug_collector = 1;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
@@ -149,7 +150,7 @@ int read_opts(int argc, char **argv)
                         bb_debug = 1;
                         break;
                 case 'g':
-                        debug_collector = 0;
+                        eudebug_collector = 0;
                         break;
                 case 'h':
                         usage();
@@ -231,7 +232,7 @@ struct eustall_info_t eustall_info = {};
 /* Thread and interval */
 
 pthread_t bpf_collect_thread_id;
-pthread_t debug_collect_thread_id;
+pthread_t eudebug_collect_thread_id;
 pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
 timer_t interval_timer;
@@ -239,17 +240,6 @@ timer_t interval_timer;
 void stop_collect_threads()
 {
         collect_threads_should_stop = 1;
-}
-
-void add_to_epoll_fd(int fd)
-{
-        struct epoll_event e = {};
-
-        e.events = EPOLLIN;
-        e.data.fd = fd;
-        if (epoll_ctl(bpf_info.epoll_fd, EPOLL_CTL_ADD, fd, &e) < 0) {
-                ERR("Failed to add to the ringbuffer's epoll instance.\n");
-        }
 }
 
 void init_driver()
@@ -289,7 +279,7 @@ int handle_eustall_read(int fd, struct device_info *devinfo)
 }
 
 void *eustall_deferred_attrib_thread_main(void *a) {
-        while (!collect_threads_should_stop) {
+        while (!eustall_deferred_attrib_thread_should_stop && !collect_threads_should_stop) {
                 pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
                 pthread_cond_wait(&eustall_deferred_attrib_cond, &eustall_deferred_attrib_cond_mtx);
                 pthread_mutex_unlock(&eustall_deferred_attrib_cond_mtx);
@@ -313,8 +303,6 @@ void *eustall_collect_thread_main(void *a) {
         if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
                 ERR("Error blocking signal.\n");
         }
-
-        init_interval_profile();
 
         /* EU stall collector. Add to the epoll_fd that the bpf
            collector created. */
@@ -372,15 +360,22 @@ void *eustall_collect_thread_main(void *a) {
                         }
                 }
 
-                store_interval_profile(interval_number++);
+                print_interval(interval_number++, NULL);
                 clear_interval_profiles();
 
                 clock_gettime(CLOCK_MONOTONIC, &interval_start);
 next:;
         }
 
+        eustall_deferred_attrib_thread_should_stop = 1;
+        wakeup_eustall_deferred_attrib_thread();
+        pthread_join(eustall_deferred_attrib_thread_id, NULL);
+
         handle_remaining_eustalls();
-        store_interval_profile(interval_number++);
+
+        pthread_mutex_lock(&eustall_waitlist_mtx);
+        print_interval(interval_number++, eustall_waitlist);
+        pthread_mutex_unlock(&eustall_waitlist_mtx);
 
         return NULL;
 }
@@ -451,7 +446,7 @@ void *bpf_collect_thread_main(void *a) {
         return NULL;
 }
 
-void *debug_collect_thread_main(void *a) {
+void *eudebug_collect_thread_main(void *a) {
         sigset_t       mask;
         array_t        pollfds;
         array_t        pollfds_indices;
@@ -481,20 +476,20 @@ void *debug_collect_thread_main(void *a) {
         while (collect_threads_should_stop == 0) {
                 /* Copy the pollfds array from debug_info so that we don't
                  * need to hold the lock while we poll. */
-                pthread_rwlock_rdlock(&debug_info_lock);
+                pthread_rwlock_rdlock(&eudebug_info_lock);
 
-                n_fds = debug_info.num_pids;
+                n_fds = eudebug_info.num_pids;
 
                 array_clear(pollfds);
                 array_clear(pollfds_indices);
                 for (i = 0; i < n_fds; i += 1) {
-                        if (debug_info.pollfds[i].fd > 0) {
-                                array_push(pollfds, debug_info.pollfds[i]);
+                        if (eudebug_info.pollfds[i].fd > 0) {
+                                array_push(pollfds, eudebug_info.pollfds[i]);
                                 array_push(pollfds_indices, i);
                         }
                 }
 
-                pthread_rwlock_unlock(&debug_info_lock);
+                pthread_rwlock_unlock(&eudebug_info_lock);
 
                 n_ready = poll(array_data(pollfds), array_len(pollfds), 100);
 
@@ -515,8 +510,8 @@ void *debug_collect_thread_main(void *a) {
                                 main_thread_should_stop &= ~DEBUG_DONE;
                         }
 
-                        if (!debug_collector && debug) {
-                                WARN("GPU symbols were disabled, but we got a debug event.\n");
+                        if (!eudebug_collector && debug) {
+                                WARN("GPU symbols were disabled, but we got an eudebug event.\n");
                         }
 
 
@@ -528,9 +523,9 @@ void *debug_collect_thread_main(void *a) {
                                          * this point going down this call stack, but
                                          * it may get grabbed within it (e.g. by
                                          * debug_add_sym). */
-                                        read_debug_events(pfd->fd, index);
+                                        read_eudebug_events(pfd->fd, index);
                                 } else {
-                                        deinit_debug(index);
+                                        deinit_eudebug(index);
                                 }
                         }
                 } else {
@@ -585,6 +580,7 @@ void record(int argc, char **argv)
         /* Begin profiling */
         print_status("Initializing, please wait...\n");
 
+        print_initial_strings();
         init_profiles();
         init_eustall_waitlist();
         init_driver();
@@ -592,8 +588,8 @@ void record(int argc, char **argv)
         if (start_thread(bpf_collect_thread_main, &bpf_collect_thread_id) != 0) {
                 ERR("Failed to start the BPF collection thread.\n");
         }
-        if (start_thread(debug_collect_thread_main, &debug_collect_thread_id) != 0) {
-                ERR("Failed to start the debug collection thread.\n");
+        if (start_thread(eudebug_collect_thread_main, &eudebug_collect_thread_id) != 0) {
+                ERR("Failed to start the eudebug collection thread.\n");
         }
         if (start_thread(eustall_collect_thread_main, &eustall_collect_thread_id) != 0) {
                 ERR("Failed to start the eustall collection thread.\n");
@@ -643,9 +639,8 @@ void record(int argc, char **argv)
         /* Wait for the collection thread to finish */
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
-        pthread_join(debug_collect_thread_id, NULL);
+        pthread_join(eudebug_collect_thread_id, NULL);
         pthread_join(eustall_collect_thread_id, NULL);
-        wakeup_eustall_deferred_attrib_thread();
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
         /* Print the final profile */

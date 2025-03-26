@@ -11,8 +11,9 @@ LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
-OPT="-O3"
-CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+# OPT="-O3"
+OPT="-O0"
+CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -g -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
 FUZZ="no"
 if [[ "${FUZZ}" == "yes" ]]; then
   CFLAGS+="-fsanitize=fuzzer-no-link,address -fprofile-instr-generate -fcoverage-mapping"
@@ -193,14 +194,8 @@ echo "Building ${STORES_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/gpu_kernel_stalls.c \
-  -o ${STORES_DIR}/gpu_kernel_stalls.o
-
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/interval_profile.c \
-  -o ${STORES_DIR}/interval_profile.o
+  ${STORES_DIR}/gpu_kernel.c \
+  -o ${STORES_DIR}/gpu_kernel.o
 
 ####################
 #   COLLECTORS     #
@@ -322,8 +317,7 @@ ${CXX} ${LDFLAGS}  \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
-  ${STORES_DIR}/gpu_kernel_stalls.o \
-  ${STORES_DIR}/interval_profile.o \
+  ${STORES_DIR}/gpu_kernel.o \
   \
   ${IAPROF_COLLECTORS} \
   \

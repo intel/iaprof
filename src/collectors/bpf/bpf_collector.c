@@ -17,7 +17,7 @@
 
 #include "commands/record.h"
 
-#include "stores/gpu_kernel_stalls.h"
+#include "stores/gpu_kernel.h"
 
 #include "printers/stack/stack_printer.h"
 #include "printers/debug/debug_printer.h"
@@ -32,14 +32,13 @@
 #include "utils/hash_table.h"
 
 struct live_execbuf {
-        uint64_t    eb_id;
-        uint64_t    file;
-        uint32_t    vm_id;
-        uint32_t    pid;
-        char        name[TASK_COMM_LEN];
-        const char  *ustack_str;
-        const char  *kstack_str;
+        uint64_t eb_id;
+        uint64_t proc_name_id;
+        uint64_t ustack_id;
+        uint64_t kstack_id;
+        uint32_t pid;
 };
+
 typedef struct live_execbuf live_execbuf_struct;
 
 static uint64_t hash_eb_id(uint64_t eb_id) { return eb_id; }
@@ -65,20 +64,16 @@ int handle_execbuf(void *data_arg)
                 ERR("execbuf info eb_id already seen, eb_id = %llu", info->eb_id);
         }
 
-        live.file       = info->file;
-        live.vm_id      = info->vm_id;
-        live.pid        = info->pid;
-        memcpy(live.name, info->name, TASK_COMM_LEN);
-        live.ustack_str = store_ustack(info->pid, &info->ustack);
-        live.kstack_str = store_kstack(&info->kstack);
-        print_string(live.ustack_str);
-        print_string(live.kstack_str);
+        live.pid          = info->pid;
+        live.proc_name_id = print_string(info->name);
+        live.ustack_id    = print_string(store_ustack(info->pid, &info->ustack));
+        live.kstack_id    = print_string(store_kstack(&info->kstack));
 
         hash_table_insert(live_execbufs, info->eb_id, live);
 
-        if (debug_collector) {
-                /* Register the PID with the debug collector */
-                init_debug(devinfo.fd, info->pid);
+        if (eudebug_collector) {
+                /* Register the PID with the eudebug collector */
+                init_eudebug(devinfo.fd, info->pid);
         }
 
         return 0;
@@ -103,26 +98,6 @@ int handle_execbuf_end(void *data_arg)
 }
 
 
-int handle_iba(void *data_arg)
-{
-        struct iba_info       *info;
-        struct live_execbuf   *exec;
-
-        if (iba) { return 0; }
-
-        info = (struct iba_info *)data_arg;
-        debug_printf("  IBA: 0x%llx\n", info->addr);
-        iba = info->addr;
-
-        exec = hash_table_get_val(live_execbufs, info->eb_id);
-        if (exec == NULL) {
-                ERR("IBA for exec that is not live");
-                return 0;
-        }
-
-        return 0;
-}
-
 int handle_ksp(void *data_arg)
 {
         struct ksp_info     *info;
@@ -138,18 +113,16 @@ int handle_ksp(void *data_arg)
         }
 
         masked_addr = info->addr & 0xFFFFFFFFFF00;
-        shader      = acquire_shader(iba + masked_addr);
-        if (!shader) {
-                shader = create_and_acquire_shader(iba + masked_addr);
+        shader      = acquire_or_create_shader(masked_addr);
+        if (shader->type == SHADER_TYPE_UNKNOWN) {
                 shader->type = SHADER_TYPE_SHADER;
-                debug_printf("  Marked buffer as a shader: file=0x%lx gpu_addr=0x%lx\n", exec->file, shader->gpu_addr);
+                debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
 
-        shader->pid        = exec->pid;
-        shader->vm_id      = exec->vm_id;
-        shader->ustack_str = exec->ustack_str;
-        shader->kstack_str = exec->kstack_str;
-        memcpy(shader->proc_name, exec->name, TASK_COMM_LEN);
+        shader->pid          = exec->pid;
+        shader->proc_name_id = exec->proc_name_id;
+        shader->ustack_id    = exec->ustack_id;
+        shader->kstack_id    = exec->kstack_id;
 
         release_shader(shader);
         wakeup_eustall_deferred_attrib_thread();
@@ -170,18 +143,16 @@ int handle_sip(void *data_arg)
                 return 0;
         }
 
-        shader = acquire_shader(iba + info->addr);
-        if (!shader) {
-                shader = create_and_acquire_shader(iba + info->addr);
+        shader = acquire_or_create_shader(info->addr);
+        if (shader->type == SHADER_TYPE_UNKNOWN) {
                 shader->type = SHADER_TYPE_SYSTEM_ROUTINE;
                 debug_printf("  Marked buffer as a SIP: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
 
-        shader->pid        = exec->pid;
-        shader->vm_id      = exec->vm_id;
-        shader->ustack_str = exec->ustack_str;
-        shader->kstack_str = exec->kstack_str;
-        memcpy(shader->proc_name, exec->name, TASK_COMM_LEN);
+        shader->pid          = exec->pid;
+        shader->proc_name_id = exec->proc_name_id;
+        shader->ustack_id    = exec->ustack_id;
+        shader->kstack_id    = exec->kstack_id;
 
         release_shader(shader);
         wakeup_eustall_deferred_attrib_thread();
@@ -189,18 +160,6 @@ int handle_sip(void *data_arg)
         return 0;
 }
 
-int handle_uprobe_iba(void *data_arg)
-{
-        struct uprobe_iba_info *info;
-
-        if (iba) { return 0; }
-
-        info = data_arg;
-        debug_printf("  IBA: 0x%llx\n", info->addr);
-        iba = info->addr;
-
-        return 0;
-}
 
 int handle_uprobe_ksp(void *data_arg)
 {
@@ -210,25 +169,22 @@ int handle_uprobe_ksp(void *data_arg)
 
         info = (struct uprobe_ksp_info *)data_arg;
 
-        if (debug_collector) {
-                /* Register the PID with the debug collector */
-                init_debug(devinfo.fd, info->pid);
+        if (eudebug_collector) {
+                /* Register the PID with the eudebug collector */
+                init_eudebug(devinfo.fd, info->pid);
         }
 
         masked_addr = info->addr & 0xFFFFFFFFFF00;
-        shader      = acquire_shader(iba + masked_addr);
-        if (!shader) {
-                shader = create_and_acquire_shader(iba + masked_addr);
+        shader      = acquire_or_create_shader(masked_addr);
+        if (shader->type == SHADER_TYPE_UNKNOWN) {
                 shader->type = SHADER_TYPE_SHADER;
                 debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
 
-        shader->pid        = info->pid;
-        shader->ustack_str = store_ustack(info->pid, &info->ustack);
-        shader->kstack_str = NULL;
-        memcpy(shader->proc_name, info->name, TASK_COMM_LEN);
-
-        print_string(shader->ustack_str);
+        shader->pid          = info->pid;
+        shader->ustack_id    = print_string(store_ustack(info->pid, &info->ustack));
+        shader->kstack_id    = 0;
+        shader->proc_name_id = print_string(info->name);
 
         release_shader(shader);
         wakeup_eustall_deferred_attrib_thread();
@@ -247,10 +203,8 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         switch (type) {
                 case BPF_EVENT_TYPE_EXECBUF:     return handle_execbuf(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END: return handle_execbuf_end(data_arg);
-                case BPF_EVENT_TYPE_IBA:         return handle_iba(data_arg);
                 case BPF_EVENT_TYPE_KSP:         return handle_ksp(data_arg);
                 case BPF_EVENT_TYPE_SIP:         return handle_sip(data_arg);
-                case BPF_EVENT_TYPE_UPROBE_IBA:  return handle_uprobe_iba(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KSP:  return handle_uprobe_ksp(data_arg);
         }
 

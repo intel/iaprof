@@ -25,17 +25,26 @@ enum shader_type {
         SHADER_TYPE_DEBUG_AREA,
 };
 
+#define SHADER_ADDRESS_NBITS (32ull)
+#define SHADER_ADDRESS_MASK ((1ull << SHADER_ADDRESS_NBITS) - 1ull)
+
 struct shader {
+        pthread_mutex_t lock;
+
+        uint64_t gpu_addr;
+        uint64_t size;
+
         enum shader_type type;
 
         uint32_t pid;
-        uint32_t vm_id;
-        char proc_name[TASK_COMM_LEN];
-        uint64_t gpu_addr;
+        uint64_t proc_name_id;
+        uint64_t ustack_id;
+        uint64_t kstack_id;
+        uint64_t symbol_id;
+        uint64_t filename_id;
+        int linenum;
 
-        /* The stacks from which this shader was execbuffer'd */
-        const char *ustack_str;
-        const char *kstack_str;
+        unsigned char *binary;
 
         /* Set if EU stalls are associated with this shader */
         struct kv_t *kv;
@@ -53,7 +62,7 @@ extern tree(uint64_t, shader_struct) shaders;
 extern pthread_rwlock_t shaders_lock;
 
 void init_profiles();
-struct shader *create_and_acquire_shader(uint64_t gpu_addr);
+struct shader *acquire_or_create_shader(uint64_t gpu_addr);
 struct shader *acquire_shader(uint64_t gpu_addr);
 struct shader *acquire_containing_shader(uint64_t gpu_addr);
 void release_shader(struct shader *shader);

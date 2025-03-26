@@ -2,16 +2,16 @@
 
 #include "printers/stack/stack_printer.h"
 #include "printers/debug/debug_printer.h"
-#include "printers/flamegraph/flamegraph_printer.h"
-#include "stores/interval_profile.h"
+#include "stores/gpu_kernel.h"
+#include "collectors/eustall/eustall_collector.h"
 #include "collectors/debug/debug_collector.h"
 #include "utils/utils.h"
 #include "printers/interval/interval_printer.h"
-
-#undef WARN
-#define WARN(...) ;
+#include "gpu_parsers/shader_decoder.h"
 
 #include <string.h>
+#include <pthread.h>
+
 
 static const char *unknown_file = "[unknown file]";
 static const char *system_routine = "System Routine (Exceptions)";
@@ -45,6 +45,7 @@ use_hash_table(uint64_t, string);
 use_hash_table_e(string, uint64_t, str_equ);
 static hash_table(string, uint64_t) string_writer;
 static hash_table(uint64_t, string) string_reader;
+static pthread_mutex_t string_writer_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* Inserts a string into the hash table, returns 1 if it
    had to be inserted. Fills *id with the new ID. */
@@ -52,17 +53,25 @@ int insert_string(char *str, uint64_t *id)
 {
         uint64_t *lookup;
 
+        pthread_mutex_lock(&string_writer_lock);
+
         if (string_writer == NULL) {
-                string_writer = hash_table_make(string, uint64_t, str_hash);
-                hash_table_insert(string_writer, NULL, 0);
+                if (string_writer == NULL) {
+                        string_writer = hash_table_make(string, uint64_t, str_hash);
+                        hash_table_insert(string_writer, NULL, 0);
+                }
         }
         lookup = hash_table_get_val(string_writer, str);
         if (lookup != NULL) {
                 *id = *lookup;
+                pthread_mutex_unlock(&string_writer_lock);
                 return 0;
         }
         *id = cur_id;
-        hash_table_insert(string_writer, str, cur_id++);
+        hash_table_insert(string_writer, strdup(str), cur_id++);
+
+        pthread_mutex_unlock(&string_writer_lock);
+
         return 1;
 }
 
@@ -78,6 +87,7 @@ int insert_string_id(uint64_t id, char *str)
                 hash_table_insert(string_reader, id, str);
                 return 1;
         }
+
         return 0;
 }
 
@@ -108,10 +118,13 @@ uint64_t get_id(const char *str)
             (str == NULL)) {
                 return 0;
         }
+        pthread_mutex_lock(&string_writer_lock);
         lookup = hash_table_get_val(string_writer, (char *)str);
         if (lookup != NULL) {
+                pthread_mutex_unlock(&string_writer_lock);
                 return *lookup;
         }
+        pthread_mutex_unlock(&string_writer_lock);
         return 0;
 }
 
@@ -256,42 +269,35 @@ void print_initial_strings()
 
 }
 
-void print_eustall(struct sample *samp, uint64_t *countp)
+void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id, int stall_type, uint64_t count)
 {
         char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
 
-        uint64_t proc_name_id, gpu_file_id, gpu_symbol_id, insn_text_id, stall_type_id;
+        uint64_t gpu_file_id, gpu_symbol_id, stall_type_id;
 
-        proc_name_id = print_string(samp->proc_name);
+        if (count == 0) { return; }
 
         /* Ensure we've got a GPU symbol */
-        gpu_file_id = 0;
-        gpu_symbol_id = 0;
-        debug_get_sym(samp->pid, samp->addr, &gpu_symbol_id, &gpu_file_id);
+        gpu_file_id   = shader->filename_id;
+        gpu_symbol_id = shader->symbol_id;
 
         /* Construct a string to print out for the file of the GPU code */
-        if (!gpu_file_id) {
+        if (gpu_file_id == 0) {
                 gpu_file_id = unknown_file_id;
         }
 
         /* Construct a string to print for the GPU symbol (and line, if applicable) */
-        if (!gpu_symbol_id) {
-                if (samp->is_sys) {
+        if (gpu_symbol_id == 0) {
+                if (shader->type == SHADER_TYPE_SYSTEM_ROUTINE) {
                         gpu_symbol_id = system_routine_id;
                 } else {
-                        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", samp->addr);
+                        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", shader->gpu_addr);
                         gpu_symbol_id = print_string(gpu_symbol_tmp);
                 }
         }
 
-        if (samp->insn_id) {
-                insn_text_id = samp->insn_id;
-        } else {
-                insn_text_id = failed_decode_id;
-        }
-
         /* Construct a string for the stall reason */
-        switch (samp->stall_type) {
+        switch (stall_type) {
                 case STALL_TYPE_ACTIVE:     stall_type_id = active_stall_id;     break;
                 case STALL_TYPE_CONTROL:    stall_type_id = control_stall_id;    break;
                 case STALL_TYPE_PIPESTALL:  stall_type_id = pipestall_stall_id;  break;
@@ -307,22 +313,174 @@ void print_eustall(struct sample *samp, uint64_t *countp)
         }
 
         printf("eustall\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu\n",
-               proc_name_id, samp->pid,
-               get_id(samp->ustack_str), get_id(samp->kstack_str),
-               samp->is_debug, samp->is_sys, gpu_file_id,
-               gpu_symbol_id, insn_text_id, stall_type_id, samp->offset,
-               *countp);
+               shader->proc_name_id, shader->pid,
+               shader->ustack_id, shader->kstack_id,
+               shader->type == SHADER_TYPE_DEBUG_AREA, shader->type == SHADER_TYPE_SYSTEM_ROUTINE, gpu_file_id,
+               gpu_symbol_id, insn_text_id, stall_type_id, offset,
+               count);
 }
 
-void print_interval(uint64_t interval)
+void print_eustall_drop(uint64_t addr, int stall_type, uint64_t count)
 {
-        struct sample      samp;
-        uint64_t           *countp;
+        char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
+        uint64_t gpu_symbol_id;
+        uint64_t stall_type_id;
+
+        if (count == 0) { return; }
+
+        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", addr);
+        gpu_symbol_id = print_string(gpu_symbol_tmp);
+
+        /* Construct a string for the stall reason */
+        switch (stall_type) {
+                case STALL_TYPE_ACTIVE:     stall_type_id = active_stall_id;     break;
+                case STALL_TYPE_CONTROL:    stall_type_id = control_stall_id;    break;
+                case STALL_TYPE_PIPESTALL:  stall_type_id = pipestall_stall_id;  break;
+                case STALL_TYPE_SEND:       stall_type_id = send_stall_id;       break;
+                case STALL_TYPE_DIST_ACC:   stall_type_id = dist_acc_stall_id;   break;
+                case STALL_TYPE_SBID:       stall_type_id = sbid_stall_id;       break;
+                case STALL_TYPE_SYNC:       stall_type_id = sync_stall_id;       break;
+                case STALL_TYPE_INST_FETCH: stall_type_id = inst_fetch_stall_id; break;
+                case STALL_TYPE_OTHER:      stall_type_id = other_stall_id;      break;
+                default:
+                        stall_type_id = unknown_stall_id;
+                        break;
+        }
+
+        printf("eustall\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu\n",
+               0ul, 0,
+               0ul, 0ul,
+               0, 0, unknown_file_id,
+               gpu_symbol_id, failed_decode_id, stall_type_id, 0ul,
+               count);
+}
+
+/* Returns 0 on success, -1 for failure */
+static char get_insn_text(struct shader *shader, uint64_t offset,
+                   char **insn_text, size_t *insn_text_len)
+{
+        char retval;
+
+        retval = 0;
+
+        if (shader->binary == NULL || shader->size == 0) {
+                if (debug) {
+                        WARN("Don't have a copy of the shader's binary at 0x%lx\n", shader->gpu_addr);
+                }
+                retval = -1;
+                goto out;
+        }
+
+        /* Paranoid check */
+        if (offset >= shader->size) {
+                if (debug) {
+                        WARN("Got an EU stall past the end of a buffer. ");
+                        fprintf(stderr, "offset=0x%lx size=%lu\n", offset, shader->size);
+                }
+                retval = -1;
+                goto out;
+        }
+
+        /* Initialize the kernel view */
+        if (!shader->kv) {
+                shader->kv = iga_init(shader->binary, shader->size);
+                if (!shader->kv) {
+                        if (debug) {
+                                WARN("Failed to initialize IGA.\n");
+                        }
+                        retval = -1;
+                        goto out;
+                }
+        }
+
+        /* Disassemble */
+        retval = iga_disassemble_insn(shader->kv, offset, insn_text,
+                                      insn_text_len);
+        if (retval != 0) {
+                if (debug) {
+                        WARN("Disassembly failed on shader at 0x%lx\n", shader->gpu_addr);
+                }
+                goto out;
+        }
+
+out:;
+        return retval;
+}
+
+void print_unknown_samples(array_t *waitlist) {
+        struct deferred_eustall *it;
+        uint64_t                 addr;
+
+        array_traverse(*waitlist, it) {
+                addr = ((uint64_t)it->sample.ip) << 3;
+
+                print_eustall_drop(addr, STALL_TYPE_ACTIVE,     it->sample.active);
+                print_eustall_drop(addr, STALL_TYPE_CONTROL,    it->sample.control);
+                print_eustall_drop(addr, STALL_TYPE_PIPESTALL,  it->sample.pipestall);
+                print_eustall_drop(addr, STALL_TYPE_SEND,       it->sample.send);
+                print_eustall_drop(addr, STALL_TYPE_DIST_ACC,   it->sample.dist_acc);
+                print_eustall_drop(addr, STALL_TYPE_SBID,       it->sample.sbid);
+                print_eustall_drop(addr, STALL_TYPE_SYNC,       it->sample.sync);
+                print_eustall_drop(addr, STALL_TYPE_INST_FETCH, it->sample.inst_fetch);
+                print_eustall_drop(addr, STALL_TYPE_OTHER,      it->sample.other);
+#if GPU_DRIVER == GPU_DRIVER_xe
+                print_eustall_drop(addr, STALL_TYPE_TDR,        it->sample.tdr);
+#endif
+        }
+}
+
+void print_kernel_profile(struct shader *shader)
+{
+        uint64_t               offset;
+        struct offset_profile *profile;
+        char                  *insn_text;
+        size_t                 insn_text_len;
+        char                   retval;
+        uint64_t               insn_text_id;
+        int                    stall_type;
+        uint64_t               count;
+
+
+        /* Iterate over the offsets that we have EU stalls for */
+        hash_table_traverse(shader->stall_counts, offset, profile) {
+                /* Disassemble to get the instruction */
+                insn_text = NULL;
+                insn_text_len = 0;
+
+                retval = get_insn_text(shader, offset, &insn_text, &insn_text_len);
+                if (retval != 0) {
+                        insn_text_id = failed_decode_id;
+                } else {
+                        insn_text_id = print_string(insn_text);
+                }
+
+                for (stall_type = 0; stall_type < NR_STALL_TYPES; stall_type += 1) {
+                        count = profile->counts[stall_type];
+                        if (count > 0) {
+                                print_eustall(shader, offset, insn_text_id, stall_type, count);
+                        }
+                }
+
+                if (insn_text_id != failed_decode_id) {
+                        free(insn_text);
+                }
+        }
+}
+
+void print_interval(uint64_t interval, array_t *waitlist)
+{
+        struct shader *shader;
 
         printf("interval_start\t%lu\n", interval);
 
-        hash_table_traverse(interval_profile, samp, countp) {
-                print_eustall(&samp, countp);
+        FOR_SHADER(shader, {
+                if (shader->stall_counts == NULL) { continue; }
+
+                print_kernel_profile(shader);
+        });
+
+        if (waitlist != NULL) {
+                print_unknown_samples(waitlist);
         }
 
         printf("interval_end\t%lu\n", interval);

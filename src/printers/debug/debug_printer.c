@@ -7,9 +7,7 @@
 
 #include "printers/stack/stack_printer.h"
 
-#include "printers/flamegraph/flamegraph_printer.h"
-
-#include "stores/gpu_kernel_stalls.h"
+#include "stores/gpu_kernel.h"
 
 #include "collectors/eustall/eustall_collector.h"
 

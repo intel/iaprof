@@ -25,13 +25,13 @@
 #include "printers/interval/interval_printer.h"
 #include "printers/debug/debug_printer.h"
 #include "debug_collector.h"
-#include "stores/gpu_kernel_stalls.h"
+#include "stores/gpu_kernel.h"
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 #include "utils/demangle.h"
 
-struct debug_info_t debug_info;
-pthread_rwlock_t debug_info_lock;
+struct eudebug_info_t eudebug_info;
+pthread_rwlock_t eudebug_info_lock;
 
 /* For waiting on vm_bind events from BPF */
 pthread_cond_t debug_vm_bind_cond = PTHREAD_COND_INITIALIZER;
@@ -54,233 +54,177 @@ static tree(uint64_t, shader_binary_ptr) shader_binaries;
 
 pthread_mutex_t debug_shader_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void deinit_debug(int index)
+void deinit_eudebug(int index)
 {
 
-        pthread_rwlock_wrlock(&debug_info_lock);
-        close(debug_info.pollfds[index].fd);
-        memset(debug_info.pollfds + index, 0, sizeof(struct pollfd));
-        debug_info.pids[index] = 0;
+        pthread_rwlock_wrlock(&eudebug_info_lock);
+        close(eudebug_info.pollfds[index].fd);
+        memset(eudebug_info.pollfds + index, 0, sizeof(struct pollfd));
+        eudebug_info.pids[index] = 0;
 
         /* Free symtab info */
-/*         debug_info.symtabs[debug_info.num_pids].pid = pid; */
+/*         eudebug_info.symtabs[eudebug_info.num_pids].pid = pid; */
 
-/*         debug_info.num_pids--; */
-        pthread_rwlock_unlock(&debug_info_lock);
+/*         eudebug_info.num_pids--; */
+        pthread_rwlock_unlock(&eudebug_info_lock);
 }
 
-void init_debug(int fd, int pid)
+void init_eudebug(int fd, int pid)
 {
-        int debug_fd;
+        int eudebug_fd;
         int i;
         int flags;
 
         /* This is called from the bpf_collect_thread when we see a new
-         * PID. We must protect debug_info from data races when it
+         * PID. We must protect eudebug_info from data races when it
          * is likely to be simultaneously accessed from
-         * debug_collect_thread. */
+         * eudebug_collect_thread. */
 
-        pthread_rwlock_rdlock(&debug_info_lock);
+        pthread_rwlock_rdlock(&eudebug_info_lock);
 
         if (shader_binaries == NULL) {
                 shader_binaries = tree_make(uint64_t, shader_binary_ptr);
         }
 
         /* First, check if we've already initialized this PID. */
-        for (i = 0; i < debug_info.num_pids; i++) {
-                if (debug_info.pids[i] == pid) {
+        for (i = 0; i < eudebug_info.num_pids; i++) {
+                if (eudebug_info.pids[i] == pid) {
                         goto out_unlock;
                 }
         }
 
-        pthread_rwlock_unlock(&debug_info_lock);
+        pthread_rwlock_unlock(&eudebug_info_lock);
 
         /* Open the fd to begin debugging this PID */
 #if GPU_DRIVER == GPU_DRIVER_xe
         struct drm_xe_eudebug_connect open = {};
         open.pid = pid;
-        debug_fd = ioctl(fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
+        eudebug_fd = ioctl(fd, DRM_IOCTL_XE_EUDEBUG_CONNECT, &open);
 #elif GPU_DRIVER == GPU_DRIVER_i915
         struct prelim_drm_i915_debugger_open_param open = {};
         open.pid = pid;
-        debug_fd = ioctl(fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
+        eudebug_fd = ioctl(fd, PRELIM_DRM_IOCTL_I915_DEBUGGER_OPEN, &open);
 #endif
 
-        if (debug_fd < 0) {
-                debug_printf("Failed to open the debug interface for PID %d: %d.\n", pid, debug_fd);
+        if (eudebug_fd < 0) {
+                debug_printf("Failed to open the debug interface for PID %d: %d.\n", pid, eudebug_fd);
                 goto out;
         }
 
-        flags = fcntl(debug_fd, F_GETFL, 0);
-        fcntl(debug_fd, F_SETFL, flags | O_NONBLOCK);
+        flags = fcntl(eudebug_fd, F_GETFL, 0);
+        fcntl(eudebug_fd, F_SETFL, flags | O_NONBLOCK);
 
-        pthread_rwlock_wrlock(&debug_info_lock);
+        pthread_rwlock_wrlock(&eudebug_info_lock);
 
         /* @TODO: check for MAX_PIDS */
 
         /* Add the PID and fd to the arrays */
-        debug_info.pollfds[debug_info.num_pids].fd = debug_fd;
-        debug_info.pollfds[debug_info.num_pids].events = POLLIN;
-        debug_info.pids[debug_info.num_pids] = pid;
-        debug_info.symtabs[debug_info.num_pids].pid = pid;
-        debug_info.num_pids++;
+        eudebug_info.pollfds[eudebug_info.num_pids].fd = eudebug_fd;
+        eudebug_info.pollfds[eudebug_info.num_pids].events = POLLIN;
+        eudebug_info.pids[eudebug_info.num_pids] = pid;
+        eudebug_info.num_pids++;
 
 out_unlock:;
-        pthread_rwlock_unlock(&debug_info_lock);
+        pthread_rwlock_unlock(&eudebug_info_lock);
 out:;
 }
 
-int debug_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id)
-{
-        int i, j;
-        struct symbol_table *table;
-        struct symbol_entry *entry;
+void set_kernel_info(uint64_t addr, uint64_t size, uint64_t symbol_id, uint64_t filename_id, int linenum) {
+        struct shader *shader;
 
-        debug_printf("Finding symbol for pid=%d addr=0x%lx\n", pid, addr);
+        shader = acquire_or_create_shader(addr);
 
-        for (i = 0; i < debug_info.num_pids; i++) {
-                /* Find the addr range in this PID's symbol table */
-                table = &(debug_info.symtabs[i]);
+        assert((size == 0 || shader->size == 0 || size == shader->size) && "shader size mismatch");
 
-                if (table->pid != pid) { continue; }
+        size        && (shader->size        = size);
+        symbol_id   && (shader->symbol_id   = symbol_id);
+        filename_id && (shader->filename_id = filename_id);
+        linenum     && (shader->linenum     = linenum);
 
-                for (j = 0; j < table->num_syms; j++) {
-                        entry = &(table->symtab[j]);
-                        if (addr >= entry->start_addr && addr < entry->start_addr + entry->size) {
-                                if (out_symbol_id != NULL) {
-                                        *out_symbol_id = entry->symbol_id;
-                                }
-                                if (out_file_id != NULL) {
-                                        *out_file_id = entry->filename_id;
-                                }
-                                return 0;
-                        }
-                }
-
-                break;
-        }
-
-        debug_printf("Couldn't find a symbol for addr=0x%lx\n", addr);
-
-        return -1;
+        release_shader(shader);
 }
 
-void debug_add_sym(char *symbol, uint64_t start_addr, uint64_t size, char *filename, int linenum, int pid_index) {
-        struct symbol_table *table;
-        int num_syms;
-        struct symbol_entry *entry;
-        char file_and_line[MAX_GPU_FILE_LEN];
+void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size) {
+        struct shader *shader;
 
-        pthread_rwlock_wrlock(&debug_info_lock);
+        if (bytes == NULL || size == 0) { return; }
 
-        table = &(debug_info.symtabs[pid_index]);
+        shader = acquire_or_create_shader(addr);
 
-        /* Grow the symbol table */
-        table->num_syms++;
-        num_syms = table->num_syms;
-        table->symtab = realloc(table->symtab,
-                                sizeof(struct symbol_entry) * num_syms);
+        assert(shader->binary == NULL && "shader binary already set");
 
-        /* Add this symbol to the table */
-        entry = &(table->symtab[table->num_syms - 1]);
-        memset(entry, 0, sizeof(*entry));
-        entry->start_addr = start_addr;
-        entry->size = size;
-        entry->symbol = symbol;
-        entry->filename = filename;
-        entry->linenum = linenum;
-        
-        entry->symbol_id = print_string(symbol);
-        if (linenum) {
-                snprintf(file_and_line, MAX_GPU_FILE_LEN,
-                         "%s line %d", filename, linenum);
-                entry->filename_id = print_string(file_and_line);
-        } else {
-                entry->filename_id = print_string(filename);
+        if (shader->size != 0 && shader->size > size) {
+                assert(0 && "shader size mismatch");
         }
 
-        pthread_rwlock_unlock(&debug_info_lock);
+        shader->binary = malloc(size);
+        memcpy(shader->binary, bytes, size);
+        shader->size = size;
+
+        release_shader(shader);
 }
 
-void debug_add_shader_binary(Elf_Scn *section) {
+static void extract_elf_shader_binary(Elf_Scn *section) {
         Elf64_Shdr *shdr;
-        uint64_t address;
-        tree_it(uint64_t, shader_binary_ptr) it;
-        struct shader_binary *bin;
-        Elf_Data *data;
+        uint64_t    address;
+        Elf_Data   *data;
 
-        shdr = elf64_getshdr(section);
+        shdr    = elf64_getshdr(section);
+        address = shdr->sh_addr & SHADER_ADDRESS_MASK;
+        data    = elf_getdata(section, NULL);
 
-        address = DRM_CANONICALIZE(shdr->sh_addr);
-
-        it = tree_lookup(shader_binaries, address);
-        if (tree_it_good(it)) {
-                free(tree_it_val(it));
-                tree_delete(shader_binaries, address);
-        }
-        bin = malloc(sizeof(struct shader_binary) + shdr->sh_size);
-        memset(bin, 0, sizeof(*bin));
-
-        bin->start = address;
-        bin->size = shdr->sh_size;
-
-        data = elf_getdata(section, NULL);
-
-        memcpy(bin->bytes, data->d_buf, bin->size);
-
-        pthread_mutex_lock(&debug_shader_binaries_lock);
-        tree_insert(shader_binaries, bin->start, bin);
-        pthread_mutex_unlock(&debug_shader_binaries_lock);
+        set_kernel_binary(address, data->d_buf, data->d_size);
 }
 
 /* Adds a symbol to the per-PID symbol table.
    XXX: Check for duplicates and throw a warning */
-void handle_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index,
-                        int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
+static void extract_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
-        uint64_t address;
-        char *name;
-        char *filename;
-        int linenum;
-        char *demangled;
+        uint64_t    address;
+        char       *name;
+        char       *filename;
+        int         linenum;
+        char       *demangled;
         Debug_Info *info;
-        Elf_Scn *section;
+        Elf_Scn    *section;
 
-        address = DRM_CANONICALIZE(symbol->st_value);
-        name = elf_strptr(elf, string_table_index, symbol->st_name);
-        filename = NULL;
-        linenum = 0;
+        address   = DRM_CANONICALIZE(symbol->st_value);
+        name      = elf_strptr(elf, string_table_index, symbol->st_name);
+        demangled = NULL;
+        filename  = NULL;
+        linenum   = 0;
 
         if (name == NULL) {
-                name = strdup("???");
+                name = "???";
         } else {
                 info = hash_table_get_val(debug_info_table, name);
                 if (info != NULL) {
-                        filename = strdup(info->filename);
+                        filename = info->filename;
                         linenum  = info->linenum;
                 }
                 demangled = demangle(name);
                 if (demangled != NULL) {
                         name = demangled;
-                } else {
-                        name = strdup(name);
                 }
         }
         if (filename == NULL) {
-                filename = strdup("<unknown>");
+                filename = "<unknown>";
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
-                name, filename, linenum);
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address, name, filename, linenum);
 
-        debug_add_sym(name, address, symbol->st_size, filename, linenum, pid_index);
+        set_kernel_info(address & SHADER_ADDRESS_MASK, symbol->st_size, print_string(name), print_string(filename), linenum);
+
+        if (demangled) {
+                free(demangled);
+        }
 
         section = elf_getscn(elf, symbol->st_shndx);
-        debug_add_shader_binary(section);
+
+        extract_elf_shader_binary(section);
 }
 
-void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
-                       int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
+static void extract_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
 {
         Elf_Data *section_data;
         size_t num_symbols, i;
@@ -300,9 +244,7 @@ void handle_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index,
                                 /* Add an entry into our internal symbol tables, and record
                                    the name and address */
 
-                                handle_elf_symbol(&(symbols[i]), elf,
-                                                   string_table_index,
-                                                   pid_index, debug_info_table);
+                                extract_elf_symbol(&(symbols[i]), elf, string_table_index, debug_info_table);
                         }
                 }
 
@@ -369,7 +311,7 @@ out:;
         return DWARF_CB_OK;
 }
 
-hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
+static hash_table(sym_str_t, Debug_Info) build_debug_info_table(Elf *elf)
 {
         hash_table(sym_str_t, Debug_Info)  debug_info_table;
         Dwarf                             *dwarf;
@@ -417,7 +359,7 @@ out:;
         return debug_info_table;
 }
 
-void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
+static void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
         char *key;
         Debug_Info *val;
 
@@ -429,7 +371,7 @@ void free_debug_info_table(hash_table(sym_str_t, Debug_Info) debug_info_table) {
         hash_table_free(debug_info_table);
 }
 
-void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, int pid_index, hash_table(sym_str_t, Debug_Info) debug_info_table) {
+static void extract_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header, size_t string_table_index, hash_table(sym_str_t, Debug_Info) debug_info_table) {
         uint64_t    address;
         char       *name;
         int         len;
@@ -441,8 +383,9 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
 
         address = DRM_CANONICALIZE(section_header->sh_addr);
 
-        name = elf_strptr(elf, string_table_index, section_header->sh_name);
-        len  = strlen(name);
+        name      = elf_strptr(elf, string_table_index, section_header->sh_name);
+        len       = strlen(name);
+        demangled = NULL;
 
         if (len == 0) { return; }
 
@@ -457,28 +400,29 @@ void handle_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section_header,
 
         info = hash_table_get_val(debug_info_table, name);
         if (info != NULL) {
-                filename = strdup(info->filename);
+                filename = info->filename;
                 linenum  = info->linenum;
         }
         demangled = demangle(name);
         if (demangled != NULL) {
                 name = demangled;
-        } else {
-                name = strdup(name);
         }
-
         if (filename == NULL) {
-                filename = strdup("<unknown>");
+                filename = "<unknown>";
         }
 
-        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address,
-                name, filename, linenum);
+        debug_printf("    Symbol 0x%lx:%s @ %s:%d\n", address, name, filename, linenum);
 
-        debug_add_sym(name, address, section_header->sh_size, filename, linenum, pid_index);
-        debug_add_shader_binary(section);
+        set_kernel_info(address & SHADER_ADDRESS_MASK, section_header->sh_size, print_string(name), print_string(filename), linenum);
+
+        if (demangled != NULL) {
+                free(demangled);
+        }
+
+        extract_elf_shader_binary(section);
 }
 
-void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
+void extract_elf_kernel_info(const unsigned char *elf_data, uint64_t elf_data_size)
 {
         Elf *elf;
         hash_table(sym_str_t, Debug_Info) debug_info_table;
@@ -489,12 +433,10 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
         int retval;
         size_t string_table_index;
 
-        pthread_rwlock_rdlock(&debug_info_lock);
-        debug_printf("ELF for pid %d\n", debug_info.pids[pid_index]);
-        pthread_rwlock_unlock(&debug_info_lock);
+        debug_printf("Processing ELF\n");
 
         /* Initialize the ELF from the buffer */
-        elf = elf_memory((char *)data, data_size);
+        elf = elf_memory((char *)elf_data, elf_data_size);
         if (!elf) {
                 WARN("Error reading an ELF file.\n");
                 return;
@@ -538,8 +480,7 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
                 /* If this is a .symtab section, it'll be marked as SHT_SYMTAB */
                 if (section_header->sh_type == SHT_SYMTAB) {
                         debug_printf("  Symbol table:\n");
-                        handle_elf_symtab(elf, section, string_table_index,
-                                          pid_index, debug_info_table);
+                        extract_elf_symtab(elf, section, string_table_index, debug_info_table);
                         seen_symtab = 1;
                 }
 
@@ -559,12 +500,8 @@ void handle_elf(unsigned char *data, uint64_t data_size, int pid_index)
 
                         if (section_header->sh_type == SHT_PROGBITS) {
                                 /* Get the string name */
-                                debug_printf("Progbits: %s\n",
-                                        elf_strptr(elf, string_table_index,
-                                                section_header->sh_name));
-
-                                handle_elf_progbits(elf, section, section_header, string_table_index,
-                                                pid_index, debug_info_table);
+                                debug_printf("Progbits: %s\n", elf_strptr(elf, string_table_index, section_header->sh_name));
+                                extract_elf_progbits(elf, section, section_header, string_table_index, debug_info_table);
                         }
 
                         /* Next section */
@@ -583,11 +520,9 @@ cleanup:
 }
 
 #if GPU_DRIVER == GPU_DRIVER_xe
-void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event,
-                       int pid_index)
+static void handle_event_uuid(int debug_fd, struct drm_xe_eudebug_event *event, int pid_index)
 #elif GPU_DRIVER == GPU_DRIVER_i915
-void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
-                       int pid_index)
+static void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event, int pid_index)
 #endif
 {
         int retval;
@@ -644,7 +579,7 @@ void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *event,
 
         /* Check for the ELF magic bytes */
         if (*((uint32_t *)data) == 0x464c457f) {
-                handle_elf(data, size, pid_index);
+                extract_elf_kernel_info(data, size);
         }
 cleanup:
         free((void *)data);
@@ -654,7 +589,7 @@ cleanup:
 
 #if GPU_DRIVER == GPU_DRIVER_xe
 /* Returns whether an event was actually read. */
-int read_debug_event(int fd, int pid_index)
+int read_eudebug_event(int fd, int pid_index)
 {
         int retval, ack_retval;
         struct drm_xe_eudebug_ack_event ack_event = {};
@@ -707,7 +642,7 @@ int read_debug_event(int fd, int pid_index)
 }
 #elif GPU_DRIVER == GPU_DRIVER_i915
 /* Returns whether an event was actually read. */
-int read_debug_event(int fd, int pid_index)
+int read_eudebug_event(int fd, int pid_index)
 {
         int retval, ack_retval;
         struct prelim_drm_i915_debug_event_ack ack_event = {};
@@ -758,39 +693,14 @@ int read_debug_event(int fd, int pid_index)
 }
 #endif
 
-void read_debug_events(int fd, int pid_index)
+void read_eudebug_events(int fd, int pid_index)
 {
-        while (read_debug_event(fd, pid_index));
+        while (read_eudebug_event(fd, pid_index));
 }
 
 char *debug_event_to_str(int debug_event)
 {
         return debug_events[debug_event];
-}
-
-void free_debug() {
-        int i;
-        struct symbol_table *symtab;
-        int n;
-        struct symbol_entry *entry;
-
-        for (i = 0; i < MAX_PIDS; i += 1) {
-                symtab = &debug_info.symtabs[i];
-
-                for (n = 0; n < symtab->num_syms; n += 1) {
-                        entry = symtab->symtab + n;
-                        if (entry->symbol != NULL) {
-                                free(entry->symbol);
-                        }
-                        if (entry->filename != NULL) {
-                                free(entry->filename);
-                        }
-                }
-
-                free(symtab->symtab);
-
-                memset(symtab, 0, sizeof(*symtab));
-        }
 }
 
 struct shader_binary *get_shader_binary(uint64_t gpu_addr) {
