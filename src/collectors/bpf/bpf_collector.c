@@ -182,6 +182,7 @@ int handle_uprobe_ksp(void *data_arg)
                 debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
 
+        shader->size         = info->size;
         shader->pid          = info->pid;
         shader->ustack_id    = print_string(store_ustack(info->pid, &info->ustack));
         shader->kstack_id    = 0;

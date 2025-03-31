@@ -110,6 +110,7 @@ struct uprobe_ksp_info {
         __u8         type;
 
         __u64        addr;
+        __u64        size;
 
         struct stack ustack;
 

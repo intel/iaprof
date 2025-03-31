@@ -41,7 +41,7 @@ struct anv_pipeline_stage {
 
 #define MAX_VULKAN_OBJECT_NAMES 1024
 
-void send_vulkan_ksp(void *ctx, __u64 addr) {
+void send_vulkan_ksp(void *ctx, __u64 addr, __u64 size) {
         struct uprobe_ksp_info *info;
         long err;
         
@@ -57,6 +57,7 @@ void send_vulkan_ksp(void *ctx, __u64 addr) {
         info->type = BPF_EVENT_TYPE_UPROBE_KSP;
 
         info->addr = addr;
+        info->size = size;
 
         err = bpf_get_stack(ctx, &(info->ustack.addrs), sizeof(info->ustack.addrs), BPF_F_USER_STACK);
         if (err < 0) {
@@ -88,7 +89,7 @@ void send_vulkan_kernel_info(void *ctx, __u64 addr, char *name) {
         info->type = BPF_EVENT_TYPE_UPROBE_KERNEL_INFO;
 
         info->addr = addr;
-        __builtin_memcpy(&(info->symbol), name, sizeof(info->symbol));
+        __builtin_memcpy(&(info->symbol), name, MAX_SYMBOL_SIZE);
 
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 }
@@ -105,6 +106,9 @@ void send_vulkan_kernel_info(void *ctx, __u64 addr, char *name) {
 *****************************************************************************/
 
 char null_symbol[MAX_SYMBOL_SIZE];
+char blorp_clear_str[MAX_SYMBOL_SIZE] = "blorp_clear";
+char blorp_blit_str[MAX_SYMBOL_SIZE] = "blorp_blit";
+char blorp_copy_str[MAX_SYMBOL_SIZE] = "blorp_copy";
    
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
@@ -150,6 +154,8 @@ int BPF_UPROBE(vk_common_SetDebugUtilsObjectNameEXT, void *this, VkDebugUtilsObj
   seeing where it was allocated in the VM's pool of memory.
 *****************************************************************************/
 
+__u64 vulkan_canary_addr = UINT64_MAX;
+
 struct {
         __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
         __uint(max_entries, 1);
@@ -176,12 +182,12 @@ int BPF_URETPROBE(anv_state_pool_alloc, __u64 ret) {
 /* We can now read the GPU address that was assigned to this shader module */
 SEC("uretprobe//usr/lib/libvulkan_intel.so:anv_shader_bin_create")
 int BPF_URETPROBE(anv_shader_bin_create, __u64 ret) {
-        __u64                    *lookup;
-        __u32                     zero = 0;
-        __u64                     addr;
-        long                    err;
-        struct anv_state       *in_state;
-        struct anv_state        state = {};
+        __u64 *lookup;
+        __u32 zero = 0;
+        __u64 addr, size;
+        long err;
+        struct anv_state *in_state;
+        struct anv_state state = {};
         
         /* Look up the GPU address that anv_state_pool_alloc allocated */
         lookup = bpf_map_lookup_elem(&wait_for_shader_bin_create, &zero);
@@ -200,6 +206,7 @@ int BPF_URETPROBE(anv_shader_bin_create, __u64 ret) {
                 return 0;
         }
         addr = state.offset & 0xFFFFFFFFFFC0;
+        size = state.alloc_size;
         DEBUG_PRINTK("anv_shader_bin_create: 0x%llx\n", addr);
 
         /* Make sure we don't reuse that address */
@@ -210,7 +217,7 @@ int BPF_URETPROBE(anv_shader_bin_create, __u64 ret) {
         bpf_map_update_elem(&wait_for_add_executables, &zero, &addr, 0);
         DEBUG_PRINTK("anv_shader_bin_create 0x%llx", addr);
         
-        send_vulkan_ksp(ctx, addr);
+        send_vulkan_ksp(ctx, addr, size);
 
         return 0;
 }
@@ -247,7 +254,11 @@ int BPF_UPROBE(anv_pipeline_add_executables, void *pipeline_arg, struct anv_pipe
                 return 0;
         }
         addr = (__u64)*((__u64 *)lookup);
-        if (addr == UINT64_MAX) {
+        
+        /* ensure that we don't reuse this address erroneously */
+        bpf_map_update_elem(&wait_for_add_executables, &zero, &vulkan_canary_addr, 0);
+        
+        if (addr == vulkan_canary_addr) {
                 WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
                 return 0;
         }
@@ -259,6 +270,107 @@ int BPF_UPROBE(anv_pipeline_add_executables, void *pipeline_arg, struct anv_pipe
                 return 0;
         }
         name = lookup;
+        
+        send_vulkan_kernel_info(ctx, addr, name);
+        
+        return 0;
+}
+
+/*****************************************************************************
+  Blorp Shaders
+  
+  These are built-in shaders in Mesa, so we hardcode their names. If any of them
+  triggers after an anv_shader_bin_create, then we know that it was that kernel
+  type, and we "consume" the value from anv_shader_bin_create.
+*****************************************************************************/
+
+/* If this retprobe triggers right after an anv_shader_bin_create,
+   then the shader was the built-in "clear" kernel. In this case,
+   anv_ */
+SEC("uretprobe//usr/lib/libvulkan_intel.so:blorp_clear")
+int BPF_URETPROBE(blorp_clear) {
+        __u32 zero = 0;
+        __u64 addr;
+        void *lookup;
+        char *name;
+        
+        /* Now lookup the GPU address that we got from the anv_shader_bin_create chain */
+        lookup = bpf_map_lookup_elem(&wait_for_add_executables, &zero);
+        if (lookup == NULL) {
+                WARN_PRINTK("anv_pipeline_add_executables, but no anv_shader_bin_create");
+                return 0;
+        }
+        addr = (__u64)*((__u64 *)lookup);
+        
+        /* ensure that we don't reuse this address erroneously */
+        bpf_map_update_elem(&wait_for_add_executables, &zero, &vulkan_canary_addr, 0);
+        
+        if (addr == vulkan_canary_addr) {
+                WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
+                return 0;
+        }
+        
+        name = (char *)&blorp_clear_str;
+        
+        send_vulkan_kernel_info(ctx, addr, name);
+        
+        return 0;
+}
+
+SEC("uretprobe//usr/lib/libvulkan_intel.so:blorp_blit")
+int BPF_URETPROBE(blorp_blit) {
+        __u32 zero = 0;
+        __u64 addr;
+        void *lookup;
+        char *name;
+        
+        /* Now lookup the GPU address that we got from the anv_shader_bin_create chain */
+        lookup = bpf_map_lookup_elem(&wait_for_add_executables, &zero);
+        if (lookup == NULL) {
+                WARN_PRINTK("anv_pipeline_add_executables, but no anv_shader_bin_create");
+                return 0;
+        }
+        addr = (__u64)*((__u64 *)lookup);
+        
+        /* ensure that we don't reuse this address erroneously */
+        bpf_map_update_elem(&wait_for_add_executables, &zero, &vulkan_canary_addr, 0);
+        
+        if (addr == vulkan_canary_addr) {
+                WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
+                return 0;
+        }
+        
+        name = (char *)&blorp_blit_str;
+        
+        send_vulkan_kernel_info(ctx, addr, name);
+        
+        return 0;
+}
+
+SEC("uretprobe//usr/lib/libvulkan_intel.so:blorp_copy")
+int BPF_URETPROBE(blorp_copy) {
+        __u32 zero = 0;
+        __u64 addr;
+        void *lookup;
+        char *name;
+        
+        /* Now lookup the GPU address that we got from the anv_shader_bin_create chain */
+        lookup = bpf_map_lookup_elem(&wait_for_add_executables, &zero);
+        if (lookup == NULL) {
+                WARN_PRINTK("anv_pipeline_add_executables, but no anv_shader_bin_create");
+                return 0;
+        }
+        addr = (__u64)*((__u64 *)lookup);
+        
+        /* ensure that we don't reuse this address erroneously */
+        bpf_map_update_elem(&wait_for_add_executables, &zero, &vulkan_canary_addr, 0);
+        
+        if (addr == vulkan_canary_addr) {
+                WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
+                return 0;
+        }
+        
+        name = (char *)&blorp_copy_str;
         
         send_vulkan_kernel_info(ctx, addr, name);
         
