@@ -1,3 +1,6 @@
+#define wchar_t wchar_t_vulkan
+#define intptr_t intptr_t_vulkan
+#define uintptr_t uintptr_t_vulkan
 #include <vulkan/vulkan_core.h>
 
 /*****************************************************************************

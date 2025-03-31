@@ -1,18 +1,13 @@
 
 #if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_i915
 #include "i915.h"
-#include "vmlinux.h"
 #elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_xe
 #include "xe.h"
-#include "vmlinux.h"
 #endif
+#include "vmlinux.h"
 
-#include <asm/ptrace.h>
-#include <linux/types.h>
-#include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
 
 extern int LINUX_KERNEL_VERSION __kconfig;
 
