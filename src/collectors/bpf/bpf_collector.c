@@ -30,6 +30,7 @@
 
 #include "utils/utils.h"
 #include "utils/hash_table.h"
+#include "utils/demangle.h"
 
 struct live_execbuf {
         uint64_t eb_id;
@@ -192,6 +193,65 @@ int handle_uprobe_ksp(void *data_arg)
         return 0;
 }
 
+int handle_uprobe_elf(void *data_arg)
+{
+        struct uprobe_elf_info *info;
+
+        info = (struct uprobe_elf_info *)data_arg;
+
+        extract_elf_kernel_info(info->data, info->size);
+
+        return 0;
+}
+
+int handle_uprobe_kernel_info(void *data_arg)
+{
+        struct uprobe_kernel_info *info;
+        uint64_t                   masked_addr;
+        uint64_t                   symbol_id;
+        char                      *demangled;
+        uint64_t                   filename_id;
+
+        info = (struct uprobe_kernel_info *)data_arg;
+
+        masked_addr = info->addr & 0xFFFFFFFFFF00;
+
+        symbol_id = 0;
+        if (info->symbol[0]) {
+                demangled = demangle(info->symbol);
+
+                if (demangled) {
+                        symbol_id = print_string(demangled);
+                        free(demangled);
+                } else {
+                        symbol_id = print_string(info->symbol);
+                }
+        }
+
+        filename_id = 0;
+        if (info->filename[0]) {
+                filename_id = print_string(info->filename);
+        }
+
+        set_kernel_info(masked_addr, info->size, symbol_id, filename_id, info->linenum);
+
+        return 0;
+}
+
+int handle_uprobe_kernel_bin(void *data_arg)
+{
+        struct uprobe_kernel_bin *info;
+        uint64_t                  masked_addr;
+
+        info = (struct uprobe_kernel_bin *)data_arg;
+
+        masked_addr = info->addr & 0xFFFFFFFFFF00;
+
+        set_kernel_binary(masked_addr, info->data, info->size);
+
+        return 0;
+}
+
 
 /* Runs each time a sample from the ringbuffer is collected. */
 static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
@@ -201,11 +261,14 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
-                case BPF_EVENT_TYPE_EXECBUF:     return handle_execbuf(data_arg);
-                case BPF_EVENT_TYPE_EXECBUF_END: return handle_execbuf_end(data_arg);
-                case BPF_EVENT_TYPE_KSP:         return handle_ksp(data_arg);
-                case BPF_EVENT_TYPE_SIP:         return handle_sip(data_arg);
-                case BPF_EVENT_TYPE_UPROBE_KSP:  return handle_uprobe_ksp(data_arg);
+                case BPF_EVENT_TYPE_EXECBUF:            return handle_execbuf(data_arg);
+                case BPF_EVENT_TYPE_EXECBUF_END:        return handle_execbuf_end(data_arg);
+                case BPF_EVENT_TYPE_KSP:                return handle_ksp(data_arg);
+                case BPF_EVENT_TYPE_SIP:                return handle_sip(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_KSP:         return handle_uprobe_ksp(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_ELF:         return handle_uprobe_elf(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_KERNEL_INFO: return handle_uprobe_kernel_info(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_KERNEL_BIN:  return handle_uprobe_kernel_bin(data_arg);
         }
 
         ERR("Unknown data type when handling a sample: %u\n", type);

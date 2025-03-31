@@ -30,8 +30,8 @@ export GPU_PLATFORM="pvc"
 export GPU_DRIVER="i915"
 # export GPU_DRIVER="xe"
 
-export KERNEL_LAUNCH_COLLECTOR="driver"
-# export KERNEL_LAUNCH_COLLECTOR="uprobe"
+# export KERNEL_LAUNCH_COLLECTOR="driver"
+export KERNEL_LAUNCH_COLLECTOR="uprobe"
 
 CONFIG_CFLAGS=""
 CONFIG_CFLAGS+=" -DGPU_PLATFORM_pvc=1"

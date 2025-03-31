@@ -5,6 +5,9 @@
 #define TASK_COMM_LEN       (16)
 #define MAX_MAPPINGS        (4 * 1024)
 #define MAX_PAGE_ENTRIES    (1024 * 1024)
+#define MAX_BINARY_SIZE     (1024 * 1024)
+#define MAX_SYMBOL_SIZE     (1024)
+#define MAX_FILENAME_SIZE   (4096)
 #define RINGBUF_SIZE        (512 * 1024 * 1024) /* 512 MB */
 #define PAGE_SIZE           (4096)
 #define PAGE_MASK           (~0xfff)
@@ -60,6 +63,9 @@ enum {
     BPF_EVENT_TYPE_SIP,
     BPF_EVENT_TYPE_UPROBE_IBA,
     BPF_EVENT_TYPE_UPROBE_KSP,
+    BPF_EVENT_TYPE_UPROBE_ELF,
+    BPF_EVENT_TYPE_UPROBE_KERNEL_INFO,
+    BPF_EVENT_TYPE_UPROBE_KERNEL_BIN,
 };
 
 struct execbuf_info {
@@ -103,7 +109,7 @@ struct sip_info {
 struct uprobe_ksp_info {
         __u8         type;
 
-        __u64 addr;
+        __u64        addr;
 
         struct stack ustack;
 
@@ -112,6 +118,33 @@ struct uprobe_ksp_info {
         __u32        tid;
         __u32        cpu;
         char         name[TASK_COMM_LEN];
+};
+
+struct uprobe_elf_info {
+        __u8          type;
+
+        __u64         size;
+        unsigned char data[MAX_BINARY_SIZE];
+};
+
+struct uprobe_kernel_info {
+        __u8  type;
+
+        __u64 addr;
+
+        __u64 size;
+        char  symbol[MAX_SYMBOL_SIZE];
+        char  filename[MAX_FILENAME_SIZE];
+        int   linenum;
+};
+
+struct uprobe_kernel_bin {
+        __u8          type;
+
+        __u64         addr;
+
+        __u64         size;
+        unsigned char data[MAX_BINARY_SIZE];
 };
 
 #endif
