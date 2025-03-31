@@ -1,12 +1,42 @@
 #include <vulkan/vulkan_core.h>
 
-#define UINT64_MAX 0xffffffffffffffff
+/*****************************************************************************
+  hacky declarations
+*****************************************************************************/
+
+struct anv_state {
+        int64_t offset;
+        uint32_t alloc_size;
+        uint32_t idx;
+        void *map;
+};
+
+struct vk_pipeline_robustness_state {
+   VkPipelineRobustnessBufferBehaviorEXT storage_buffers;
+   VkPipelineRobustnessBufferBehaviorEXT uniform_buffers;
+   VkPipelineRobustnessBufferBehaviorEXT vertex_inputs;
+   VkPipelineRobustnessImageBehaviorEXT images;
+   char null_uniform_buffer_descriptor;
+   char null_storage_buffer_descriptor;
+};
+
+struct anv_pipeline_stage {
+   int stage;
+
+   VkPipelineCreateFlags2KHR pipeline_flags;
+   struct vk_pipeline_robustness_state rstate;
+
+   const void *pipeline_pNext;
+   const VkPipelineShaderStageCreateInfo *info;
+};
 
 /*****************************************************************************
   send_vulkan_ksp
   
   Sends a KSP back to userspace, along with a CPU stack.
 *****************************************************************************/
+
+#define MAX_VULKAN_OBJECT_NAMES 1024
 
 void send_vulkan_ksp(void *ctx, __u64 addr) {
         struct uprobe_ksp_info *info;
@@ -39,6 +69,27 @@ void send_vulkan_ksp(void *ctx, __u64 addr) {
         bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
 }
 
+void send_vulkan_kernel_info(void *ctx, __u64 addr, char *name) {
+        struct uprobe_kernel_info *info;
+        long err;
+        
+        info = bpf_ringbuf_reserve(&rb, sizeof(*info), 0);
+        if (!info) {
+                ERR_PRINTK("send_vulkan_kernel_info failed to reserve in the ringbuffer.");
+                err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                DEBUG_PRINTK("Unconsumed data: %lu", err);
+                dropped_event = 1;
+                return;
+        }
+
+        info->type = BPF_EVENT_TYPE_UPROBE_KERNEL_INFO;
+
+        info->addr = addr;
+        __builtin_memcpy(&(info->symbol), name, sizeof(info->symbol));
+
+        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+}
+
 /*****************************************************************************
   Shader Names
   
@@ -49,21 +100,22 @@ void send_vulkan_ksp(void *ctx, __u64 addr) {
   We can intercept these strings, filter out all but the ones associated with
   shader modules, and construct a map of VkShaderModule -> name.
 *****************************************************************************/
-#define MAX_VULKAN_OBJECT_NAMES 1024
-#define MAX_VULKAN_OBJECT_NAME_LENGTH 256
+
+char null_symbol[MAX_SYMBOL_SIZE];
    
 struct {
         __uint(type, BPF_MAP_TYPE_HASH);
         __uint(max_entries, MAX_VULKAN_OBJECT_NAMES);
         __type(key, __u64);                                 /* The VkShaderModule */
-        __type(value, char[MAX_VULKAN_OBJECT_NAME_LENGTH]); /* The name */
+        __type(value, char[MAX_SYMBOL_SIZE]); /* The name */
 } object_names SEC(".maps");
    
 SEC("uprobe//usr/lib/libvulkan_intel.so:vk_common_SetDebugUtilsObjectNameEXT")
 int BPF_UPROBE(vk_common_SetDebugUtilsObjectNameEXT, void *this, VkDebugUtilsObjectNameInfoEXT *info_arg) {
         VkDebugUtilsObjectNameInfoEXT info = {};
         __u64 vk_shader_module;
-        char shader_module_name[MAX_VULKAN_OBJECT_NAME_LENGTH];
+        char (*shader_module_name)[MAX_SYMBOL_SIZE];
+        long err;
         
         err = bpf_probe_read_user(&info, sizeof(info), info_arg);
         if (err) {
@@ -76,10 +128,13 @@ int BPF_UPROBE(vk_common_SetDebugUtilsObjectNameEXT, void *this, VkDebugUtilsObj
                 return 0;
         }
         
-        if (info->pObjectName) {
+        if (info.pObjectName) {
                 vk_shader_module = info.objectHandle;
-                bpf_copy_from_user_str(&shader_module_name, sizeof(shader_module_name), info->pobjectName, BPF_F_PAD_ZEROS);
-                bpf_map_update_elem(&object_names, &vk_shader_module, &shader_module_name, BPF_NOEXIST);
+                
+                bpf_map_update_elem(&object_names, &vk_shader_module, &null_symbol, 0);
+                shader_module_name = bpf_map_lookup_elem(&object_names, &vk_shader_module);
+                if (shader_module_name == NULL) return 0;
+                bpf_probe_read_user_str(*shader_module_name, sizeof(*shader_module_name), info.pObjectName);
         }
         
         return 0;
@@ -105,13 +160,6 @@ struct {
         __type(key, __u32);
         __type(value, __u64);
 } wait_for_add_executables SEC(".maps");
-
-struct anv_state {
-   int64_t offset;
-   uint32_t alloc_size;
-   uint32_t idx;
-   void *map;
-};
 
 /* We'll see this in between the uprobe and uretprobe of anv_shader_bin_create */
 SEC("uretprobe//usr/lib/libvulkan_intel.so:anv_state_pool_alloc")
@@ -140,13 +188,13 @@ int BPF_URETPROBE(anv_shader_bin_create, __u64 ret) {
         }
         in_state = (struct anv_state *)*lookup;
         if (!in_state) {
-          WARN_PRINTK("anv_shader_bin_create got a NULL anv_state");
-          return 0;
+                WARN_PRINTK("anv_shader_bin_create got a NULL anv_state");
+                return 0;
         }
         err = bpf_probe_read_user(&state, sizeof(state), in_state);
         if (err) {
-          WARN_PRINTK("anv_shader_bin_create failed to read the anv_state");
-          return 0;
+                WARN_PRINTK("anv_shader_bin_create failed to read the anv_state");
+                return 0;
         }
         addr = state.offset & 0xFFFFFFFFFFC0;
         DEBUG_PRINTK("anv_shader_bin_create: 0x%llx\n", addr);
@@ -156,7 +204,6 @@ int BPF_URETPROBE(anv_shader_bin_create, __u64 ret) {
         
         /* Wait for anv_pipeline_add_executable to get the VkShaderModule,
            and thus, the name of this shader */
-        __u32 zero = 0;
         bpf_map_update_elem(&wait_for_add_executables, &zero, &addr, 0);
         DEBUG_PRINTK("anv_shader_bin_create 0x%llx", addr);
         
@@ -173,7 +220,8 @@ int BPF_UPROBE(anv_pipeline_add_executables, void *pipeline_arg, struct anv_pipe
         __u32 zero = 0;
         long err;
         __u64 shader_module, addr;
-        __u64 *lookup;
+        void *lookup;
+        char *name;
         VkPipelineShaderStageCreateInfo info;
         
         /* Get the VkShaderModule */
@@ -187,6 +235,7 @@ int BPF_UPROBE(anv_pipeline_add_executables, void *pipeline_arg, struct anv_pipe
                 WARN_PRINTK("anv_pipeline_add_executable failed to read the VkPipelineShaderStageCreateInfo");
                 return 0;
         }
+        shader_module = (__u64)info.module;
         
         /* Now lookup the GPU address that we got from the anv_shader_bin_create chain */
         lookup = bpf_map_lookup_elem(&wait_for_add_executables, &zero);
@@ -194,11 +243,21 @@ int BPF_UPROBE(anv_pipeline_add_executables, void *pipeline_arg, struct anv_pipe
                 WARN_PRINTK("anv_pipeline_add_executables, but no anv_shader_bin_create");
                 return 0;
         }
-        addr = (__u64)*lookup;
-        if (addr == UIN64_MAX) {
-          WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
-          return 0;
+        addr = (__u64)*((__u64 *)lookup);
+        if (addr == UINT64_MAX) {
+                WARN_PRINTK("anv_pipeline_add_executables without an anv_shader_bin_create");
+                return 0;
         }
         
-/*         send */
+        /* Now lookup the shader name */
+        lookup = bpf_map_lookup_elem(&object_names, &shader_module);
+        if (lookup == NULL) {
+                WARN_PRINTK("Didn't see an object name for VkShaderModule 0x%llx", shader_module);
+                return 0;
+        }
+        name = lookup;
+        
+        send_vulkan_kernel_info(ctx, addr, name);
+        
+        return 0;
 }
