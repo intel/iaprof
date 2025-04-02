@@ -49,10 +49,13 @@ struct shader *acquire_containing_shader(uint64_t gpu_addr) {
 
         shader = &tree_it_val(it);
 
+        if ((shader->size != 0) && (gpu_addr >= (shader->gpu_addr + shader->size))) {
+                /* XXX: WARNING: We do NOT check the size of all shaders, since we have no
+                   way of knowing it in some cases. This can lead to mis-association 
+                   if we don't know the addresses of ALL shaders. */
+                goto err;
+        }
         if ((gpu_addr < shader->gpu_addr)) {
-                /* XXX: WARNING: We do NOT check the size of the shader, since we have no
-                   way of knowing it. This can lead to mis-association if we don't know
-                   the addresses of ALL shaders. */
 
                 goto err;
         }
