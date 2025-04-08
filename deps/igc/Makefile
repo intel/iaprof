@@ -78,40 +78,39 @@ $(PATCH_MARKER):
 	cd $(IGC_DIR) && patch -p1 < $(BASEDIR)/iga.diff && touch $@
 
 build: clone_deps patch $(PREFIX)/igc/lib/libiga64.a
-	@set -eux; \
-	if [ -d "$(PREFIX)/igc" ]; then \
-		echo "IGC is already built and installed in $(PREFIX)/igc. Skipping build..."; \
-	else \
-		echo "Building IGC..."; \
-		rm -rf $(BUILD_DIR); \
-		mkdir -p $(BUILD_DIR); \
-		cd $(BUILD_DIR) && \
-			cmake \
-			cmake -DCMAKE_VERBOSE_MAKEFILE=ON \
-			-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-			-DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull" \
-			-DIGC_OPTION__LLVM_MODE=Source \
-			-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
-			-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
-			-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
-			$(IGC_DIR); \
-		cd $(BUILD_DIR) && $(MAKE) -j$(shell nproc); \
-	fi
 
 $(PREFIX)/igc/lib/libiga64.a:
-	rm -rf $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)
-	cd $(BUILD_DIR) && \
-		cmake \
+	@set -eux; \
+	rm -rf $(BUILD_DIR); \
+	mkdir -p $(BUILD_DIR); \
+	if [[ ! -f /etc/lsb-release ]]; then \
+	    printf "error: missing distribution identifier at /etc/lsb-release for customizing igc build.\n"; \
+		exit 1; \
+	fi; \
+	. /etc/lsb-release; \
+	readonly DISTRIB_RELEASE; \
+	major=${version%%.*}; \
+	minor=${version##*.}; \
+	if (( major > 24 || (major == 24 && minor >= 4) )); then \
+	    echo "$version is greater than or equal to 24.04"; \
+		cxx_flags="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull"; \
+	else \
+	    echo "$version is less than 24.04"; \
+        cxx_flags=""; \
+	fi; \
+	readonly cxx_flags; \
+	cd $(BUILD_DIR); \
+	cmake \
 		-DCMAKE_VERBOSE_MAKEFILE=ON \
 		-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-		-DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull" \
+		-DCMAKE_CXX_FLAGS="${cxx_flags:-}" \
 		-DIGC_OPTION__LLVM_MODE=Source \
 		-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
 		-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
 		-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
-		$(IGC_DIR)
-	cd $(BUILD_DIR) && $(MAKE) -j$(shell nproc)
+		$(IGC_DIR); \
+	sed -i 's/-fbracket-depth=512//g' IGC/Compiler/CMakeFiles/Compiler.dir/flags.make; \
+	$(MAKE) -j$(shell nproc);
 
 install: build
 	cd $(BUILD_DIR) && $(MAKE) install
