@@ -130,6 +130,7 @@ int BPF_UPROBE(vk_common_SetDebugUtilsObjectNameEXT, void *this, VkDebugUtilsObj
                 return 0;
         }
         
+
         /* We only want shader modules */
         if (info.objectType != VK_OBJECT_TYPE_SHADER_MODULE) {
                 return 0;

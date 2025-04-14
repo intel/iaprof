@@ -195,6 +195,15 @@ int parse_eustall(char *str, void *result)
 
 int parse_interval_start(char *str, void *result)
 {
+        int retval;
+        struct interval_result *res = (struct interval_result *)result;
+        
+        retval = sscanf(str, "\t%lu\t%lf", &(res->num), &(res->time));
+        if (retval != 2) {
+                WARN("interval_start line failed to parse!\n");
+                return -1;
+        }
+        
         return 0;
 }
 
@@ -467,11 +476,30 @@ void print_kernel_profile(struct shader *shader)
         }
 }
 
+/***************************************
+* Intervals
+*
+* Stores strings that we want to print out and assigns
+* a unique ID to them.
+***************************************/
+
+static struct timespec start = {};
+
 void print_interval(uint64_t interval, array_t *waitlist)
 {
         struct shader *shader;
+        struct timespec end;
+        double time;
+        
+        if ((!start.tv_sec) && (!start.tv_nsec)) {
+                clock_gettime(CLOCK_MONOTONIC, &start);
+        }
 
-        printf("interval_start\t%lu\n", interval);
+        /* Get the "end" time that we're about to print out */
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        time = ((double)(end.tv_sec - start.tv_sec)) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000);
+        
+        printf("interval_start\t%lu\t%.6lf\n", interval, time);
 
         FOR_SHADER(shader, {
                 if (shader->stall_counts == NULL) { continue; }
@@ -485,4 +513,5 @@ void print_interval(uint64_t interval, array_t *waitlist)
 
         printf("interval_end\t%lu\n", interval);
         fflush(stdout);
+        
 }

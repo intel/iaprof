@@ -35,6 +35,11 @@ struct eustall_result {
         int is_debug, is_sys;
 };
 
+struct interval_result {
+        uint64_t num;
+        double time;
+};
+
 void print_initial_strings();
 char *get_string(uint64_t id);
 void parse_interval_profile();

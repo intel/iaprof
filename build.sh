@@ -298,6 +298,12 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   ${COMMANDS_DIR}/flame.c \
   -o ${COMMANDS_DIR}/flame.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/flamescope.c \
+  -o ${COMMANDS_DIR}/flamescope.o
 
 ####################
 #     IAPROF       #
@@ -333,6 +339,7 @@ ${CXX} ${LDFLAGS}  \
   \
   ${COMMANDS_DIR}/record.o \
   ${COMMANDS_DIR}/flame.o \
+  ${COMMANDS_DIR}/flamescope.o \
   \
   \
   ${COMMON_FLAGS} \
