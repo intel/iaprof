@@ -198,6 +198,10 @@ int parse_interval_start(char *str, void *result)
         int retval;
         struct interval_result *res = (struct interval_result *)result;
         
+        if (!result) {
+                return 0;
+        }
+        
         retval = sscanf(str, "\t%lu\t%lf", &(res->num), &(res->time));
         if (retval != 2) {
                 WARN("interval_start line failed to parse!\n");
