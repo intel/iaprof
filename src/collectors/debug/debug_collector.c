@@ -112,7 +112,14 @@ void init_debug(int fd, int pid)
         }
 
         flags = fcntl(debug_fd, F_GETFL, 0);
-        fcntl(debug_fd, F_SETFL, flags | O_NONBLOCK);
+        if (flags == -1) {
+                debug_printf("Failed file descriptor operation F_GETFL for PID %d: %d.\n", pid, flags);
+                goto out;
+        }
+        if(fcntl(debug_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+                debug_printf("Failed file descriptor operation F_SETFL for PID %d.\n", pid);
+                goto out;
+        }
 
         pthread_rwlock_wrlock(&debug_info_lock);
 
