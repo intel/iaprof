@@ -487,21 +487,14 @@ void print_kernel_profile(struct shader *shader)
 * a unique ID to them.
 ***************************************/
 
-static struct timespec start = {};
-
 void print_interval(uint64_t interval, array_t *waitlist)
 {
         struct shader *shader;
-        struct timespec end;
+        struct timespec tspec;
         double time;
         
-        if ((!start.tv_sec) && (!start.tv_nsec)) {
-                clock_gettime(CLOCK_MONOTONIC, &start);
-        }
-
-        /* Get the "end" time that we're about to print out */
-        clock_gettime(CLOCK_MONOTONIC, &end);
-        time = ((double)(end.tv_sec - start.tv_sec)) + ((double)(end.tv_nsec - start.tv_nsec) / 1000000000);
+        clock_gettime(CLOCK_MONOTONIC, &tspec);
+        time = ((double)tspec.tv_sec) + ((double)tspec.tv_nsec / 1000000000);
         
         printf("interval_start\t%lu\t%.6lf\n", interval, time);
 

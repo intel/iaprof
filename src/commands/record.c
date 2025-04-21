@@ -65,7 +65,7 @@ static _Atomic char eustall_deferred_attrib_thread_should_stop = 0;
 /* Intervals */
 struct timespec interval_start, interval_end, interval_diff;
 static uint64_t interval_number = 0;
-static uint32_t interval_time_ms = 500;
+static uint64_t interval_time_ms = 500;
 
 enum { NS_PER_SECOND = 1000000000 };
 void sub_timespec(struct timespec *t1, struct timespec *t2, struct timespec *td)
@@ -81,7 +81,7 @@ void sub_timespec(struct timespec *t1, struct timespec *t2, struct timespec *td)
             td->tv_sec++;
     }
 }
-uint32_t timespec_to_ms(struct timespec *t1)
+uint64_t timespec_to_ms(struct timespec *t1)
 {
   return ((t1->tv_sec * 1000) + (t1->tv_nsec / 1000000));
 }
@@ -158,7 +158,7 @@ int read_opts(int argc, char **argv)
                         /* no fallthrough */
                 case 'i':
                         interval_time_ms = strtoul(optarg, NULL, 10);
-                        printf("setting interval_time_ms to %u\n", interval_time_ms);
+                        printf("setting interval_time_ms to %lu\n", interval_time_ms);
                         break;
                 case 'q':
                         quiet = 1;
@@ -295,6 +295,7 @@ void *eustall_collect_thread_main(void *a) {
         struct pollfd pollfd;
         int           n_ready;
         int           flags;
+        uint64_t      target_time_ms, cur_time_ms;
 
         /* The collect thread should block SIGINT, so that all
            SIGINTs go to the main thread. */
@@ -321,22 +322,14 @@ void *eustall_collect_thread_main(void *a) {
 
         flags = fcntl(pollfd.fd, F_GETFL, 0);
         fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
-
+        
         /* Initialize the time */
-        clock_gettime(CLOCK_MONOTONIC, &interval_start);
-
         while (collect_threads_should_stop == 0) {
-                n_ready = poll(&pollfd, 1, 100);
-
-                /* How long were we asleep...? */
-                clock_gettime(CLOCK_MONOTONIC, &interval_end);
-                sub_timespec(&interval_start, &interval_end, &interval_diff);
-                if (timespec_to_ms(&interval_diff) < interval_time_ms) {
-                        /* If we haven't been asleep long enough, go back to sleep! */
-                        nanosleep(&interval_diff, NULL);
-                        errno = 0;
-                        goto next;
-                }
+                
+                clock_gettime(CLOCK_MONOTONIC, &interval_start);
+                target_time_ms = interval_time_ms + timespec_to_ms(&interval_start);
+                
+                n_ready = poll(&pollfd, 1, interval_time_ms / 2);
 
                 if (n_ready < 0) {
                         switch (errno) {
@@ -360,11 +353,14 @@ void *eustall_collect_thread_main(void *a) {
                         }
                 }
 
+next:;
+                /* We're done with our polling and work. How long did we take? */
+                clock_gettime(CLOCK_MONOTONIC, &interval_end);
+                cur_time_ms = timespec_to_ms(&interval_end);
+                usleep((target_time_ms - cur_time_ms) * 1000);
+                
                 print_interval(interval_number++, NULL);
                 clear_interval_profiles();
-
-                clock_gettime(CLOCK_MONOTONIC, &interval_start);
-next:;
         }
 
         eustall_deferred_attrib_thread_should_stop = 1;
