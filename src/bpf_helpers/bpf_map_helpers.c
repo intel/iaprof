@@ -94,10 +94,6 @@ int dump_hash(int map_fd,
 		if (err) {
 			if (errno != EINVAL) {
 				return -1;
-
-				/* assume that batch operations are not
-				 * supported and try non-batch mode */
-				batch_map_ops = false;
 			}
 		}
 	}

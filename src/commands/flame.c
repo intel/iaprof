@@ -31,7 +31,7 @@ static uint64_t flame_hash(const euresult result) {
         hash *= result.ustack_id;
         hash *= result.kstack_id;
         hash ^= result.proc_name_id;
-        hash ^= result.pid << 8;
+        hash ^= (uint64_t)result.pid << 8;
         hash ^= result.gpu_file_id << 16;
         hash ^= result.gpu_symbol_id << 24;
         hash ^= result.insn_text_id << 32;
