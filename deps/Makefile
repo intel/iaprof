@@ -52,8 +52,11 @@ clean_bpftool:
 	rm -f $(PREFIX)/bpftool/lib/libbpf.a
 
 clean_elfutils:
-	make -C elfutils clean
-	rm -rf $(PREFIX)/libelf
+	@set -x
+	if [ -f elfutils/Makefile ]; then \
+	  make -C elfutils clean; \
+	fi; \
+	rm -rf $(PREFIX)/libelf;
 
 clean_igc:
 	make -C igc clean
