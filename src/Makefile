@@ -93,7 +93,7 @@ $(DRIVER_HELPERS_DIR)/i915_helpers.o: $(DRIVER_HELPERS_DIR)/i915_helpers.c $(DRI
 	$(CC) $(CFLAGS) $(DRIVER_CFLAGS) -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -c $< -o $@
 
 $(BPF_PROG_O): $(DRIVER_HELPERS_INCL) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
-	$(CC) $(BPF_CFLAGS) -target bpf -D__TARGET_ARCH_x86 -g -v -Wno-pass-failed $(DRIVER_CFLAGS) -I$(GENERATED_HEADERS_DIR) -I$(BPF_DIR) -I$(SRC_DIR) -I$(PREFIX)/../bpftool/src/libbpf/include -c $(BPF_DIR)/main.bpf.c -o $@
+	$(CC) $(BPF_CFLAGS) -target bpf -D__TARGET_ARCH_x86 -g -v -Wno-pass-failed $(DRIVER_CFLAGS) -I$(GENERATED_HEADERS_DIR) -I$(BPF_DIR) -I$(SRC_DIR) -I$(PREFIX)/libbpf/include -c $(BPF_DIR)/main.bpf.c -o $@
 
 $(DEMANGLE):
 	$(CXX) $(CFLAGS) $(shell $(LLVM_CONFIG) --cppflags) -I$(PREFIX) -I$(SRC_DIR) -c $(SRC_DIR)/utils/demangle.cpp -o $@

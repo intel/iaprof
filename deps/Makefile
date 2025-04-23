@@ -9,7 +9,7 @@ KERNEL_HEADERS_DIR := $(ROOT_DIR)/kernel_headers
 
 all: bpftool elfutils igc kernel_headers
 
-bpftool: $(PREFIX)/bpftool/bin/bpftool $(PREFIX)/bpftool/lib/libbpf.a
+bpftool: $(PREFIX)/bpftool/bin/bpftool $(PREFIX)/bpftool/lib/libbpf.a $(PREFIX)/libbpf/include
 
 $(PREFIX)/bpftool/bin/bpftool:
 	$(MAKE) -C bpftool/src bpftool
@@ -20,6 +20,10 @@ $(PREFIX)/bpftool/lib/libbpf.a:
 	$(MAKE) -C bpftool/libbpf/src
 	mkdir -vp $(shell dirname $@)
 	cp bpftool/libbpf/src/libbpf.a $@
+
+$(PREFIX)/libbpf/include:
+	mkdir -p $(PREFIX)/libbpf/include
+	cp -R bpftool/src/libbpf/include/bpf $(PREFIX)/libbpf/include
 
 elfutils: $(PREFIX)/libelf/lib/libelf.a
 
@@ -50,6 +54,7 @@ clean_bpftool:
 	$(MAKE) -C bpftool/src clean
 	rm -f $(PREFIX)/bpftool/bin/bpftool
 	rm -f $(PREFIX)/bpftool/lib/libbpf.a
+	rm -rf $(PREFIX)/libbpf/include
 
 clean_elfutils:
 	@set -x
