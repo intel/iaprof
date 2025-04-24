@@ -376,19 +376,10 @@ static char get_insn_text(struct shader *shader, uint64_t offset,
 
         retval = 0;
 
-        if (shader->binary == NULL || shader->size == 0) {
-                if (debug) {
-                        WARN("Don't have a copy of the shader's binary at 0x%lx\n", shader->gpu_addr);
-                }
-                retval = -1;
-                goto out;
-        }
-
         /* Paranoid check */
         if (offset >= shader->size) {
                 if (debug) {
-                        WARN("Got an EU stall past the end of a buffer. ");
-                        fprintf(stderr, "offset=0x%lx size=%lu\n", offset, shader->size);
+                        WARN("Got an EU stall past the end of a buffer. offset=0x%lx size=%lu\n", offset, shader->size);
                 }
                 retval = -1;
                 goto out;
@@ -444,24 +435,32 @@ void print_unknown_samples(array_t *waitlist) {
 
 void print_kernel_profile(struct shader *shader)
 {
+        int                    have_binary;
         uint64_t               offset;
         struct offset_profile *profile;
         char                  *insn_text;
         size_t                 insn_text_len;
-        char                   retval;
         uint64_t               insn_text_id;
         int                    stall_type;
         uint64_t               count;
-
+        
+        have_binary = 0;
+        
+        if (shader->binary != NULL && shader->size > 0) {
+                have_binary = 1;
+        } else {
+                if (debug) {
+                        WARN("Don't have a copy of the shader's binary at 0x%lx\n", shader->gpu_addr);
+                }
+        }
 
         /* Iterate over the offsets that we have EU stalls for */
         hash_table_traverse(shader->stall_counts, offset, profile) {
                 /* Disassemble to get the instruction */
                 insn_text = NULL;
                 insn_text_len = 0;
-
-                retval = get_insn_text(shader, offset, &insn_text, &insn_text_len);
-                if (retval != 0) {
+                
+                if (!have_binary || get_insn_text(shader, offset, &insn_text, &insn_text_len) != 0) {
                         insn_text_id = failed_decode_id;
                 } else {
                         insn_text_id = print_string(insn_text);

@@ -5,8 +5,8 @@
 #include <linux/types.h>
 #include <pthread.h>
 
-#include "collectors/bpf/bpf/main.h"
 #include "collectors/eustall/eustall_collector.h"
+#include "collectors/bpf/bpf/main.h"
 
 #include "utils/hash_table.h"
 #include "utils/tree.h"

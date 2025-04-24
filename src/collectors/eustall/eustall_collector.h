@@ -4,7 +4,6 @@
 #include <pthread.h>
 
 #include "drm_helpers/drm_helpers.h"
-
 #include "collectors/bpf/bpf_collector.h"
 
 #include "utils/array.h"

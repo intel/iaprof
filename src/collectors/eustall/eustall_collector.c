@@ -121,7 +121,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
         if (found) {
                 associate_sample(sample, shader, offset, time);
                 eustall_info.matched += num_stalls_in_sample(sample);
-                debug_printf("shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", start, offset, addr);
+/*                 debug_printf("shader_addr=0x%lx offset=0x%lx addr=0x%lx\n", start, offset, addr); */
         } else {
                 if (!(flags & EUSTALL_SAMPLE_DEFERRED)) {
                         deferred.sample    = *sample;

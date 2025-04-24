@@ -1,21 +1,15 @@
 #include <stdio.h>
 #include <linux/types.h>
 
+#include "printers/stack/stack_printer.h"
+#include "collectors/eustall/eustall_collector.h"
+#include "stores/gpu_kernel.h"
+#include "gpu_parsers/shader_decoder.h"
+#include "utils/utils.h"
+#include "printers/debug/debug_printer.h"
+
 #include "collectors/bpf/bpf/main.h"
 #include "collectors/bpf/bpf/main.skel.h"
-#include "collectors/eustall/eustall_collector.h"
-
-#include "printers/stack/stack_printer.h"
-
-#include "stores/gpu_kernel.h"
-
-#include "collectors/eustall/eustall_collector.h"
-
-#include "gpu_parsers/shader_decoder.h"
-
-#include "utils/utils.h"
-
-#include "printers/debug/debug_printer.h"
 
 char debug = 0;
 pthread_mutex_t debug_print_lock = PTHREAD_MUTEX_INITIALIZER;

@@ -110,6 +110,8 @@ void init_eudebug(int fd, int pid)
                 debug_printf("Failed to open the debug interface for PID %d: %d.\n", pid, eudebug_fd);
                 goto out;
         }
+        
+        debug_printf("initialized eudebug for PID %d\n", pid);
 
         flags = fcntl(eudebug_fd, F_GETFL, 0);
         fcntl(eudebug_fd, F_SETFL, flags | O_NONBLOCK);
