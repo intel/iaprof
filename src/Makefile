@@ -112,7 +112,7 @@ $(DRIVER_HELPERS_INCL):
 	fi
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(DRIVER_CFLAGS) -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -I$(SRC_DIR)/utils -I$(PREFIX)/../bpftool/src/libbpf/include -I$(PREFIX)/igc/include -I$(PREFIX)/libelf/include -c $< -o $@
+	$(CC) $(CFLAGS) $(DRIVER_CFLAGS) -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -I$(SRC_DIR)/utils -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -I$(PREFIX)/libelf/include -c $< -o $@
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) -I$(SRC_DIR) $(shell $(LLVM_CONFIG) --cppflags) -c $< -o $@
