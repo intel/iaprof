@@ -163,4 +163,4 @@ struct {
 #endif
 #endif
 
-char LICENSE[] SEC("license") = "GPL";
+char LICENSE[] SEC("license") = "Dual Apache-2.0/GPL";
