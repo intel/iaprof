@@ -4,12 +4,10 @@
 #elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver && GPU_DRIVER == GPU_DRIVER_xe
 #include "xe.h"
 #endif
+#include "vmlinux.h"
 
-
-/* #include <linux/bpf.h> */
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include <bpf/bpf_core_read.h>
 
 extern int LINUX_KERNEL_VERSION __kconfig;
 
@@ -29,8 +27,6 @@ extern int LINUX_KERNEL_VERSION __kconfig;
 #define WARN_PRINTK(...) ;
 #endif
 
-
-
 int dropped_event;
 
 /***************************************
@@ -46,7 +42,7 @@ struct {
 } rb SEC(".maps");
 
 #if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_uprobe
-        #include "uprobe/L0_NEO.bpf.c"
+        #include "uprobe/vulkan.bpf.c"
 #elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver
 
 /***************************************

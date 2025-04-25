@@ -105,7 +105,6 @@ struct parse_cxt {
         u64 eb_id;
         u64 ips[4]; /* 4 because we use a bitmask trick to soothe the verifier. Level 4 is not used. */
         u64 cpu_ips[4];
-        u64 iba;
         u64 sip;
         u8  level;
         u8  attempts;
@@ -222,7 +221,7 @@ u8 command_len(u32 op, u32 dword) {
         if (op == LOAD_REGISTER_IMM) {
                 return ((dword & 0xff) + 2);
         }
-        
+
         return bb_cmd_lookup[op & 0x7fff];
 }
 #define COMMAND_LEN(_op, _dword) command_len((_op), (_dword))
@@ -392,18 +391,14 @@ next_level_loaded:;
                            || (((op == _3DSTATE_PS) && ((which_dword == 2) || (which_dword == 9) || (which_dword == 11))))
 #endif
         			  ) {
-                             
+
                         ksp = ((((u64)dword) & 0xFFFF) << 32) | (((u64)last_dword) & 0xFFFFFFC0);
-                        
+
                         if (ksp) {
                                 cxt->has_ksps = 1;
                                 BB_PRINTK("  KSP: 0x%llx", ksp);
                                 bpf_map_update_elem(&bb_ksps, &ksp, &one, 0);
                         }
-                        
-                } else if ((op == STATE_BASE_ADDRESS) && (which_dword == 11)) {
-                        cxt->iba = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFF000);
-                        BB_PRINTK("  IBA: 0x%llx", cxt->iba);
 
                 } else if ((op == STATE_SIP) && (which_dword == 2)) {
                         cxt->sip = (((u64)dword) << 32) | (((u64)last_dword) & 0xFFFFFFF0);
@@ -454,7 +449,6 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         int                  stop;
         int                  i;
         u64                  status;
-        struct iba_info     *iba_info;
         struct ksp_info     *ksp_info;
         struct sip_info     *sip_info;
 
@@ -499,22 +493,6 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
                 return -1;
         }
 
-        if (cxt->iba) {
-                iba_info = bpf_ringbuf_reserve(&rb, sizeof(struct iba_info), 0);
-                if (!iba_info) {
-                        ERR_PRINTK("parse_batchbuffer failed to reserve in the ringbuffer.");
-                        status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-                        DEBUG_PRINTK("Unconsumed data: %lu", status);
-                        dropped_event = 1;
-                        return -1;
-                }
-                iba_info->type  = BPF_EVENT_TYPE_IBA;
-                iba_info->eb_id = cxt->eb_id;
-                iba_info->addr  = cxt->iba;
-                bpf_ringbuf_submit(iba_info, BPF_RB_FORCE_WAKEUP);
-
-                cxt->iba = 0;
-        }
 
         if (cxt->has_ksps) {
                 send_ksps(cxt);

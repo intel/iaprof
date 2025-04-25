@@ -5,6 +5,9 @@
 #define TASK_COMM_LEN       (16)
 #define MAX_MAPPINGS        (4 * 1024)
 #define MAX_PAGE_ENTRIES    (1024 * 1024)
+#define MAX_BINARY_SIZE     (1024 * 1024)
+#define MAX_SYMBOL_SIZE     (1024)
+#define MAX_FILENAME_SIZE   (4096)
 #define RINGBUF_SIZE        (512 * 1024 * 1024) /* 512 MB */
 #define PAGE_SIZE           (4096)
 #define PAGE_MASK           (~0xfff)
@@ -53,15 +56,16 @@ static inline void copy_comm_name(char *dst, char *src) {
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
-    BPF_EVENT_TYPE_VM_CREATE,
-    BPF_EVENT_TYPE_VM_BIND,
-    BPF_EVENT_TYPE_VM_UNBIND,
-    BPF_EVENT_TYPE_DEBUG_AREA,
     BPF_EVENT_TYPE_EXECBUF,
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_IBA,
     BPF_EVENT_TYPE_KSP,
     BPF_EVENT_TYPE_SIP,
+    BPF_EVENT_TYPE_UPROBE_IBA,
+    BPF_EVENT_TYPE_UPROBE_KSP,
+    BPF_EVENT_TYPE_UPROBE_ELF,
+    BPF_EVENT_TYPE_UPROBE_KERNEL_INFO,
+    BPF_EVENT_TYPE_UPROBE_KERNEL_BIN,
 };
 
 struct execbuf_info {
@@ -88,13 +92,6 @@ struct execbuf_end_info {
         __u64 eb_id;
 };
 
-struct iba_info {
-        __u8  type;
-
-        __u64 eb_id;
-        __u64 addr;
-};
-
 struct ksp_info {
         __u8  type;
 
@@ -109,44 +106,46 @@ struct sip_info {
         __u64 addr;
 };
 
-/* Collected from a vm_create */
-struct vm_create_info {
-        __u8 type;
+struct uprobe_ksp_info {
+        __u8         type;
 
-        __u32 pid, tid, cpu;
-        __u64 time;
-        __u32 vm_id;
-        __u64 file;
+        __u64        addr;
+        __u64        size;
+
+        struct stack ustack;
+
+        __u64        time;
+        __u32        pid;
+        __u32        tid;
+        __u32        cpu;
+        char         name[TASK_COMM_LEN];
 };
 
-/* Collected from a vm_bind */
-struct vm_bind_info {
-        __u8 type;
+struct uprobe_elf_info {
+        __u8          type;
 
-        __u8 userptr;
-        __u64 file;
-        __u32 handle;
-        __u32 vm_id;
-        __u64 gpu_addr;
-        __u64 size;
-        __u64 offset;
-
-        __u32 pid;
+        __u64         size;
+        unsigned char data[MAX_BINARY_SIZE];
 };
 
-/* Collected from a vm_unbind */
-struct vm_unbind_info {
-        __u8 type;
+struct uprobe_kernel_info {
+        __u8  type;
 
-        __u64 file;
-        __u32 handle;
-        __u32 vm_id;
-        __u64 gpu_addr;
+        __u64 addr;
+
         __u64 size;
-        __u64 offset;
+        char  symbol[MAX_SYMBOL_SIZE];
+        char  filename[MAX_FILENAME_SIZE];
+        int   linenum;
+};
 
-        __u32 pid, tid, cpu;
-        __u64 time;
+struct uprobe_kernel_bin {
+        __u8          type;
+
+        __u64         addr;
+
+        __u64         size;
+        unsigned char data[MAX_BINARY_SIZE];
 };
 
 #endif

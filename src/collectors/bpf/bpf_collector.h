@@ -19,10 +19,6 @@
 #include "bpf/main.h"
 #include "gpu_parsers/shader_decoder.h"
 
-/* Global IBA, or Instruction Base Address, which is found by
- * parsing batchbuffer commands. */
-extern _Atomic uint64_t iba;
-
 /***************************************
 * BPF Handlers
 **********************

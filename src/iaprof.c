@@ -8,6 +8,7 @@
 #include "printers/debug/debug_printer.h"
 #include "commands/record.h"
 #include "commands/flame.h"
+#include "commands/flamescope.h"
 
 #ifndef GIT_COMMIT_HASH
 #define GIT_COMMIT_HASH "?"
@@ -16,15 +17,18 @@
 enum commands {
   RECORD = 0,
   FLAME = 1,
+  FLAMESCOPE = 2,
   COMMANDS_MAX
 };
 static char *command_strs[] = {
   [RECORD] = "record",
   [FLAME] = "flame",
+  [FLAMESCOPE] = "flamescope",
 };
 static void (*command_ptrs[]) (int, char**) = {
   [RECORD] = &record,
   [FLAME] = &flame,
+  [FLAMESCOPE] = &flamescope,
 };
 
 int main(int argc, char **argv)

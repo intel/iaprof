@@ -4,7 +4,6 @@
 #include <pthread.h>
 
 #include "drm_helpers/drm_helpers.h"
-
 #include "collectors/bpf/bpf_collector.h"
 
 #include "utils/array.h"
@@ -36,7 +35,7 @@ struct eustall_info_t {
         int perf_fd;
         uint8_t perf_buf[DEFAULT_USER_BUF_SIZE];
 
-        uint64_t matched, unmatched, guessed, deferred;
+        uint64_t matched, unmatched, deferred;
 };
 extern struct eustall_info_t eustall_info;
 
@@ -53,9 +52,9 @@ enum eustall_status {
 
 struct eustall_sample;
 struct offset_profile;
+struct shader;
 
-int associate_sample(struct eustall_sample *sample, uint64_t file, uint32_t vm_id,
-                     uint64_t gpu_addr, uint64_t offset, unsigned long long time);
+int associate_sample(struct eustall_sample *sample, struct shader *shader, uint64_t offset, unsigned long long time);
 int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo);
 int init_eustall(device_info *devinfo);
 void wakeup_eustall_deferred_attrib_thread();

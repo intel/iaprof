@@ -257,13 +257,15 @@ uint64_t str_hash(char *s) {
     unsigned long hash = 5381;
     int c;
 
+    if (s == NULL) { return 0; }
+
     while ((c = *s++))
         hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
     return hash;
 }
 
-int str_equ(char *a, char *b) { return strcmp(a, b) == 0; }
+int str_equ(char *a, char *b) { if (a == NULL || b == NULL) { return a == b; } return strcmp(a, b) == 0; }
 
 uint64_t noop_hash(uint64_t key) {
   return key;

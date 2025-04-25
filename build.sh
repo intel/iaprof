@@ -11,8 +11,14 @@ LLVM_CONFIG=${LLVM_CONFIG:-llvm-config}
 CC=${CC:-${CLANG}}
 CXX=${CXX:-${CLANGPP}}
 LDFLAGS=${LDFLAGS:-}
-OPT="-O3"
-CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -gdwarf-4 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+# OPT="-O3"
+OPT="-O0"
+CFLAGS="${CFLAGS:-} ${OPT} ${CSAN:-} -g -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function"
+FUZZ="no"
+if [[ "${FUZZ}" == "yes" ]]; then
+  CFLAGS+="-fsanitize=fuzzer-no-link,address -fprofile-instr-generate -fcoverage-mapping"
+  LDFLAGS+="-fsanitize=fuzzer,address -fprofile-instr-generate -fcoverage-mapping"
+fi
 CFLAGS+=" -DDEBUG"
 LDFLAGS="${LSAN:-}"
 
@@ -188,14 +194,8 @@ echo "Building ${STORES_DIR}..."
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/gpu_kernel_stalls.c \
-  -o ${STORES_DIR}/gpu_kernel_stalls.o
-
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  -I${IGA_INCLUDE_DIR} \
-  ${STORES_DIR}/interval_profile.c \
-  -o ${STORES_DIR}/interval_profile.o
+  ${STORES_DIR}/gpu_kernel.c \
+  -o ${STORES_DIR}/gpu_kernel.o
 
 ####################
 #   COLLECTORS     #
@@ -242,7 +242,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/stack/stack_printer.c \
   -o ${PRINTERS_DIR}/stack/stack_printer.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${PRINTERS_DIR}/interval/interval_printer.c \
@@ -280,7 +280,7 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${IGA_INCLUDE_DIR} \
   ${GPU_PARSERS_DIR}/shader_decoder.c \
   -o ${GPU_PARSERS_DIR}/shader_decoder.o
-  
+
 ####################
 #     COMMANDS     #
 ####################
@@ -292,12 +292,18 @@ ${CC} ${COMMON_FLAGS} -c \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   ${COMMANDS_DIR}/record.c \
   -o ${COMMANDS_DIR}/record.o
-  
+
 ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
   ${COMMANDS_DIR}/flame.c \
   -o ${COMMANDS_DIR}/flame.o
+  
+${CC} ${COMMON_FLAGS} -c \
+  -I${PREFIX}/include \
+  -DGIT_COMMIT_HASH="\"${GIT_COMMIT_HASH}\"" \
+  ${COMMANDS_DIR}/flamescope.c \
+  -o ${COMMANDS_DIR}/flamescope.o
 
 ####################
 #     IAPROF       #
@@ -308,7 +314,8 @@ ${CC} ${COMMON_FLAGS} -c \
   ${SRC_DIR}/iaprof.c \
   -o ${SRC_DIR}/iaprof.o || exit $?
 
-${CXX} ${LDFLAGS} \
+${CXX} ${LDFLAGS}  \
+  ${SRC_DIR}/iaprof.o \
   ${DRM_HELPERS_DIR}/drm_helpers.o \
   ${DRIVER_HELPER_FLAGS} \
   \
@@ -316,8 +323,7 @@ ${CXX} ${LDFLAGS} \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
   ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
-  ${STORES_DIR}/gpu_kernel_stalls.o \
-  ${STORES_DIR}/interval_profile.o \
+  ${STORES_DIR}/gpu_kernel.o \
   \
   ${IAPROF_COLLECTORS} \
   \
@@ -333,8 +339,8 @@ ${CXX} ${LDFLAGS} \
   \
   ${COMMANDS_DIR}/record.o \
   ${COMMANDS_DIR}/flame.o \
+  ${COMMANDS_DIR}/flamescope.o \
   \
-  ${SRC_DIR}/iaprof.o \
   \
   ${COMMON_FLAGS} \
   -o ${BASE_DIR}/iaprof \

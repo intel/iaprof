@@ -25,44 +25,16 @@
 #define MAX_PIDS 64
 #define MAX_EVENT_SIZE 4096
 
-struct symbol_entry {
-        uint64_t start_addr;
-        uint64_t size;
-        char *symbol;
-        char *filename;
-        int linenum;
-        
-        uint64_t symbol_id, filename_id;
-};
-
-struct symbol_table {
-        int pid;
-        size_t num_syms;
-        struct symbol_entry *symtab;
-};
-
-struct debug_info_t {
+struct eudebug_info_t {
         /* Keep track of PIDs that we've opened with the debug interface,
            as well as their fd */
         int pids[MAX_PIDS];
         struct pollfd pollfds[MAX_PIDS];
         int num_pids;
-
-        /* Store symbols to be printed later, in parallel with the `pids` and
-           `fds` arrays above. */
-        struct symbol_table symtabs[MAX_PIDS];
 };
 
-extern struct debug_info_t debug_info;
-extern pthread_rwlock_t debug_info_lock;
-
-struct shader_binary {
-        uint64_t      start;
-        uint64_t      size;
-        unsigned char bytes[];
-};
-
-extern pthread_mutex_t debug_shader_binaries_lock;
+extern struct eudebug_info_t eudebug_info;
+extern pthread_rwlock_t eudebug_info_lock;
 
 /******************************************************************************
 * Initialization
@@ -70,17 +42,15 @@ extern pthread_mutex_t debug_shader_binaries_lock;
 * Adds a PID to be profiled with the debugger.
 ******************************************************************************/
 
-void deinit_debug(int pid);
-void init_debug(int fd, int pid);
-int read_debug_event(int fd, int pid_index);
-void read_debug_events(int fd, int pid_index);
-int debug_get_sym(int pid, uint64_t addr, uint64_t *out_symbol_id, uint64_t *out_file_id);
+void deinit_eudebug(int pid);
+void init_eudebug(int fd, int pid);
+int read_eudebug_event(int fd, int pid_index);
+void read_eudebug_events(int fd, int pid_index);
 
-void free_debug();
+void set_kernel_info(uint64_t addr, uint64_t size, uint64_t symbol_id, uint64_t filename_id, int linenum);
+void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size);
 
-/* debug_shader_binaries_lock must be locked when calling this and held
- * as long as the returned struct shader_binary pointer may be used. */
-struct shader_binary *get_shader_binary(uint64_t gpu_addr);
+void extract_elf_kernel_info(const unsigned char *elf_data, uint64_t elf_data_size);
 
 /******************************************************************************
 * Strings
