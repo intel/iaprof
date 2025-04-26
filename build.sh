@@ -180,10 +180,6 @@ ${CC} ${COMMON_FLAGS} -c \
   -I${PREFIX}/include \
   ${BPF_HELPERS_DIR}/uprobe_helpers.c \
   -o ${BPF_HELPERS_DIR}/uprobe_helpers.o
-${CC} ${COMMON_FLAGS} -c \
-  -I${PREFIX}/include \
-  ${BPF_HELPERS_DIR}/bpf_map_helpers.c \
-  -o ${BPF_HELPERS_DIR}/bpf_map_helpers.o
 
 ####################
 #     STORES       #
@@ -321,7 +317,6 @@ ${CXX} ${LDFLAGS}  \
   \
   ${BPF_HELPERS_DIR}/trace_helpers.o \
   ${BPF_HELPERS_DIR}/uprobe_helpers.o \
-  ${BPF_HELPERS_DIR}/bpf_map_helpers.o \
   \
   ${STORES_DIR}/gpu_kernel.o \
   \
