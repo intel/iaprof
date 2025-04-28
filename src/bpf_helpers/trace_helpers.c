@@ -3,6 +3,9 @@
 //
 // Based on ksyms improvements from Andrii Nakryiko, add more helpers.
 // 28-Feb-2020   Wenbo Zhang   Created this.
+
+// Copyright (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif

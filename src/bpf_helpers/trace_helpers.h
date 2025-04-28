@@ -1,4 +1,7 @@
 /* SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause) */
+
+// Copyright (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 #ifndef __TRACE_HELPERS_H
 #define __TRACE_HELPERS_H
 
