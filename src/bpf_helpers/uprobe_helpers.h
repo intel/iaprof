@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause) */
 /* Copyright (c) 2021 Google LLC. */
+
+// Copyright (C) 2025 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 #ifndef __UPROBE_HELPERS_H
 #define __UPROBE_HELPERS_H
 
