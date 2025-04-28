@@ -1,7 +1,4 @@
-#######
 # Build
-#######
-
 
 ## i915 Kernel Driver BTF
 
@@ -34,6 +31,20 @@ apt install -y intel-i915-dkms
 reboot
 ```
 
+## Build iaprof
+
+Install:
+- `libelf`, `g++-12`, `llvm`, `clang`, `python3-mako`
+
+Clone:
+```
+git clone --recursive https://github.com/intel/iaprof
+```
+
+Build:
+```
+cd iaprof && ./build.sh -d
+```
 
 #####
 # Run
