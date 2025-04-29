@@ -4,6 +4,7 @@ all: deps iaprof
 
 iaprof:
 	make -C src
+	make -C src save_config
 
 deps:
 	$(MAKE) -C deps
