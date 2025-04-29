@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 function die() {
    echo $@
@@ -30,8 +30,19 @@ export ONEDNN_JIT_PROFILE=6
 sysctl kernel.perf_event_max_stack=512
 sysctl kernel.perf_event_max_contexts_per_stack=64
 
+if [[ -f ${DIR}/iaprof ]]; then
+  # Release mode where iaprof is packaged in the same location as aiflamegraph.sh
+  IAPROF=${DIR}/iaprof
+else
+  # Development mode detected run from source, assume built one directory above
+  if [[ ! -f ${DIR}/../iaprof ]]; then
+    printf "Non-release mode detected or unable to find the iaprof binary. If running from source be sure to build the project.\n"
+    exit 1
+  fi
+  IAPROF=${DIR}/../iaprof
+fi
 printf "Running profile... (ctrl-c when ready to stop)\n"
-${DIR}/iaprof -q > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iaprof."
+${IAPROF} record -q > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iaprof."
 printf "Building flame graph (this can take a minute)...\n"
 
 SEDSTR=""
@@ -46,8 +57,19 @@ if [[ "${FILTER_CPYTHON}" == "true" ]]; then
     SEDSTR+=';s/(method_)?vectorcall[^;]*;//g'
 fi
 
+if [[ -f ${DIR}/flamegraph.pl ]]; then
+  # Release mode: flamegraph.pl is stored in the same directory as iaprof
+  FLAMEGRAPH=${DIR}/flamegraph.pl
+else
+  if [[ ! -f ${DIR}/../deps/flamegraph/flamegraph.pl ]]; then
+    printf "Non-release mode detected and failed to locate flamegraph.pl. If running from source be sure to build the project.\n"
+    exit 1
+  fi
+  FLAMEGRAPH=${DIR}/../deps/flamegraph/flamegraph.pl
+fi
+
 sed -E "${SEDSTR}" < /tmp/${PROFILE_NAME}.stackcollapse |
-    ${DIR}/deps/flamegraph/flamegraph.pl --colors=gpu > ${PROFILE_NAME}.svg || die "Error generating flame graph."
+    ${FLAMEGRAPH} --colors=gpu > ${PROFILE_NAME}.svg || die "Error generating flame graph."
 
 printf "  ${PROFILE_NAME}.svg\n"
 
