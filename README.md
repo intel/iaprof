@@ -106,7 +106,7 @@ accessor with a local variable, and multiply\_local\_access\_and\_tiling() at 6%
 which also adds matrix tiling. The towers are getting smaller as optimizations
 are added.
 
-![PyTorch Example](images/example_sycl_matmul.png)
+![PyTorch Example](docs/example_sycl_matmul.png)
 
 This is a useful visualization of the performance of your AI workload because it
 allows you to correlate CPU code from several layers including Python
