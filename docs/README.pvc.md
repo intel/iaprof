@@ -34,7 +34,7 @@ reboot
 ## Build iaprof
 
 Install:
-- `libelf`, `g++-12`, `llvm`, `clang`, `python3-mako`
+- `libelf`, `g++-12`, `llvm`, `clang`, `python3-mako`, `cmake`, `libzstd-dev`
 
 Clone:
 ```
@@ -43,12 +43,10 @@ git clone --recursive https://github.com/intel/iaprof
 
 Build:
 ```
-cd iaprof && ./build.sh -d
+cd iaprof && make deps && make
 ```
 
-#####
 # Run
-#####
 
 
 ## Kernel Driver
@@ -84,9 +82,7 @@ kernels, which will cause those kernels to lack symbol, file, and line number
 information in the profiler output.
 
 
-##########################################
 # Workload/Framework-specific Requirements
-##########################################
 
 
 ## Python

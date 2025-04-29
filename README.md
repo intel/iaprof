@@ -1,9 +1,7 @@
 # AI Flame Graphs
 
 
-#################
 ## Introduction
-#################
 
 
 This tool collects profiles of Intel GPU performance based on hardware sampling,
@@ -22,9 +20,7 @@ The following hardware platforms are supported on Linux:
 3. Other Intel® Xe2-based graphics cards, including Lunar Lake's iGPU (untested)
 
 
-#################
 ## Prerequisites
-#################
 
 
 Specific requirements depend on your platform.
@@ -71,26 +67,27 @@ applications and runtimes. For example, applications that use the Vulkan API
 may need to be modified to provide shader names to the runtime.
 
 
-###########
 ## Building
-###########
 
 
 *Note: customers of the Intel® Tiber™ AI Cloud[^1] may choose to use a prebuilt binary release.*
 
-1. Install Clang and place it in your `PATH`.
-2. Ensure that you have the repository cloned recursively 
-   (run `git submodule update --init --recursive` if not).
-3. Run the build script, using the `-d` switch to build dependencies:
-   ```
-   ./build.sh -d
-   ```
-4. The binary `iaprof` should now be in the current directory.
+Install your distribution's versions of:
+- libelf, Clang, LLVM, python3-mako, CMake, libzstd
+
+Clone:
+```
+git clone --recursive https://github.com/intel/iaprof
+```
+
+Build:
+```
+cd iaprof && make deps && make
+```
 
 
-##########################
+
 ## Interpreting the Output
-##########################
 
 The output of this tool is a flame graph (see [Brendan Gregg's
 page](https://www.brendangregg.com/flamegraphs.html)) SVG file. You can view
@@ -114,7 +111,7 @@ accessor with a local variable, and multiply\_local\_access\_and\_tiling() at 6%
 which also adds matrix tiling. The towers are getting smaller as optimizations
 are added.
 
-![PyTorch Example](images/example_sycl_matmul.png)
+![PyTorch Example](docs/example_sycl_matmul.png)
 
 This is a useful visualization of the performance of your AI workload because it
 allows you to correlate CPU code from several layers including Python
@@ -122,9 +119,7 @@ frameworks, runtime libraries, and the OS kernel to a meaningful measurement of
 GPU execution.
 
 
-#################
 # Troubleshooting
-#################
 
 
 ## **CPU stacks don’t go all the way back to \_start/main:**
