@@ -171,8 +171,15 @@ $(DRIVER_HELPERS_INCL):
 		printf "warning: Couldn't find the intel-i915-dkms directory in /usr/src. Proceeding without.\n"; \
 	fi
 
+save_config:
+	@echo "GPU_PLATFORM=$(GPU_PLATFORM)" > $(SRC_DIR)/../config.env
+	@echo "GPU_DRIVER=$(GPU_DRIVER)" >> $(SRC_DIR)/../config.env
+	@echo "KERNEL_LAUNCH_COLLECTOR=$(KERNEL_LAUNCH_COLLECTOR)" >> $(SRC_DIR)/../config.env
+	@echo "Configuration saved to config.env"
+
 clean:
 	rm -f $(OBJECTS) $(SRC_DIR)/../iaprof
+	rm -f $(OBJECTS) $(SRC_DIR)/../config.env
 	rm -rf $(SRC_DIR)/driver_helpers/drm
 	rm -rf $(GENERATED_HEADERS_DIR)
 	rm -f $(MAIN_SKEL_H) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)

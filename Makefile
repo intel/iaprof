@@ -14,4 +14,7 @@ deps_clean:
 clean:
 	$(MAKE) -C src clean
 
-.PHONY: iaprof deps deps_clean clean
+save_config:
+	$(MAKE) -C src save_config
+
+.PHONY: iaprof deps deps_clean clean save_config

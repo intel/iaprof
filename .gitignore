@@ -12,6 +12,7 @@ coverity
 coverity_report/
 covreport.yml
 csv.tpl
+config.env
 
 reference/kernel_headers
 reference/*.deb
