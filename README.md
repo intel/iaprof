@@ -1,9 +1,7 @@
 # AI Flame Graphs
 
 
-#################
 ## Introduction
-#################
 
 
 This tool collects profiles of Intel GPU performance based on hardware sampling,
@@ -22,9 +20,7 @@ The following hardware platforms are supported on Linux:
 3. Other Intel® Xe2-based graphics cards, including Lunar Lake's iGPU (untested)
 
 
-#################
 ## Prerequisites
-#################
 
 
 Specific requirements depend on your platform.
@@ -71,9 +67,7 @@ applications and runtimes. For example, applications that use the Vulkan API
 may need to be modified to provide shader names to the runtime.
 
 
-###########
 ## Building
-###########
 
 
 *Note: customers of the Intel® Tiber™ AI Cloud[^1] may choose to use a prebuilt binary release.*
@@ -88,9 +82,7 @@ may need to be modified to provide shader names to the runtime.
 4. The binary `iaprof` should now be in the current directory.
 
 
-##########################
 ## Interpreting the Output
-##########################
 
 The output of this tool is a flame graph (see [Brendan Gregg's
 page](https://www.brendangregg.com/flamegraphs.html)) SVG file. You can view
@@ -122,9 +114,7 @@ frameworks, runtime libraries, and the OS kernel to a meaningful measurement of
 GPU execution.
 
 
-#################
 # Troubleshooting
-#################
 
 
 ## **CPU stacks don’t go all the way back to \_start/main:**
