@@ -1,6 +1,6 @@
 default: iaprof
 
-all: deps iaprof release
+all: deps iaprof
 
 iaprof:
 	make -C src
@@ -11,10 +11,7 @@ deps:
 deps_clean:
 	$(MAKE) -C deps clean
 
-release:
-	./scripts/create_release.sh
-
 clean:
 	$(MAKE) -C src clean
 
-.PHONY: iaprof deps deps_clean release clean
+.PHONY: iaprof deps deps_clean clean
