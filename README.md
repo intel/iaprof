@@ -72,14 +72,19 @@ may need to be modified to provide shader names to the runtime.
 
 *Note: customers of the Intel® Tiber™ AI Cloud[^1] may choose to use a prebuilt binary release.*
 
-1. Install Clang and place it in your `PATH`.
-2. Ensure that you have the repository cloned recursively 
-   (run `git submodule update --init --recursive` if not).
-3. Run the build script, using the `-d` switch to build dependencies:
-   ```
-   ./build.sh -d
-   ```
-4. The binary `iaprof` should now be in the current directory.
+Install your distribution's versions of:
+- libelf, Clang, LLVM, python3-mako, CMake, libzstd
+
+Clone:
+```
+git clone --recursive https://github.com/intel/iaprof
+```
+
+Build:
+```
+cd iaprof && make deps && make
+```
+
 
 
 ## Interpreting the Output
