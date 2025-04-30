@@ -93,25 +93,25 @@ $(SRC_DIR)/bpf_helpers/%.o: $(SRC_DIR)/bpf_helpers/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/libbpf/include -c $< -o $@
 
 $(SRC_DIR)/stores/%.o: $(SRC_DIR)/stores/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/igc/include -I$(PREFIX)/../kernel_headers -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/collectors/bpf/bpf_collector.o: $(MAIN_SKEL_H) $(SRC_DIR)/collectors/bpf/bpf_collector.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) --std=c2x -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $(SRC_DIR)/collectors/bpf/bpf_collector.c -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) --std=c2x -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $(SRC_DIR)/collectors/bpf/bpf_collector.c -o $@
 
 $(SRC_DIR)/collectors/debug/%.o: $(SRC_DIR)/collectors/debug/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/libelf/include -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(PREFIX)/libelf/include -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/collectors/eustall/%.o: $(SRC_DIR)/collectors/eustall/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/printers/debug/%.o: $(SRC_DIR)/printers/debug/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/printers/stack/%.o: $(SRC_DIR)/printers/stack/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/printers/interval/%.o: $(SRC_DIR)/printers/interval/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/utils/utils.o: $(SRC_DIR)/utils/utils.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -c $< -o $@
@@ -126,10 +126,10 @@ $(SRC_DIR)/gpu_parsers/%.o: $(SRC_DIR)/gpu_parsers/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/commands/%.o: $(SRC_DIR)/commands/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/iaprof.o: $(SRC_DIR)/iaprof.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -c $< -o $@
 
 $(VMLINUX_H):
 	mkdir -p $(GENERATED_HEADERS_DIR)
@@ -152,10 +152,10 @@ $(MAIN_SKEL_H): $(BPF_DIR)/main.bpf.o
 	$(BPFTOOL) gen skeleton $(BPF_DIR)/main.bpf.o > $@
 
 $(DRIVER_HELPERS_DIR)/xe_helpers.o: $(DRIVER_HELPERS_DIR)/xe_helpers.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR)/driver_helpers -c $< -o $@
 
 $(DRIVER_HELPERS_DIR)/i915_helpers.o: $(DRIVER_HELPERS_DIR)/i915_helpers.c $(DRIVER_HELPERS_INCL)
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR)/driver_helpers -c $< -o $@
 
 $(BPF_PROG_O): $(DRIVER_HELPERS_INCL) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
 	$(CC) $(BPF_CFLAGS) $(CONFIG_CFLAGS) -target bpf -D__TARGET_ARCH_x86 -g -v -Wno-pass-failed -I$(GENERATED_HEADERS_DIR) -I$(BPF_DIR) -I$(SRC_DIR) -I$(PREFIX)/libbpf/include -c $(BPF_DIR)/main.bpf.c -o $@

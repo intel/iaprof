@@ -103,10 +103,12 @@ $(PREFIX)/igc/lib/libiga64.a:
 	    echo "$$version is greater than 22.04"; \
 		cxx_flags="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull"; \
 	fi; \
+  cxx_flags+="-Wno-error=free-nonheap-object"; \
 	readonly cxx_flags; \
 	cd $(BUILD_DIR); \
 	if [ "$${cxx_flags}" = "" ]; then \
 		cmake \
+			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
 			-DCMAKE_VERBOSE_MAKEFILE=ON \
 			-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 			-DIGC_OPTION__LLVM_MODE=Source \
@@ -116,6 +118,7 @@ $(PREFIX)/igc/lib/libiga64.a:
 			$(IGC_DIR); \
 	else \
 		cmake \
+			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
 			-DCMAKE_VERBOSE_MAKEFILE=ON \
 			-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 			-DCMAKE_CXX_FLAGS="\"$${cxx_flags}\"" \
