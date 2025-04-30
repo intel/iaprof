@@ -6,7 +6,7 @@ and have a fair bit of patience.
 ## Kernel
 
 You'll need a very recent Linux kernel - at least 6.15 - to get the commit that
-includes [EU stall sampling](https://www.phoronix.com/news/Intel-Xe-SVM-For-Linux-6.15).
+includes [EU stall sampling](https://patchwork.freedesktop.org/series/145443/).
 
 ## Userspace Software
 
