@@ -23,7 +23,8 @@ limitations under the License.
 /* The format for the full stack on a line of flame graph output. */
 static const char *flame_fmt =
         "%s %u [000] %.6lf: %lu stalls:\n";
-static const char *frame_fmt = "        00000000 %s ()\n";
+static const char *frame_fmt        = "        00000000 %s%s ()\n";
+static const char *frame_offset_fmt = "        00000000 0x%lx%s ()\n";
 #define INITIAL_MAX_STACK_LEN 4096
 
 static FILE *input_file = NULL;
@@ -37,8 +38,10 @@ void print_flamescope_sample(struct eustall_result *eresult, struct interval_res
         printf(flame_fmt, get_string(eresult->proc_name_id),
                 eresult->pid, iresult->time, eresult->samp_count);
         
-        printf(frame_fmt, get_string(eresult->stall_type_id));
-        printf(frame_fmt, get_string(eresult->gpu_symbol_id));
+        printf(frame_offset_fmt, eresult->samp_offset, "_[g]");
+        printf(frame_fmt, get_string(eresult->stall_type_id), "_[g]");
+        printf(frame_fmt, get_string(eresult->gpu_symbol_id), "_[G]");
+        printf(frame_fmt, "-", "");
         if (eresult->ustack_id) {
                 stack_str = get_string(eresult->ustack_id);
                 size = strlen(stack_str);
@@ -47,7 +50,7 @@ void print_flamescope_sample(struct eustall_result *eresult, struct interval_res
                 while (cursor != stack_str) {
                         if (*cursor == ';') {
                                 if (cursor < stack_str + size - 1) {
-                                        printf(frame_fmt, cursor + 1);
+                                        printf(frame_fmt, cursor + 1, "");
                                 }
                                 if (last_changed != -1) { stack_str[last_changed] = ';'; }
                                 last_changed = cursor - stack_str;
@@ -56,7 +59,7 @@ void print_flamescope_sample(struct eustall_result *eresult, struct interval_res
                         cursor -= 1;
                 }
                 if (cursor < stack_str + size - 1) {
-                        printf(frame_fmt, cursor);
+                        printf(frame_fmt, cursor, "");
                 }
                 if (last_changed != -1) { stack_str[last_changed] = ';'; }
         }
