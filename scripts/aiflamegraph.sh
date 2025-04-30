@@ -41,9 +41,10 @@ else
   fi
   IAPROF=${DIR}/../iaprof
 fi
-printf "Running profile... (ctrl-c when ready to stop)\n"
-${IAPROF} record -q > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iaprof."
+
+${IAPROF} record > /tmp/${PROFILE_NAME}.profile || die "Failed to run iaprof."
 printf "Building flame graph (this can take a minute)...\n"
+${IAPROF} flame < /tmp/${PROFILE_NAME}.profile > /tmp/${PROFILE_NAME}.stackcollapse || die "Failed to run iaprof."
 
 SEDSTR=""
 if [[ "${FILTER_CPYTHON}" == "true" ]]; then

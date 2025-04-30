@@ -170,6 +170,8 @@ void clear_interval_profiles()
         struct shader *shader;
 
         FOR_SHADER(shader,
+		pthread_mutex_lock(&shader->lock);
                 clear_stalls(shader);
+		pthread_mutex_unlock(&shader->lock);
         );
 }

@@ -67,24 +67,35 @@ applications and runtimes. For example, applications that use the Vulkan API
 may need to be modified to provide shader names to the runtime.
 
 
-## Building
-
+## Building `iaprof`
 
 *Note: customers of the Intel® Tiber™ AI Cloud[^1] may choose to use a prebuilt binary release.*
 
-Install your distribution's versions of:
-- libelf, Clang, LLVM, python3-mako, CMake, libzstd
+Install build dependencies:
+```
+sudo apt install libelf-dev g++-12 llvm clang python3-mako cmake libzstd-dev
+```
 
-Clone:
+Clone repo and build:
 ```
 git clone --recursive https://github.com/intel/iaprof
+cd iaprof
+make deps
+make
 ```
+NOTE: if the `make deps` step fails, ensure that you have `user.name` and `user.email` set in your `git` config.
 
-Build:
-```
-cd iaprof && make deps && make
-```
+## Running `iaprof`
 
+A helper script is provided to run `iaprof` and generate SVG flame graphs for you:
+- Run the script, `aiflamegraph.sh` and wait for initialization (can take up to a minute in some cases) e.g.:
+  
+  ```
+  sudo ./scripts/aiflamegraph.sh
+  ```
+- Run a GPU based workload, e.g. an example from the [oneAPI samples](https://github.com/oneapi-src/oneAPI-samples)
+- Interrupt the `aiflamegraph.sh` script with `ctrl-C` at any time to stop profiling.
+- Open the generated flame graph SVG file in a browser or other image viewer.
 
 
 ## Interpreting the Output
