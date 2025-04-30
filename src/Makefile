@@ -144,7 +144,9 @@ else
 endif
 
 $(DRM_H):
-	$(BPFTOOL) btf dump file /sys/kernel/btf/drm format c > $@
+	@if [ -e /sys/kernel/btf/drm ]; then \
+		$(BPFTOOL) btf dump file /sys/kernel/btf/drm format c > $@; \
+	fi;
 
 $(MAIN_SKEL_H): $(BPF_DIR)/main.bpf.o
 	$(BPFTOOL) gen skeleton $(BPF_DIR)/main.bpf.o > $@
