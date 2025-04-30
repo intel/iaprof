@@ -61,39 +61,8 @@ packages in order to build dependencies.
 IGC requires access to the `clang-14` executable, so you'll need to install
 the `clang14` and `llvm14` AUR packages and add it to your PATH:
 
-
 ```
 export PATH="/usr/lib/llvm14/bin:$PATH"
 ```
 
-Next, you'll likely need to apply this patch to `deps/Makefile` in order
-to deal with the rather new packages that Arch distributes:
-
-```
-diff --git a/deps/igc/Makefile b/deps/igc/Makefile
-index af321ff..283dcbd 100644
---- a/deps/igc/Makefile
-+++ b/deps/igc/Makefile
-@@ -103,10 +103,12 @@ $(PREFIX)/igc/lib/libiga64.a:
-            echo "$$version is greater than 22.04"; \
-                cxx_flags="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull"; \
-        fi; \
-+  cxx_flags+="-Wno-error=free-nonheap-object";
-        readonly cxx_flags; \
-        cd $(BUILD_DIR); \
-        if [ "$${cxx_flags}" = "" ]; then \
-                cmake \
-+                       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-                        -DCMAKE_VERBOSE_MAKEFILE=ON \
-                        -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-                        -DIGC_OPTION__LLVM_MODE=Source \
-@@ -116,6 +118,7 @@ $(PREFIX)/igc/lib/libiga64.a:
-                        $(IGC_DIR); \
-        else \
-                cmake \
-+                       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-                        -DCMAKE_VERBOSE_MAKEFILE=ON \
-                        -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-                        -DCMAKE_CXX_FLAGS="\"$${cxx_flags}\"" \
-
-```
+You should now be able to follow the general instructions.
