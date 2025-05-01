@@ -8,14 +8,13 @@ LLVM_CONFIG := llvm-config
 GIT_HASH := $(shell git rev-parse HEAD)
 CFLAGS := -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function -DGIT_COMMIT_HASH=\"$(GIT_HASH)\"
 LDFLAGS := $(shell $(LLVM_CONFIG) --ldflags --libs demangle)
-BPF_CFLAGS := -O2 -DDEBUG
+BPF_CFLAGS := -O2
 LLVM_STRIP := llvm-strip
 BPFTOOL := $(PREFIX)/bpftool/bin/bpftool
 
 ifdef DEBUG
   CFLAGS += -g -O0 -DDEBUG
-else
-  CFLAGS += -g -O0 -DDEBUG
+  BPF_CFLAGS += -DDEBUG
 endif
 
 ifdef FUZZ
