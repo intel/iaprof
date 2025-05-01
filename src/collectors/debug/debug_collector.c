@@ -182,16 +182,21 @@ void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size) {
         release_shader(shader);
 }
 
-static void extract_elf_shader_binary(Elf_Scn *section) {
+static void extract_elf_shader_binary(uint64_t addr, Elf_Scn *section) {
         Elf64_Shdr *shdr;
-        uint64_t    address;
+        uint64_t    saddr;
+        uint64_t    offset;
         Elf_Data   *data;
 
-        shdr    = elf64_getshdr(section);
-        address = shdr->sh_addr & SHADER_ADDRESS_MASK;
-        data    = elf_getdata(section, NULL);
+        shdr   = elf64_getshdr(section);
+        saddr  = shdr->sh_addr;
 
-        set_kernel_binary(address, data->d_buf, data->d_size);
+        assert(addr >= saddr && "bad symbol/section address");
+
+        offset = addr - saddr;
+        data   = elf_getdata(section, NULL);
+
+        set_kernel_binary(addr & SHADER_ADDRESS_MASK, data->d_buf + offset, data->d_size - offset);
 }
 
 /* Adds a symbol to the per-PID symbol table.
@@ -239,7 +244,7 @@ static void extract_elf_symbol(Elf64_Sym *symbol, Elf *elf, int string_table_ind
 
         section = elf_getscn(elf, symbol->st_shndx);
 
-        extract_elf_shader_binary(section);
+        extract_elf_shader_binary(address, section);
 }
 
 static void extract_elf_symtab(Elf *elf, Elf_Scn *section, size_t string_table_index, hash_table(sym_str_t, Debug_Info) debug_info_table)
@@ -437,7 +442,7 @@ static void extract_elf_progbits(Elf *elf, Elf_Scn *section, Elf64_Shdr *section
                 free(demangled);
         }
 
-        extract_elf_shader_binary(section);
+        extract_elf_shader_binary(address, section);
 }
 
 void extract_elf_kernel_info(const unsigned char *elf_data, uint64_t elf_data_size)
