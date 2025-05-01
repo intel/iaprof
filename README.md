@@ -25,7 +25,7 @@ The following hardware platforms are supported on Linux:
 
 Specific requirements depend on your platform.
 If you are on the Intel® Tiber™ AI Cloud[^1], please see [here](docs/README.pvc.md).
-If you are on a Battlemage discrete graphics card, please see [here](docs/README.xe2.md).
+If you are on a Battlemage discrete graphics card, please see [here](docs/README.bmg.md).
 
 Various software stack changes may be required, including:
 
