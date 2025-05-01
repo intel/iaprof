@@ -115,6 +115,7 @@ $(PREFIX)/igc/lib/libiga64.a:
 			-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
 			-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
 			-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
+			-DCCLANG_BUILD_INTREE_LLVM=True \
 			$(IGC_DIR); \
 	else \
 		cmake \
@@ -126,6 +127,7 @@ $(PREFIX)/igc/lib/libiga64.a:
 			-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
 			-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
 			-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
+			-DCCLANG_BUILD_INTREE_LLVM=True \
 			$(IGC_DIR); \
 	fi; \
 	sed -i 's/-fbracket-depth=512//g' IGC/Compiler/CMakeFiles/Compiler.dir/flags.make; \
