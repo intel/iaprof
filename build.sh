@@ -343,6 +343,7 @@ ${CXX} ${LDFLAGS}  \
   -lpthread \
   ${PREFIX}/lib/libbpf.a \
   -lz \
+  -lzstd \
   -lstdc++ \
   ${PREFIX}/lib/libdw.a \
   ${PREFIX}/lib/libelf.a \
