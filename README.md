@@ -4,13 +4,13 @@
 ## Introduction
 
 
-This tool collects profiles of Intel GPU performance based on hardware sampling,
-and generates visualizations from these results.
+This tool collects profiles of Intel AI accelerator and GPU performance based on hardware sampling,
+and generates visualizations from these results: AI flame graphs and GPU flame graphs.
 
 Specifically, it combines [EU stalls](https://www.intel.com/content/www/us/en/docs/gpa/user-guide/2022-4/gpu-metrics.html),
-CPU stacks, and GPU kernel information to provide a link between CPU code and
+CPU stacks, and AI/GPU kernel information to provide a link between CPU code and
 GPU performance metrics. Using the resulting profile, it can create advanced
-visualizations which can greatly help GPU performance analysis:
+visualizations which can greatly help AI/GPU performance analysis:
 1. [Flame Graphs](https://www.brendangregg.com/blog/2024-10-29/ai-flame-graphs.html)
 2. [FlameScope](https://www.brendangregg.com/blog/2018-11-08/flamescope-pattern-recognition.html)
 
@@ -130,16 +130,23 @@ frameworks, runtime libraries, and the OS kernel to a meaningful measurement of
 GPU execution.
 
 
-# Troubleshooting
+# Troubleshooting / FAQ
 
+### What about other hardware including NVIDIA?
 
-## **CPU stacks don’t go all the way back to \_start/main:**
+This is a new project that currently only supports limited Intel hardware listed in the Introduction.
+
+### Can I use iaprof as a continuous profiler?
+
+Our aim is to have overhead less than 5% (CPU footprint), however, the current overhead is expected to be larger, and for i915 workloads much larger. This makes the current version unsuitable for continuous profiling, however, we aim to change that in the future. Additional work is also needed to support multiple transient workloads (such as with a multi-tenant environment) as would be seen by a continuous profiler, rather than the current version that profiles a single active workload. To be clear: If you turn this into a continuous profiler without first addressing these issues you will produce invalid and costly profiles, giving people a bad experience.
+
+### **CPU stacks don’t go all the way back to \_start/main:**
 
 Ensure that all code is compiled to include frame pointers as described above.
 If your CPU stack ends in one frame of libfoo.so, it libfoo.so is likely not
 compiled with frame pointers.
     
-## **My code has frame pointers enabled and some CPU stacks are *still* incomplete:**  
+### **My code has frame pointers enabled and some CPU stacks are *still* incomplete:**  
   	
 One reason that stacks can be incomplete is that they are simply deeper than the
 maximum stack depth that the linux kernel will collect. This limit can be set as
@@ -158,7 +165,7 @@ incomplete stack. This is unlikely to be the case, but we’ve seen it happen wi
 NUMA balancing. Memory pressure could also be causing parts of the stack to get
 swapped out.
 
-## **My workload runs slowly when the profiler is enabled.**
+### **My workload runs slowly when the profiler is enabled.**
 
 This tool can introduce a moderate amount of overhead for many workloads.
 Efforts are being made to reduce overhead in the future. For now, this is not an
