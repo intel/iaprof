@@ -4,6 +4,7 @@ PREFIX := $(BASE_DIR)/../deps/install
 
 CC := clang
 CXX := clang++
+XXD := xxd
 LLVM_CONFIG := llvm-config
 GIT_HASH := $(shell git rev-parse HEAD)
 CFLAGS := -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -Wall -Werror -Wno-unused-function -DGIT_COMMIT_HASH=\"$(GIT_HASH)\"
@@ -15,6 +16,8 @@ BPFTOOL := $(PREFIX)/bpftool/bin/bpftool
 ifdef DEBUG
   CFLAGS += -g -O0 -DDEBUG
   BPF_CFLAGS += -DDEBUG
+else
+  CFLAGS += -O3
 endif
 
 ifdef FUZZ
@@ -61,29 +64,40 @@ MAIN_SKEL_H := $(BPF_DIR)/main.skel.h
 
 DRM_HELPERS := $(SRC_DIR)/drm_helpers/drm_helpers.o
 BPF_HELPERS := $(SRC_DIR)/bpf_helpers/trace_helpers.o \
-               $(SRC_DIR)/bpf_helpers/uprobe_helpers.o
+	$(SRC_DIR)/bpf_helpers/uprobe_helpers.o
 STORES := $(SRC_DIR)/stores/gpu_kernel.o
 COLLECTORS := $(SRC_DIR)/collectors/bpf/bpf_collector.o \
-	      $(SRC_DIR)/collectors/debug/debug_collector.o \
-	      $(SRC_DIR)/collectors/eustall/eustall_collector.o
+	$(SRC_DIR)/collectors/debug/debug_collector.o \
+	$(SRC_DIR)/collectors/eustall/eustall_collector.o
 PRINTERS := $(SRC_DIR)/printers/debug/debug_printer.o \
-	    $(SRC_DIR)/printers/stack/stack_printer.o \
-	    $(SRC_DIR)/printers/interval/interval_printer.o
+	$(SRC_DIR)/printers/stack/stack_printer.o \
+	$(SRC_DIR)/printers/interval/interval_printer.o
 UTILS := $(SRC_DIR)/utils/utils.o \
-         $(SRC_DIR)/utils/array.o
+	$(SRC_DIR)/utils/array.o
 DEMANGLE := $(SRC_DIR)/utils/demangle.o
 GPU_PARSERS := $(SRC_DIR)/gpu_parsers/shader_decoder.o
 COMMANDS := $(SRC_DIR)/commands/record.o \
-	    $(SRC_DIR)/commands/flame.o \
-		$(SRC_DIR)/commands/flamescope.o
+	$(SRC_DIR)/commands/flame.o \
+	$(SRC_DIR)/commands/flame_cli.o \
+	$(SRC_DIR)/commands/flamescope.o
+CLI := $(SRC_DIR)/visual/cli/cli.o
+CLI_VISUALS := $(SRC_DIR)/visual/cli/flamegraph.j.h
 IAPROF := $(SRC_DIR)/iaprof.o
 
-OBJECTS := $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
+OBJECTS := $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(CLI) $(DRIVER_HELPERS) $(IAPROF)
 
 all: $(SRC_DIR)/../iaprof
 
-$(SRC_DIR)/../iaprof: $(BPF_PROG_O) $(MAIN_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
+$(SRC_DIR)/../iaprof: $(BPF_PROG_O) $(MAIN_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(CLI) $(CLI_VISUALS) $(DRIVER_HELPERS) $(IAPROF)
 	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@ -lpthread $(PREFIX)/bpftool/lib/libbpf.a -lz -lzstd -lstdc++ $(PREFIX)/libelf/lib/libdw.a $(PREFIX)/libelf/lib/libelf.a $(PREFIX)/igc/lib/libiga64.a
+
+$(SRC_DIR)/commands/flame_cli.o: $(CLI_VISUALS)
+
+$(SRC_DIR)/visual/cli/%.j.h: $(SRC_DIR)/visual/cli/%.j
+	$(XXD) -n $*_j -i $< > $@
+
+$(SRC_DIR)/visual/cli/%.o: $(SRC_DIR)/visual/cli/%.c $(CLI_VISUALS)
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/libbpf/include -c $< -o $@
 
 $(SRC_DIR)/drm_helpers/drm_helpers.o: $(DRIVER_HELPERS_INCL) $(SRC_DIR)/drm_helpers/drm_helpers.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -c $(SRC_DIR)/drm_helpers/drm_helpers.c -o $@
