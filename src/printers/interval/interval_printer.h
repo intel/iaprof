@@ -25,9 +25,17 @@ limitations under the License.
 enum profile_event {
         PROFILE_EVENT_STRING = 0,
         PROFILE_EVENT_EUSTALL = 1,
-        PROFILE_EVENT_INTERVAL_START = 2,
-        PROFILE_EVENT_INTERVAL_END = 3,
-        PROFILE_EVENT_MAX
+        PROFILE_EVENT_PROC_NAME = 2,
+        PROFILE_EVENT_PID = 3,
+        PROFILE_EVENT_USTACK = 4,
+        PROFILE_EVENT_KSTACK = 5,
+        PROFILE_EVENT_SHADER_TYPE = 6,
+        PROFILE_EVENT_GPU_FILE = 7,
+        PROFILE_EVENT_GPU_SYMBOL = 8,
+        PROFILE_EVENT_INSN_TEXT = 9,
+        PROFILE_EVENT_INTERVAL_START = 10,
+        PROFILE_EVENT_INTERVAL_END = 11,
+        PROFILE_EVENT_MAX = 12
 };
 
 /* Maximum string sizes, so we don't have to guess */
@@ -48,7 +56,7 @@ struct eustall_result {
 
         unsigned pid;
         uint64_t samp_offset, samp_count;
-        int is_debug, is_sys;
+        int shader_type;
 };
 
 struct interval_result {
@@ -60,5 +68,6 @@ void print_initial_strings();
 char *get_string(uint64_t id);
 void parse_interval_profile();
 uint64_t print_string(const char *str);
+void print_frame();
 void print_interval(uint64_t interval, array_t *waitlist);
 int get_profile_event_func(char *str, size_t *size, int (**func_ptr)(char *, void *), enum profile_event *event);

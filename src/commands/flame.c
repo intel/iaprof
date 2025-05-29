@@ -33,8 +33,7 @@ int flame_equ(euresult a, euresult b)
             (a.kstack_id != b.kstack_id) ||
             (a.pid != b.pid) ||
             (a.samp_offset != b.samp_offset) ||
-            (a.is_debug != b.is_debug) ||
-            (a.is_sys != b.is_sys)) {
+            (a.shader_type != b.shader_type)) {
                 return 0;
         }
         return 1;
@@ -116,8 +115,6 @@ void flame(int argc, char **argv)
                 /* Parse the line by calling the function pointer */
                 if (event == PROFILE_EVENT_EUSTALL) {
                         retval = (*func)(line_buffer + size, &result);
-                } else if (event == PROFILE_EVENT_STRING) {
-                        retval = (*func)(line_buffer + size, NULL);
                 } else {
                         retval = (*func)(line_buffer + size, NULL);
                 }

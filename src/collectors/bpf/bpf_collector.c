@@ -255,6 +255,12 @@ int handle_uprobe_kernel_info(void *data_arg)
         return 0;
 }
 
+int handle_uprobe_frame_info(void *data_arg)
+{
+        print_frame();
+        return 0;
+}
+
 int handle_uprobe_kernel_bin(void *data_arg)
 {
         struct uprobe_kernel_bin *info;
@@ -286,6 +292,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
                 case BPF_EVENT_TYPE_UPROBE_ELF:         return handle_uprobe_elf(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KERNEL_INFO: return handle_uprobe_kernel_info(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KERNEL_BIN:  return handle_uprobe_kernel_bin(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_FRAME_INFO:  return handle_uprobe_frame_info(data_arg);
         }
 
         ERR("Unknown data type when handling a sample: %u\n", type);

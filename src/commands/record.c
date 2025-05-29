@@ -174,7 +174,6 @@ int read_opts(int argc, char **argv)
                         /* no fallthrough */
                 case 'i':
                         interval_time_ms = strtoul(optarg, NULL, 10);
-                        printf("setting interval_time_ms to %lu\n", interval_time_ms);
                         break;
                 case 'q':
                         quiet = 1;
@@ -373,7 +372,9 @@ next:;
                 /* We're done with our polling and work. How long did we take? */
                 clock_gettime(CLOCK_MONOTONIC, &interval_end);
                 cur_time_ms = timespec_to_ms(&interval_end);
-                usleep((target_time_ms - cur_time_ms) * 1000);
+                if (cur_time_ms <= target_time_ms) {
+                        usleep((target_time_ms - cur_time_ms) * 1000);
+                }
                 
                 print_interval(interval_number++, NULL);
                 clear_interval_profiles();

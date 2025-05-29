@@ -69,6 +69,7 @@ enum {
     BPF_EVENT_TYPE_UPROBE_ELF,
     BPF_EVENT_TYPE_UPROBE_KERNEL_INFO,
     BPF_EVENT_TYPE_UPROBE_KERNEL_BIN,
+    BPF_EVENT_TYPE_UPROBE_FRAME_INFO,
 };
 
 struct execbuf_info {
@@ -149,6 +150,10 @@ struct uprobe_kernel_bin {
 
         __u64         size;
         unsigned char data[MAX_BINARY_SIZE];
+};
+
+struct uprobe_frame_info {
+        __u8  type;
 };
 
 #endif

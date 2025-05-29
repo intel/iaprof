@@ -63,6 +63,16 @@ static hash_table(string, uint64_t) string_writer;
 static hash_table(uint64_t, string) string_reader;
 static pthread_mutex_t string_writer_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Globals for keeping track of the state */
+static uint64_t cur_proc_name_id,
+                cur_pid,
+                cur_ustack_id,
+                cur_kstack_id,
+                cur_gpu_file_id,
+                cur_gpu_symbol_id,
+                cur_insn_text_id;
+int cur_shader_type;
+
 /* Inserts a string into the hash table, returns 1 if it
    had to be inserted. Fills *id with the new ID. */
 int insert_string(char *str, uint64_t *id)
@@ -191,20 +201,146 @@ int parse_string(char *str, void *result)
         return 0;
 }
 
+int parse_proc_name(char *str, void *result)
+{
+        unsigned long proc_name_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &proc_name_id);
+        if (retval != 1) {
+                WARN("proc_name line failed to parse!\n");
+                return -1;
+        }
+        cur_proc_name_id = proc_name_id;
+
+        return 0;
+}
+
+int parse_pid(char *str, void *result)
+{
+        unsigned pid;
+        int retval;
+        
+        retval = sscanf(str, "\t%u", &pid);
+        if (retval != 1) {
+                WARN("pid line failed to parse!\n");
+                return -1;
+        }
+        cur_pid = pid;
+
+        return 0;
+}
+
+int parse_ustack(char *str, void *result)
+{
+        unsigned long ustack_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &ustack_id);
+        if (retval != 1) {
+                WARN("ustack line failed to parse!\n");
+                return -1;
+        }
+        cur_ustack_id = ustack_id;
+
+        return 0;
+}
+
+int parse_kstack(char *str, void *result)
+{
+        unsigned long kstack_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &kstack_id);
+        if (retval != 1) {
+                WARN("kstack line failed to parse!\n");
+                return -1;
+        }
+        cur_kstack_id = kstack_id;
+
+        return 0;
+}
+
+int parse_shader_type(char *str, void *result)
+{
+        int shader_type;
+        int retval;
+        
+        retval = sscanf(str, "\t%d", &shader_type);
+        if (retval != 1) {
+                WARN("shader_type line failed to parse!\n");
+                return -1;
+        }
+        cur_shader_type = shader_type;
+
+        return 0;
+}
+
+int parse_gpu_file(char *str, void *result)
+{
+        unsigned long gpu_file_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &gpu_file_id);
+        if (retval != 1) {
+                WARN("gpu_file line failed to parse!\n");
+                return -1;
+        }
+        cur_gpu_file_id = gpu_file_id;
+
+        return 0;
+}
+
+int parse_gpu_symbol(char *str, void *result)
+{
+        unsigned long gpu_symbol_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &gpu_symbol_id);
+        if (retval != 1) {
+                WARN("gpu_symbol line failed to parse!\n");
+                return -1;
+        }
+        cur_gpu_symbol_id = gpu_symbol_id;
+
+        return 0;
+}
+
+int parse_insn_text(char *str, void *result)
+{
+        unsigned long insn_text_id;
+        int retval;
+        
+        retval = sscanf(str, "\t%lu", &insn_text_id);
+        if (retval != 1) {
+                WARN("insn_text line failed to parse!\n");
+                return -1;
+        }
+        cur_insn_text_id = insn_text_id;
+
+        return 0;
+}
+
 int parse_eustall(char *str, void *result)
 {
         int retval;
         struct eustall_result *res = (struct eustall_result *)result;
-
-        retval = sscanf(str, "\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu",
-                        &(res->proc_name_id), &(res->pid), &(res->ustack_id), &(res->kstack_id),
-                        &(res->is_debug), &(res->is_sys), &(res->gpu_file_id),
-                        &(res->gpu_symbol_id), &(res->insn_text_id), &(res->stall_type_id),
-                        &(res->samp_offset), &(res->samp_count));
-        if (retval != 12) {
+        
+        retval = sscanf(str, "\t%lu\t%lx\t%lu",
+                        &(res->stall_type_id), &(res->samp_offset), &(res->samp_count));
+        if (retval != 3) {
                 WARN("eustall line failed to parse!\n");
                 return -1;
         }
+        
+        res->proc_name_id = cur_proc_name_id;
+        res->pid = cur_pid;
+        res->ustack_id = cur_ustack_id;
+        res->kstack_id = cur_kstack_id;
+        res->shader_type = cur_shader_type;
+        res->gpu_file_id = cur_gpu_file_id;
+        res->gpu_symbol_id = cur_gpu_symbol_id;
+        res->insn_text_id = cur_insn_text_id;
 
         return 0;
 }
@@ -234,7 +370,15 @@ int parse_interval_end(char *str, void *result)
 
 static char *profile_event_strs[] = {
   [PROFILE_EVENT_STRING] = "string",
-  [PROFILE_EVENT_EUSTALL] = "eustall",
+  [PROFILE_EVENT_PROC_NAME] = "proc_name",
+  [PROFILE_EVENT_PID] = "pid",
+  [PROFILE_EVENT_USTACK] = "ustack",
+  [PROFILE_EVENT_KSTACK] = "kstack",
+  [PROFILE_EVENT_SHADER_TYPE] = "shader_type",
+  [PROFILE_EVENT_GPU_FILE] = "gpu_file",
+  [PROFILE_EVENT_GPU_SYMBOL] = "gpu_symbol",
+  [PROFILE_EVENT_INSN_TEXT] = "insn_text",
+  [PROFILE_EVENT_EUSTALL] = "e",
   [PROFILE_EVENT_INTERVAL_START] = "interval_start",
   [PROFILE_EVENT_INTERVAL_END] = "interval_end",
 };
@@ -244,6 +388,14 @@ static char *profile_event_strs[] = {
    returns a void * to their corresponding return type. */
 static int (*profile_event_funcs[]) (char *, void *) = {
   [PROFILE_EVENT_STRING] = &parse_string,
+  [PROFILE_EVENT_PROC_NAME] = &parse_proc_name,
+  [PROFILE_EVENT_PID] = &parse_pid,
+  [PROFILE_EVENT_USTACK] = &parse_ustack,
+  [PROFILE_EVENT_KSTACK] = &parse_kstack,
+  [PROFILE_EVENT_SHADER_TYPE] = &parse_shader_type,
+  [PROFILE_EVENT_GPU_FILE] = &parse_gpu_file,
+  [PROFILE_EVENT_GPU_SYMBOL] = &parse_gpu_symbol,
+  [PROFILE_EVENT_INSN_TEXT] = &parse_insn_text,
   [PROFILE_EVENT_EUSTALL] = &parse_eustall,
   [PROFILE_EVENT_INTERVAL_START] = &parse_interval_start,
   [PROFILE_EVENT_INTERVAL_END] = &parse_interval_end,
@@ -277,6 +429,11 @@ uint64_t print_string(const char *stack_str)
         return id;
 }
 
+void print_frame()
+{
+        printf("frame\n");
+}
+
 void print_initial_strings()
 {
         /* Constant strings */
@@ -298,35 +455,12 @@ void print_initial_strings()
 
 }
 
-void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id, int stall_type, uint64_t count)
-{
-        char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
-
-        uint64_t gpu_file_id, gpu_symbol_id, stall_type_id;
-
-        if (count == 0) { return; }
-
-        /* Ensure we've got a GPU symbol */
-        gpu_file_id   = shader->filename_id;
-        gpu_symbol_id = shader->symbol_id;
-
-        /* Construct a string to print out for the file of the GPU code */
-        if (gpu_file_id == 0) {
-                gpu_file_id = unknown_file_id;
-        }
-
-        /* Construct a string to print for the GPU symbol (and line, if applicable) */
-        if (gpu_symbol_id == 0) {
-                if (shader->type == SHADER_TYPE_SYSTEM_ROUTINE) {
-                        gpu_symbol_id = system_routine_id;
-                } else {
-                        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", shader->gpu_addr);
-                        gpu_symbol_id = print_string(gpu_symbol_tmp);
-                }
-        }
-
+uint64_t get_stall_type_id(int stall_type_enum) {
+  
+        uint64_t stall_type_id;
+        
         /* Construct a string for the stall reason */
-        switch (stall_type) {
+        switch (stall_type_enum) {
                 case STALL_TYPE_ACTIVE:     stall_type_id = active_stall_id;     break;
                 case STALL_TYPE_CONTROL:    stall_type_id = control_stall_id;    break;
                 case STALL_TYPE_PIPESTALL:  stall_type_id = pipestall_stall_id;  break;
@@ -340,48 +474,130 @@ void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id
                         stall_type_id = unknown_stall_id;
                         break;
         }
+        
+        return stall_type_id;
+}
 
-        printf("eustall\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu\n",
-               shader->proc_name_id, shader->pid,
-               shader->ustack_id, shader->kstack_id,
-               shader->type == SHADER_TYPE_DEBUG_AREA, shader->type == SHADER_TYPE_SYSTEM_ROUTINE, gpu_file_id,
-               gpu_symbol_id, insn_text_id, stall_type_id, offset,
-               count);
+void print_insn_text(uint64_t insn_text_id)
+{
+  if (insn_text_id != cur_insn_text_id) {
+    printf("insn_text\t%lu\n", insn_text_id);
+    cur_insn_text_id = insn_text_id;
+  }
+}
+
+void print_gpu_symbol(uint64_t gpu_symbol_id)
+{
+  if (gpu_symbol_id != cur_gpu_symbol_id) {
+    printf("gpu_symbol\t%lu\n", gpu_symbol_id);
+    cur_gpu_symbol_id = gpu_symbol_id;
+  }
+}
+
+void print_ustack(uint64_t ustack_id)
+{
+  if (ustack_id != cur_ustack_id) {
+    printf("ustack\t%lu\n", ustack_id);
+    cur_ustack_id = ustack_id;
+  }
+}
+
+void print_kstack(uint64_t kstack_id)
+{
+  if (kstack_id != cur_kstack_id) {
+    printf("kstack\t%lu\n", kstack_id);
+    cur_kstack_id = kstack_id;
+  }
+}
+
+void print_proc_name(uint64_t proc_name_id)
+{
+  if (proc_name_id != cur_proc_name_id) {
+    printf("proc_name\t%lu\n", proc_name_id);
+    cur_proc_name_id = proc_name_id;
+  }
+}
+
+void print_pid(uint32_t pid)
+{
+  if (pid != cur_pid) {
+    printf("pid\t%u\n", pid);
+    cur_pid = pid;
+  }
+}
+
+void print_gpu_file(uint64_t gpu_file_id)
+{
+  if (gpu_file_id != cur_gpu_file_id) {
+    printf("gpu_file\t%lu\n", gpu_file_id);
+    cur_gpu_file_id = gpu_file_id;
+  }
+}
+
+void print_shader_type(int shader_type) {
+  if (shader_type != cur_shader_type) {
+    printf("shader_type\t%d\n", shader_type);
+    cur_shader_type = shader_type;
+  }
+}
+
+void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id, int stall_type, uint64_t count)
+{
+        char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
+        
+        uint64_t gpu_file_id;
+
+        if (count == 0) { return; }
+
+        gpu_file_id = shader->filename_id;
+        if (gpu_file_id == 0) {
+                gpu_file_id = unknown_file_id;
+        }
+
+        /* Construct a string to print for the GPU symbol (and line, if applicable) */
+        if (shader->symbol_id == 0) {
+                if (shader->type == SHADER_TYPE_SYSTEM_ROUTINE) {
+                        shader->symbol_id = system_routine_id;
+                } else {
+                        snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", shader->gpu_addr);
+                        shader->symbol_id = print_string(gpu_symbol_tmp);
+                }
+        }
+        
+        print_proc_name(shader->proc_name_id);
+        print_pid(shader->pid);
+        print_ustack(shader->ustack_id);
+        print_kstack(shader->kstack_id);
+        print_shader_type(shader->type);
+        print_gpu_file(gpu_file_id);
+        print_gpu_symbol(shader->symbol_id);
+        print_insn_text(insn_text_id);
+
+        printf("e\t%lu\t%lx\t%lu\n",
+               get_stall_type_id(stall_type), offset, count);
 }
 
 void print_eustall_drop(uint64_t addr, int stall_type, uint64_t count)
 {
         char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
         uint64_t gpu_symbol_id;
-        uint64_t stall_type_id;
 
         if (count == 0) { return; }
 
         snprintf(gpu_symbol_tmp, MAX_GPU_SYMBOL_LEN, "0x%lx", addr);
         gpu_symbol_id = print_string(gpu_symbol_tmp);
+        
+        print_proc_name(0);
+        print_pid(0);
+        print_ustack(0);
+        print_kstack(0);
+        print_shader_type(0);
+        print_gpu_file(unknown_file_id);
+        print_gpu_symbol(gpu_symbol_id);
+        print_insn_text(failed_decode_id);
 
-        /* Construct a string for the stall reason */
-        switch (stall_type) {
-                case STALL_TYPE_ACTIVE:     stall_type_id = active_stall_id;     break;
-                case STALL_TYPE_CONTROL:    stall_type_id = control_stall_id;    break;
-                case STALL_TYPE_PIPESTALL:  stall_type_id = pipestall_stall_id;  break;
-                case STALL_TYPE_SEND:       stall_type_id = send_stall_id;       break;
-                case STALL_TYPE_DIST_ACC:   stall_type_id = dist_acc_stall_id;   break;
-                case STALL_TYPE_SBID:       stall_type_id = sbid_stall_id;       break;
-                case STALL_TYPE_SYNC:       stall_type_id = sync_stall_id;       break;
-                case STALL_TYPE_INST_FETCH: stall_type_id = inst_fetch_stall_id; break;
-                case STALL_TYPE_OTHER:      stall_type_id = other_stall_id;      break;
-                default:
-                        stall_type_id = unknown_stall_id;
-                        break;
-        }
-
-        printf("eustall\t%lu\t%u\t%lu\t%lu\t%d\t%d\t%lu\t%lu\t%lu\t%lu\t0x%lx\t%lu\n",
-               0ul, 0,
-               0ul, 0ul,
-               0, 0, unknown_file_id,
-               gpu_symbol_id, failed_decode_id, stall_type_id, 0ul,
-               count);
+        printf("e\t%lu\t%lx\t%lu\n",
+               get_stall_type_id(stall_type), 0ul, count);
 }
 
 /* Returns 0 on success, -1 for failure */

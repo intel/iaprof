@@ -98,8 +98,6 @@ void flamescope(int argc, char **argv)
                 /* Parse the line by calling the function pointer */
                 if (event == PROFILE_EVENT_EUSTALL) {
                         retval = (*func)(line_buffer + size, &eresult);
-                } else if (event == PROFILE_EVENT_STRING) {
-                        retval = (*func)(line_buffer + size, NULL);
                 } else if (event == PROFILE_EVENT_INTERVAL_START) {
                         retval = (*func)(line_buffer + size, &iresult);
                 } else {

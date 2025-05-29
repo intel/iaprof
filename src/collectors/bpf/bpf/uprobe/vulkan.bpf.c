@@ -37,6 +37,32 @@ struct anv_pipeline_stage {
 };
 
 /*****************************************************************************
+  vkQueuePresentKHR
+  
+  Tells userspace when Vulkan has been instructed to present a frame
+*****************************************************************************/
+
+SEC("uprobe//usr/lib/libvulkan.so:vkQueuePresentKHR")
+int BPF_UPROBE(vkQueuePresentKHR_probe, void *args) {
+        struct uprobe_frame_info *info;
+        long err;
+        
+        info = bpf_ringbuf_reserve(&rb, sizeof(*info), 0);
+        if (!info) {
+                ERR_PRINTK("vkQueuePresentKHR failed to reserve in the ringbuffer.");
+                err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+                DEBUG_PRINTK("Unconsumed data: %lu", err);
+                dropped_event = 1;
+                return 0;
+        }
+
+        info->type = BPF_EVENT_TYPE_UPROBE_FRAME_INFO;
+
+        bpf_ringbuf_submit(info, BPF_RB_FORCE_WAKEUP);
+        return 0;
+}
+
+/*****************************************************************************
   send_vulkan_ksp
   
   Sends a KSP back to userspace, along with a CPU stack.
