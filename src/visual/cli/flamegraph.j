@@ -10,7 +10,7 @@ paint =
             ((&element 'paint-fn)) &element
         @term:flush
 
-add-element    = (fn (&elem) (append elements &elem))
+add-element    = (fn (elem) (append elements elem))
 newest-element = (' (elements ((len elements) - 1)) )
 
 text =
@@ -23,7 +23,7 @@ text =
                 'col      : col
                 's        : s
         foreach arg ... (o <- arg)
-        add-element o
+        o
 
 paint-text =
     fn (&text)
@@ -48,7 +48,7 @@ rect =
                 'width    : width
                 'color    : color
         foreach arg ... (o <- arg)
-        add-element o
+        o
 
 paint-rect =
     fn (&rect)
@@ -81,7 +81,72 @@ in-element =
                 col >= (&element 'col)
                 col  < ((&element 'col) + (&element 'width))
             0
+            
+paint-loading-bar =
+    fn (&loading-bar)
+        foreach &element (&loading-bar 'elements)
+            ((&element 'paint-fn)) &element
+        foreach &element (&loading-bar 'text)
+            ((&element 'paint-fn)) &element
 
+loading-bar =
+    fn (row thing ...)
+        o =
+            object
+                'row      : row
+                'thing    : thing
+                'width    : 0
+                'elements : (list)
+                'paint-fn : (' paint-loading-bar)
+                'text     : (list)
+        foreach arg ... (o <- arg)
+        o
+
+loading-bar-text-push =
+    fn (&loading-bar ratio)
+        width = (sint (ratio * cols))
+        loading-text =
+            fmt
+                "LOADING % %\%"
+                &loading-bar 'thing
+                sint (ratio * 100)
+        characters = (chars loading-text)
+        length = (len loading-text)
+        
+        index = 1
+        foreach character characters
+            color = 0xffffff
+            if (index <= width)
+                color = 0x000000
+            append
+                &loading-bar 'text
+                text
+                    &loading-bar 'row
+                    index
+                    character
+                    'color : color
+            index += 1
+        
+loading-bar-update =
+    fn (&loading-bar ratio)
+        width = (sint (ratio * cols))
+        col = ((&loading-bar 'width) + 1)
+        while (col <= width)
+            append
+                &loading-bar 'elements
+                rect
+                    &loading-bar 'row
+                    col
+                    1
+                    1
+                    get-color 'loading ((float col) / cols)
+            col += 1
+        (&loading-bar 'width) = width
+        
+        (&loading-bar 'text) = (list)
+        loading-bar-text-push &loading-bar ratio
+        
+        paint
 
 ### CONTENT ###
 
@@ -98,9 +163,10 @@ draw-flame =
             else
                 text = ""
 
-            rect row start-col 1 width (&frame 'color)
-                'text       : text
-                'text-color : 0x000000
+            add-element
+                rect row start-col 1 width (&frame 'color)
+                    'text       : text
+                    'text-color : 0x000000
 
             &children = (&frame 'children)
 
@@ -127,14 +193,9 @@ create-elements =
         if (flame-graph != nil)
             draw-flame flame-graph rows 1 cols
 
-        text 1 1 "press 'q' to quit"
-
-loading-screen =
-    fn ()
-        elements := (list)
-        text 1 1 "LOADING..."
-        paint
-
+        add-element
+            text 1 1 "press 'q' to quit"
+        
 
 ### INPUT ###
 
@@ -147,6 +208,10 @@ get-color =
         v = 0.75
 
         match type
+            'loading
+                h = 4.79966
+                s = r
+                v = 0.75
             'divider
                 s = 0.0
                 v = 0.5
@@ -266,6 +331,19 @@ parse-input =
         flame-graph := (new-frame "all")
         
         f = (fopen-rd ((argv) 1))
+        lines = (fread-lines f)
+        length = (len lines)
+        
+        add-element
+            loading-bar 1 "PROFILE"
+        &profile-bar = (newest-element)
+        
+        add-element
+            loading-bar 2 "FLAME GRAPH"
+        &flame-bar = (newest-element)
+        
+        loading-bar-update &profile-bar 0.0
+        loading-bar-update &flame-bar 0.0
         
         strings = (object)
         stacks = (object)
@@ -282,7 +360,8 @@ parse-input =
         offset = 0x0
         flame_str = ""
         
-        foreach &line (fread-lines f)
+        index = 0
+        foreach &line lines
             split_line = (split &line "\t")
             event = (split_line 0)
             match event
@@ -324,12 +403,22 @@ parse-input =
                         (stacks flame_str) += count
                     else
                         stacks <- (flame_str : count)
+            if ((index % 10000) == 0)
+                loading-bar-update &profile-bar ((float index) / length)
+            index += 1
+        loading-bar-update &profile-bar 1.0
         
         # Construct the flame graph from the stacks object
+        index = 0
+        length = (len stacks)
         foreach stack_str stacks
             stack = (split stack_str ";")
             count = (stacks stack_str)
             add-flame flame-graph stack count
+            if ((index % 10) == 0)
+                loading-bar-update &flame-bar ((float index) / length)
+            index += 1
+        loading-bar-update &flame-bar 1.0
             
         fclose f
         get-sorted flame-graph
@@ -354,15 +443,14 @@ redraw =
     fn (rows cols)
         rows := rows
         cols := cols
-        loading-screen
         create-elements
         paint
-
 
 @on-init =
     fn (rows cols)
         redraw rows cols
-        loading-screen
+        elements := (list)
+        paint
         parse-input
         redraw rows cols
 
