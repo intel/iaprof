@@ -326,8 +326,8 @@ int parse_eustall(char *str, void *result)
         int retval;
         struct eustall_result *res = (struct eustall_result *)result;
         
-        retval = sscanf(str, "\t%lu\t%lx\t%lu",
-                        &(res->stall_type_id), &(res->samp_offset), &(res->samp_count));
+        retval = sscanf(str, "\t%lu\t%lu\t%lx\t%lu",
+                        &(res->overall_stack_id), &(res->stall_type_id), &(res->samp_offset), &(res->samp_count));
         if (retval != 3) {
                 WARN("eustall line failed to parse!\n");
                 return -1;
@@ -424,6 +424,7 @@ uint64_t print_string(const char *stack_str)
         if (!insert_string((char *)stack_str, &id)) {
                 return id;
         }
+        insert_string_id(id, (char *)stack_str);
         printf("string\t%lu\t%s\n", id, stack_str);
         fflush(stdout);
         return id;
@@ -545,7 +546,11 @@ void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id
 {
         char gpu_symbol_tmp[MAX_GPU_SYMBOL_LEN];
         
+        int overall_stack_size;
+        char *overall_stack;
+        
         uint64_t gpu_file_id;
+        uint64_t overall_stack_id;
 
         if (count == 0) { return; }
 
@@ -573,8 +578,27 @@ void print_eustall(struct shader *shader, uint64_t offset, uint64_t insn_text_id
         print_gpu_symbol(shader->symbol_id);
         print_insn_text(insn_text_id);
 
-        printf("e\t%lu\t%lx\t%lu\n",
-               get_stall_type_id(stall_type), offset, count);
+        /* Get the size of the resulting string */
+        overall_stack_size = snprintf(NULL, 0, flame_fmt,
+          get_string(shader->proc_name_id), shader->pid,
+          get_string(shader->ustack_id),
+          get_string(shader->kstack_id),
+          get_string(gpu_file_id), get_string(shader->symbol_id),
+          get_string(insn_text_id), get_string(get_stall_type_id(stall_type)),
+          offset);
+        overall_stack = malloc(overall_stack_size * sizeof(char));
+        snprintf(overall_stack, overall_stack_size, flame_fmt,
+          get_string(shader->proc_name_id), shader->pid,
+          get_string(shader->ustack_id),
+          get_string(shader->kstack_id),
+          get_string(gpu_file_id), get_string(shader->symbol_id),
+          get_string(insn_text_id), get_string(get_stall_type_id(stall_type)),
+          offset);
+        overall_stack_id = print_string(overall_stack);
+        free(overall_stack);
+
+        printf("e\t%lu\t%lu\t%lx\t%lu\n",
+               overall_stack_id, get_stall_type_id(stall_type), offset, count);
 }
 
 void print_eustall_drop(uint64_t addr, int stall_type, uint64_t count)

@@ -60,7 +60,6 @@ use_hash_table_e(euresult, uint64_t, flame_equ);
 static hash_table(euresult, uint64_t) flame_counts;
 
 /* The format for the full stack on a line of flame graph output. */
-static const char *flame_fmt = "%s;%u;%s%s-;%s_[G];%s_[G];%s_[g];%s_[g];0x%lx_[g]; %lu\n";
 #define INITIAL_MAX_STACK_LEN 4096
 
 static FILE *input_file = NULL;
@@ -147,7 +146,8 @@ void flame(int argc, char **argv)
                         result.kstack_id ? get_string(result.kstack_id) : "",
                         get_string(result.gpu_file_id), get_string(result.gpu_symbol_id),
                         get_string(result.insn_text_id), get_string(result.stall_type_id),
-                        result.samp_offset, *lookup);
+                        result.samp_offset);
+                    printf(";%lu\n", *lookup);
             }
         }
 

@@ -38,6 +38,8 @@ enum profile_event {
         PROFILE_EVENT_MAX = 12
 };
 
+static const char *flame_fmt = "%s;%u;%s%s-;%s_[G];%s_[G];%s_[g];%s_[g];0x%lx_[g]";
+
 /* Maximum string sizes, so we don't have to guess */
 #define MAX_PROC_NAME_LEN (16)
 #define MAX_PID_LEN (10)
@@ -52,7 +54,7 @@ extern uint64_t failed_decode_id;
 struct eustall_result {
         uint64_t proc_name_id, gpu_file_id, gpu_symbol_id,
                  insn_text_id, stall_type_id,
-                 ustack_id, kstack_id;
+                 ustack_id, kstack_id, overall_stack_id;
 
         unsigned pid;
         uint64_t samp_offset, samp_count;

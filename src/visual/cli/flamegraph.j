@@ -128,62 +128,18 @@ parse-flamegraph-input =
         strings = (object)
         stacks = (object)
         
-        # What makes up a flame string, in order
-        proc_name = ""
-        pid = 0
-        ustack = ""
-        kstack = ""
-        gpu_file = ""
-        gpu_symbol = ""
-        insn_text = ""
-        stall_type = ""
-        offset = 0x0
-        flame_str = ""
-        
         index = 0
         foreach &line lines
             split_line = (split &line "\t")
-            event = (split_line 0)
-            match event
+            match (split_line 0)
                 "e"
-                    stall_type = (strings (split_line 1))
-                    offset = (split_line 2)
-                    count = (parse-int (split_line 3))
-                    flame_str =
-                        fmt "%;%;%%-;%_[G];%_[G];%_[g];%_[g];0x%_[g];"
-                            proc_name
-                            pid
-                            ustack
-                            kstack
-                            gpu_file
-                            gpu_symbol
-                            insn_text
-                            stall_type
-                            offset
-                            
-                    # Put the flame-str in the stacks object
-                    (get-or-insert stacks flame_str 0) += count
+                    # No comment
+                    (get-or-insert stacks (split_line 1) 0) += (parse-int (split_line 4))
                     
                 "string"
                     strings <- ((split_line 1) : (split_line 2))
-                "proc_name"
-                    proc_name = (strings (split_line 1))
-                "pid"
-                    pid = (split_line 1)
-                "ustack"
-                    ustack = (strings (split_line 1))
-                "kstack"
-                    kstack = (strings (split_line 1))
-                "shader_type"
-                    shader_type = (strings (split_line 1))
-                "gpu_file"
-                    gpu_file = (strings (split_line 1))
-                "gpu_symbol"
-                    gpu_symbol = (strings (split_line 1))
-                "insn_text"
-                    insn_text = (strings (split_line 1))
             
-            if ((index % 10000) == 0)
+            if ((index % 100000) == 0)
                 loading-bar-update &profile-bar ((float index) / length)
                 
             index += 1
@@ -192,11 +148,11 @@ parse-flamegraph-input =
         # Construct the flame graph from the stacks object
         index = 0
         length = (len stacks)
-        foreach stack_str stacks
-            stack = (split stack_str ";")
-            count = (stacks stack_str)
-            add-flame flame-graph stack count
-            if ((index % 10) == 0)
+        foreach stack-str-id stacks
+            flame-stack = (split (strings stack-str-id) ";")
+            count = (stacks stack-str-id)
+            add-flame flame-graph flame-stack count
+            if ((index % 1000) == 0)
                 loading-bar-update &flame-bar ((float index) / length)
             index += 1
         loading-bar-update &flame-bar 1.0

@@ -349,6 +349,7 @@ const char *julie_type_string(Julie_Type type);
 #define hash_table_free(t) ((t)->_free((t)))
 #define hash_table_get_key(t, k) ((t)->_get_key((t), (k)))
 #define hash_table_get_val(t, k) ((t)->_get_val((t), (k)))
+#define hash_table_get_val_with_hash(t, k, h) ((t)->_get_val_with_hash((t), (k), (h)))
 #define hash_table_insert(t, k, v) ((t)->_insert((t), (k), (v)))
 #define hash_table_delete(t, k) ((t)->_delete((t), (k)))
 #define hash_table_traverse(t, key, val_ptr)                         \
@@ -439,6 +440,8 @@ const char *julie_type_string(Julie_Type type);
         (struct _hash_table(K_T, V_T) *, K_T);                                               \
     typedef V_T* (*CAT2(hash_table(K_T, V_T), _get_val_t))                                   \
         (struct _hash_table(K_T, V_T) *, K_T);                                               \
+    typedef V_T* (*CAT2(hash_table(K_T, V_T), _get_val_with_hash_t))                         \
+        (struct _hash_table(K_T, V_T) *, K_T, uint64_t);                                     \
     typedef V_T* (*CAT2(hash_table(K_T, V_T), _insert_t))                                    \
         (struct _hash_table(K_T, V_T) *, K_T, V_T);                                          \
     typedef int (*CAT2(hash_table(K_T, V_T), _delete_t))                                     \
@@ -451,13 +454,14 @@ const char *julie_type_string(Julie_Type type);
         uint64_t len, _size_idx, _load_thresh;                                               \
         uint64_t *prime_sizes;                                                               \
                                                                                              \
-        CAT2(hash_table(K_T, V_T), _free_t)    const _free;                                  \
-        CAT2(hash_table(K_T, V_T), _get_key_t) const _get_key;                               \
-        CAT2(hash_table(K_T, V_T), _get_val_t) const _get_val;                               \
-        CAT2(hash_table(K_T, V_T), _insert_t)  const _insert;                                \
-        CAT2(hash_table(K_T, V_T), _delete_t)  const _delete;                                \
-        CAT2(hash_table(K_T, V_T), _hash_t)    const _hash;                                  \
-        CAT2(hash_table(K_T, V_T), _equ_t)     const _equ;                                   \
+        CAT2(hash_table(K_T, V_T), _free_t)              const _free;                        \
+        CAT2(hash_table(K_T, V_T), _get_key_t)           const _get_key;                     \
+        CAT2(hash_table(K_T, V_T), _get_val_t)           const _get_val;                     \
+        CAT2(hash_table(K_T, V_T), _get_val_with_hash_t) const _get_val_with_hash;           \
+        CAT2(hash_table(K_T, V_T), _insert_t)            const _insert;                      \
+        CAT2(hash_table(K_T, V_T), _delete_t)            const _delete;                      \
+        CAT2(hash_table(K_T, V_T), _hash_t)              const _hash;                        \
+        CAT2(hash_table(K_T, V_T), _equ_t)               const _equ;                         \
     }                                                                                        \
     *hash_table(K_T, V_T);                                                                   \
                                                                                              \
@@ -628,12 +632,13 @@ out:;                                                                           
     }                                                                                        \
                                                                                              \
     static inline V_T*                                                                       \
-        CAT2(hash_table(K_T, V_T), _get_val)(hash_table(K_T, V_T) t, K_T key) {              \
+        CAT2(hash_table(K_T, V_T), _get_val_with_hash)(hash_table(K_T, V_T) t,               \
+                                                       K_T key,                              \
+                                                       uint64_t h) {                         \
                                                                                              \
-        uint64_t h, data_size, idx;                                                          \
+        uint64_t data_size, idx;                                                             \
         hash_table_slot(K_T, V_T) slot, *slot_ptr;                                           \
                                                                                              \
-        h         = t->_hash(key);                                                           \
         data_size = t->prime_sizes[t->_size_idx];                                            \
         idx       = h % data_size;                                                           \
         slot_ptr  = t->_data + idx;                                                          \
@@ -646,6 +651,11 @@ out:;                                                                           
         }                                                                                    \
                                                                                              \
         return NULL;                                                                         \
+    }                                                                                        \
+                                                                                             \
+    static inline V_T*                                                                       \
+        CAT2(hash_table(K_T, V_T), _get_val)(hash_table(K_T, V_T) t, K_T key) {              \
+        return CAT2(hash_table(K_T, V_T), _get_val_with_hash)(t, key, t->_hash(key));        \
     }                                                                                        \
                                                                                              \
     static inline void CAT2(hash_table(K_T, V_T), _free)(hash_table(K_T, V_T) t) {           \
@@ -674,17 +684,18 @@ out:;                                                                           
         memset(the_data, 0, data_size);                                                      \
                                                                                              \
         struct _hash_table(K_T, V_T)                                                         \
-            init                 = {._size_idx = DEFAULT_START_SIZE_IDX,                     \
-                    ._data       = the_data,                                                 \
-                    .len         = 0,                                                        \
-                    .prime_sizes = CAT2(hash_table(K_T, V_T), _prime_sizes),                 \
-                    ._free       = CAT2(hash_table(K_T, V_T), _free),                        \
-                    ._get_key    = CAT2(hash_table(K_T, V_T), _get_key),                     \
-                    ._get_val    = CAT2(hash_table(K_T, V_T), _get_val),                     \
-                    ._insert     = CAT2(hash_table(K_T, V_T), _insert),                      \
-                    ._delete     = CAT2(hash_table(K_T, V_T), _delete),                      \
-                    ._equ        = (CAT2(hash_table(K_T, V_T), _equ_t))equ,                  \
-                    ._hash       = (CAT2(hash_table(K_T, V_T), _hash_t))hash};               \
+            init                        = {._size_idx = DEFAULT_START_SIZE_IDX,              \
+                    ._data              = the_data,                                          \
+                    .len                = 0,                                                 \
+                    .prime_sizes        = CAT2(hash_table(K_T, V_T), _prime_sizes),          \
+                    ._free              = CAT2(hash_table(K_T, V_T), _free),                 \
+                    ._get_key           = CAT2(hash_table(K_T, V_T), _get_key),              \
+                    ._get_val           = CAT2(hash_table(K_T, V_T), _get_val),              \
+                    ._get_val_with_hash = CAT2(hash_table(K_T, V_T), _get_val_with_hash),    \
+                    ._insert            = CAT2(hash_table(K_T, V_T), _insert),               \
+                    ._delete            = CAT2(hash_table(K_T, V_T), _delete),               \
+                    ._equ               = (CAT2(hash_table(K_T, V_T), _equ_t))equ,           \
+                    ._hash              = (CAT2(hash_table(K_T, V_T), _hash_t))hash};        \
                                                                                              \
         memcpy(t, &init, sizeof(*t));                                                        \
                                                                                              \
@@ -710,11 +721,6 @@ static int julie_charptr_equ(char *a, char *b) { return strcmp(a, b) == 0; }
 __attribute__((always_inline))
 static inline unsigned long long julie_value_ptr_hash(Julie_Value *value) {
     return ((unsigned long long)((void*)value)) >> 4;
-}
-
-__attribute__((always_inline))
-static inline unsigned long long julie_string_id_hash(Julie_String_ID id) {
-    return ((unsigned long long)((void*)id)) >> 4;
 }
 
 
@@ -1521,7 +1527,15 @@ Julie_Source_Value_Info *julie_get_top_source_value_info(Julie_Interp *interp) {
 struct Julie_String_Struct {
     char               *chars;
     unsigned long long  len;
+    unsigned long long  hash;
 };
+
+#define JULIE_STRING_ID_HASH(_id) (((Julie_String*)id)->hash)
+
+__attribute__((always_inline))
+static inline unsigned long long julie_string_id_hash(Julie_String_ID id) {
+    return JULIE_STRING_ID_HASH(id);
+}
 
 Julie_String_ID julie_get_string_id(Julie_Interp *interp, const char *s) {
     Julie_String_ID    *lookup;
@@ -1535,6 +1549,7 @@ Julie_String_ID julie_get_string_id(Julie_Interp *interp, const char *s) {
         len              = strlen(s);
         newstring->len   = len;
         newstring->chars = strdup(s);
+        newstring->hash  = julie_charptr_hash(newstring->chars);
         lookup = hash_table_insert(interp->strings, newstring->chars, newstring);
         JULIE_ASSERT(lookup != NULL);
     }
@@ -1641,6 +1656,9 @@ static unsigned long long julie_value_hash(Julie_Value *val) {
         case JULIE_FLOAT:  return val->floating;
         case JULIE_STRING:
         case JULIE_SYMBOL:
+            if (val->tag == JULIE_STRING_TYPE_INTERN) {
+                return ((Julie_String*)val->string_id)->hash;
+            }
             return julie_charptr_hash((char*)julie_value_cstring(val));
     }
 
@@ -2816,11 +2834,11 @@ Julie_Value *julie_lookup(Julie_Interp *interp, const Julie_String_ID id) {
 
     local_symtab = julie_local_symtab(interp);
     if (local_symtab != NULL) {
-        lookup = hash_table_get_val(local_symtab, id);
+        lookup = hash_table_get_val_with_hash(local_symtab, id, JULIE_STRING_ID_HASH(id));
     }
 
     if (lookup == NULL) {
-        lookup = hash_table_get_val(interp->global_symtab, id);
+        lookup = hash_table_get_val_with_hash(interp->global_symtab, id, JULIE_STRING_ID_HASH(id));
     }
 
     if (unlikely(lookup == NULL)) { return NULL; }
@@ -4062,6 +4080,42 @@ out:;
     return status;
 }
 
+static Julie_Status julie_builtin_is_bound(Julie_Interp *interp, Julie_Value *expr, unsigned n_values, Julie_Value **values, Julie_Value **result) {
+    Julie_Status     status;
+    Julie_Value     *sym;
+    Julie_String_ID  id;
+    Julie_Value     *lookup;
+
+    status = JULIE_SUCCESS;
+
+    *result = NULL;
+
+    if (n_values != 1) {
+        status = JULIE_ERR_ARITY;
+        julie_make_arity_error(interp, expr, 1, n_values, 0);
+        goto out;
+    }
+
+    sym = values[0];
+
+    if (sym->type != JULIE_SYMBOL) {
+        status = JULIE_ERR_TYPE;
+        julie_make_type_error(interp, values[0], JULIE_SYMBOL, sym->type);
+        *result = NULL;
+        goto out;
+    }
+
+    id = sym->tag == JULIE_STRING_TYPE_INTERN
+            ? sym->string_id
+            : julie_get_string_id(interp, julie_value_cstring(sym));
+
+    lookup = julie_lookup(interp, id);
+
+    *result = julie_sint_value(interp, lookup != NULL);
+
+out:;
+    return status;
+}
 
 static Julie_Status julie_builtin_add(Julie_Interp *interp, Julie_Value *expr, unsigned n_values, Julie_Value **values, Julie_Value **result) {
     Julie_Status  status;
@@ -9530,6 +9584,7 @@ Julie_Interp *julie_init_interp(void) {
     JULIE_BIND_INFIX_FN("=",                     julie_builtin_assign);
     JULIE_BIND_INFIX_FN(":=",                    julie_builtin_assign_global);
     JULIE_BIND_FN(      "unref",                 julie_builtin_unref);
+    JULIE_BIND_FN(      "is-bound",              julie_builtin_is_bound);
 
     JULIE_BIND_INFIX_FN("+",                     julie_builtin_add);
     JULIE_BIND_INFIX_FN("+=",                    julie_builtin_add_assign);
