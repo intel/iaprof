@@ -234,11 +234,14 @@ static Julie_Status j_term_set_cell_char(Julie_Interp *interp, Julie_Value *expr
 #undef JULIE_BIND_FN
 #define JULIE_BIND_FN(_name, _fn) julie_bind_fn(interp, julie_get_string_id(interp, (_name)), (_fn))
 
-int render_visual(char *name, char *julie_code, int julie_code_len, int argc, char **argv) {
+int render_visual(char **names, char **julie_code, int *julie_code_len, int argc, char **argv) {
     Julie_Status status;
     int          n;
     int          input[32];
     int          i;
+    char         **code;
+    int          *len;
+    char         **name;
 
     interp = julie_init_interp();
     julie_set_error_callback(interp, on_julie_error);
@@ -251,8 +254,17 @@ int render_visual(char *name, char *julie_code, int julie_code_len, int argc, ch
     JULIE_BIND_FN("@term:set-cell-char", j_term_set_cell_char);
 
     julie_set_argv(interp, argc, argv);
-    julie_set_cur_file(interp, julie_get_string_id(interp, name));
-    julie_parse(interp, (const char*)julie_code, julie_code_len);
+    
+    len = julie_code_len;
+    code = julie_code;
+    name = names;
+    while ((*code) && (*len) && (*name)) {
+        julie_set_cur_file(interp, julie_get_string_id(interp, *name));
+        julie_parse(interp, (const char*)(*code), *len);
+        code++;
+        len++;
+        name++;
+    }
 
     set_term();
 
@@ -447,6 +459,7 @@ static int esc_sequence(int *input) {
     int  b;
     int  x;
     int  y;
+    int  mouse_mode;
 
     /* the input length is 3 */
     /* input[0] is ESC */
@@ -634,13 +647,6 @@ static int esc_sequence(int *input) {
                     buff[i] = 0;
                     b = s_to_i(buff);
 
-                    if (b >= 64) {
-                        b = MOUSE_WHEEL_UP + (b - 64);
-                    } else if (b >= 32) {
-                        k  = MOUSE_DRAG;
-                        b -= 32;
-                    }
-
                     memset(buff, 0, sizeof(buff));
                     for (i = 0; read(0, &c, 1) && c != ';'; i += 1) { buff[i] = c; }
                     buff[i] = 0;
@@ -650,9 +656,26 @@ static int esc_sequence(int *input) {
                     for (i = 0; read(0, &c, 1) && toupper(c) != 'M'; i += 1) { buff[i] = c; }
                     buff[i] = 0;
                     y = s_to_i(buff);
-
-                    if (k != MOUSE_DRAG) {
-                        k = (c == 'M') ? MOUSE_PRESS : MOUSE_RELEASE;
+                    
+                    mouse_mode = (b >> 5) & 3;
+                    switch (mouse_mode) {
+                        case 0:
+                            /* Button event */
+                            /* b is already the correct value */
+                            k = (c == 'M') ? MOUSE_PRESS : MOUSE_RELEASE;
+                            break;
+                        case 1:
+                            /* Movement event */
+                            b = b - 32;
+                            k = (b == 3) ? MOUSE_OVER : MOUSE_DRAG;
+                            break;
+                        case 2:
+                            /* Wheel event */
+                            b = MOUSE_WHEEL_UP + (b - 64);
+                            k = MOUSE_PRESS;
+                            break;
+                        default:
+                            return 0;
                     }
 
                     input[0] = MK_MOUSE(k, b, y, x);
@@ -1064,8 +1087,8 @@ static void set_term(void) {
     sigaction(SIGWINCH,  &sa, NULL);
 
     printf(TERM_ALT_SCREEN);
-    printf(TERM_MOUSE_BUTTON_ENABLE);
-/*     printf(TERM_MOUSE_ANY_ENABLE); */
+/*     printf(TERM_MOUSE_BUTTON_ENABLE); */
+    printf(TERM_MOUSE_ANY_ENABLE);
     printf(TERM_SGR_1006_ENABLE);
     printf(TERM_CURSOR_HIDE);
 
@@ -1081,9 +1104,9 @@ static void set_term(void) {
 static void restore_term(void) {
     if (!term_set) { return; }
 
-/*     printf(TERM_MOUSE_ANY_DISABLE); */
+    printf(TERM_MOUSE_ANY_DISABLE);
     printf(TERM_SGR_1006_DISABLE);
-    printf(TERM_MOUSE_BUTTON_DISABLE);
+/*     printf(TERM_MOUSE_BUTTON_DISABLE); */
     printf(TERM_STD_SCREEN);
     printf(TERM_CURSOR_SHOW);
 
