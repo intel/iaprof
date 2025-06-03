@@ -264,7 +264,7 @@ Julie_Value *julie_object_value(Julie_Interp *interp);
 Julie_Value *julie_fn_value(Julie_Interp *interp, unsigned long long n_values, Julie_Value **values);
 Julie_Value *julie_lambda_value(Julie_Interp *interp, unsigned long long n_values, Julie_Value **values, Julie_Closure_Info *closure);
 Julie_Value *julie_builtin_fn_value(Julie_Interp *interp, Julie_Fn fn);
-Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val);
+Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val, Julie_Value **out_val);
 Julie_Value *julie_object_get_field(Julie_Value *object, Julie_Value *key);
 Julie_Status julie_object_delete_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key);
 
@@ -1966,11 +1966,10 @@ static void julie_replace_value(Julie_Interp *interp, Julie_Value *dst, Julie_Va
     }
 }
 
-Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val) {
+Julie_Status _julie_object_insert_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val, Julie_Value **out_val, int skip_lookup) {
     Julie_Value **lookup;
 
-    lookup = hash_table_get_val((_Julie_Object)object->object, key);
-    if (lookup != NULL) {
+    if (!skip_lookup && (lookup = hash_table_get_val((_Julie_Object)object->object, key)) != NULL) {
         if (*lookup != val) {
             if (julie_borrows_to_subvalues_outstanding(*lookup, *lookup)) {
                 return JULIE_ERR_RELEASE_WHILE_BORROWED;
@@ -1980,6 +1979,10 @@ Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object
 
             julie_replace_value(interp, *lookup, val);
         }
+
+        if (out_val != NULL) {
+            *out_val = *lookup;
+        }
     } else {
         key = julie_force_copy(interp, key);
         val = julie_force_copy(interp, val);
@@ -1988,10 +1991,23 @@ Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object
             julie_propagate_bc(key, 1);
             julie_propagate_bc(val, 1);
         }
+
         hash_table_insert((_Julie_Object)object->object, key, val);
+
+        if (out_val != NULL) {
+            *out_val = val;
+        }
     }
 
     return JULIE_SUCCESS;
+}
+
+Julie_Status julie_object_insert_field(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val, Julie_Value **out_val) {
+    return _julie_object_insert_field(interp, object, key, val, out_val, 0);
+}
+
+Julie_Status julie_object_insert_field_skip_lookup(Julie_Interp *interp, Julie_Value *object, Julie_Value *key, Julie_Value *val, Julie_Value **out_val) {
+    return _julie_object_insert_field(interp, object, key, val, out_val, 1);
 }
 
 Julie_Value *julie_object_get_field(Julie_Value *object, Julie_Value *key) {
@@ -4025,7 +4041,12 @@ static Julie_Status julie_builtin_unref(Julie_Interp *interp, Julie_Value *expr,
         goto out;
     }
 
-    status = julie_unbind_local(interp, id);
+    if (julie_array_len(interp->local_symtab_stack) > 0) {
+        status = julie_unbind_local(interp, id);
+    } else {
+        status = JULIE_ERR_LOOKUP;
+    }
+
     if (status != JULIE_SUCCESS) {
         status = julie_unbind(interp, id);
         if (status != JULIE_SUCCESS) {
@@ -6053,7 +6074,7 @@ static Julie_Status julie_builtin_object(Julie_Interp *interp, Julie_Value *expr
             goto out_free_list;
         }
 
-        status = julie_object_insert_field(interp, object, key, val);
+        status = julie_object_insert_field(interp, object, key, val, NULL);
         if (status != JULIE_SUCCESS) {
             *result = NULL;
             julie_make_interp_error(interp, expr, status);
@@ -6246,7 +6267,7 @@ static Julie_Status julie_builtin_update_object(Julie_Interp *interp, Julie_Valu
         key = julie_array_elem(o2->list, 0);
         val = julie_array_elem(o2->list, 1);
 
-        if (julie_object_insert_field(interp, o1, key, val) == JULIE_ERR_RELEASE_WHILE_BORROWED) {
+        if (julie_object_insert_field(interp, o1, key, val, NULL) == JULIE_ERR_RELEASE_WHILE_BORROWED) {
             julie_make_bind_error(interp, expr, JULIE_ERR_RELEASE_WHILE_BORROWED, NULL);
             *result = NULL;
             julie_free_value(interp, o1);
@@ -6256,7 +6277,7 @@ static Julie_Status julie_builtin_update_object(Julie_Interp *interp, Julie_Valu
     } else if (o2->type == JULIE_OBJECT) {
         hash_table_traverse((_Julie_Object)o2->object, key, valp) {
             val = *valp;
-            if (julie_object_insert_field(interp, o1, key, val) == JULIE_ERR_RELEASE_WHILE_BORROWED) {
+            if (julie_object_insert_field(interp, o1, key, val, NULL) == JULIE_ERR_RELEASE_WHILE_BORROWED) {
                 julie_make_bind_error(interp, expr, JULIE_ERR_RELEASE_WHILE_BORROWED, NULL);
                 *result = NULL;
                 julie_free_value(interp, o1);
@@ -6269,6 +6290,60 @@ static Julie_Status julie_builtin_update_object(Julie_Interp *interp, Julie_Valu
     julie_free_value(interp, o2);
 
     *result = o1;
+
+out:;
+    return status;
+}
+
+static Julie_Status julie_builtin_get_or_insert_field(Julie_Interp *interp, Julie_Value *expr, unsigned n_values, Julie_Value **values, Julie_Value **result) {
+    Julie_Status  status;
+    Julie_Value  *o;
+    Julie_Value  *key;
+    Julie_Value  *val;
+    Julie_Value  *it;
+    Julie_Value  *lookup;
+    Julie_Value  *ev;
+
+    status = julie_args(interp, expr, "ok-*", n_values, values, &o, &key, &val);
+    if (status != JULIE_SUCCESS) {
+        *result = NULL;
+        goto out;
+    }
+
+    ARRAY_FOR_EACH(interp->iter_vals, it) {
+        if (it == o) {
+            status  = JULIE_ERR_MODIFY_WHILE_ITER;
+            *result = NULL;
+            julie_make_bind_error(interp, expr, status, (values[0]->type == JULIE_SYMBOL && values[0]->tag == JULIE_STRING_TYPE_INTERN) ? values[0]->string_id : NULL);
+            goto out_free;
+        }
+    }
+
+    lookup = julie_object_get_field(o, key);
+
+    if (lookup != NULL) {
+        *result = julie_copy(interp, lookup);
+        goto out_free;
+    }
+
+    status = julie_eval(interp, val, &ev);
+    if (status != JULIE_SUCCESS) {
+        *result = NULL;
+        goto out_free;
+    }
+
+    if (julie_object_insert_field_skip_lookup(interp, o, key, ev, result) == JULIE_ERR_RELEASE_WHILE_BORROWED) {
+        julie_make_bind_error(interp, expr, JULIE_ERR_RELEASE_WHILE_BORROWED, NULL);
+        *result = NULL;
+        goto out_free_ev;
+    }
+
+out_free_ev:;
+    julie_free_value(interp, ev);
+
+out_free:;
+    julie_free_value(interp, o);
+    julie_free_value(interp, key);
 
 out:;
     return status;
@@ -8349,12 +8424,12 @@ static Julie_Status _julie_builtin_fopen(Julie_Interp *interp, Julie_Value *expr
     *result = julie_object_value(interp);
     key = julie_interned_string_value(interp, julie_get_string_id(interp, "__handle__"));
     val = julie_uint_value(interp, (unsigned long long)(void*)f);
-    julie_object_insert_field(interp, *result, key, val);
+    julie_object_insert_field(interp, *result, key, val, NULL);
     julie_free_value(interp, key);
     julie_free_value(interp, val);
-    key = julie_string_value(interp, "path");
+    key = julie_string_value(interp, "__path__");
     val = pathv;
-    julie_object_insert_field(interp, *result, key, val);
+    julie_object_insert_field(interp, *result, key, val, NULL);
     julie_free_value(interp, key);
 
 out_free:;
@@ -9507,6 +9582,7 @@ Julie_Interp *julie_init_interp(void) {
     JULIE_BIND_FN(      "field",                 julie_builtin_field);
     JULIE_BIND_INFIX_FN("->",                    julie_builtin_delete);
     JULIE_BIND_INFIX_FN("<-",                    julie_builtin_update_object);
+    JULIE_BIND_FN(      "get-or-insert",         julie_builtin_get_or_insert_field);
     JULIE_BIND_FN(      "keys",                  julie_builtin_keys);
     JULIE_BIND_FN(      "values",                julie_builtin_values);
 

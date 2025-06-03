@@ -85,11 +85,7 @@ add-flame =
             erase &stack 0
 
             &child = (&frame 'children)
-
-            if (not (fname in &child))
-                &child <- (fname : (new-frame fname))
-
-            add-flame (&child fname) &stack &count
+            add-flame (get-or-insert &child fname (new-frame fname)) &stack &count
 
         (&frame 'count) += &count
 
@@ -165,10 +161,9 @@ parse-flamegraph-input =
                             stall_type
                             offset
                             
-                    if (flame_str in stacks)
-                        (stacks flame_str) += count
-                    else
-                        stacks <- (flame_str : count)
+                    # Put the flame-str in the stacks object
+                    (get-or-insert stacks flame_str 0) += count
+                    
                 "string"
                     strings <- ((split_line 1) : (split_line 2))
                 "proc_name"
@@ -208,6 +203,7 @@ parse-flamegraph-input =
             
         fclose f
         get-sorted flame-graph
+        @term:exit
         
 key-actions =
     object
