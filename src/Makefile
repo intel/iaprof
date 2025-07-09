@@ -14,10 +14,11 @@ LLVM_STRIP := llvm-strip
 BPFTOOL := $(PREFIX)/bpftool/bin/bpftool
 
 ifdef DEBUG
-  CFLAGS += -g -O0 -DDEBUG
+  CFLAGS += -g -O0 -DDEBUG -fsanitize=address
   BPF_CFLAGS += -DDEBUG
+  LDFLAGS += -fsanitize=address
 else
-  CFLAGS += -O3
+  CFLAGS += -g -O3 -march=native -mtune=native
 endif
 
 ifdef FUZZ
@@ -38,7 +39,7 @@ ifeq (,$(I915_DKMS_SRC_DIR))
   IAPROF_XE_DRIVER := 1
   GPU_PLATFORM := xe2
   GPU_DRIVER := xe
-  KERNEL_LAUNCH_COLLECTOR := uprobe
+  KERNEL_LAUNCH_COLLECTOR := driver
 
   DRIVER_HELPERS := $(DRIVER_HELPERS_DIR)/xe_helpers.o
   DRIVER_H := $(GENERATED_HEADERS_DIR)/xe.h
@@ -78,28 +79,15 @@ DEMANGLE := $(SRC_DIR)/utils/demangle.o
 GPU_PARSERS := $(SRC_DIR)/gpu_parsers/shader_decoder.o
 COMMANDS := $(SRC_DIR)/commands/record.o \
 	$(SRC_DIR)/commands/flame.o \
-	$(SRC_DIR)/commands/cli.o \
 	$(SRC_DIR)/commands/flamescope.o
-CLI := $(SRC_DIR)/visual/cli/cli.o
-CLI_VISUALS := $(SRC_DIR)/visual/cli/flamegraph.j.h \
-	$(SRC_DIR)/visual/cli/common.j.h \
-	$(SRC_DIR)/visual/cli/flamescope.j.h
 IAPROF := $(SRC_DIR)/iaprof.o
 
-OBJECTS := $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(CLI) $(DRIVER_HELPERS) $(IAPROF)
+OBJECTS := $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
 
 all: $(SRC_DIR)/../iaprof
 
-$(SRC_DIR)/../iaprof: $(BPF_PROG_O) $(MAIN_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(CLI) $(CLI_VISUALS) $(DRIVER_HELPERS) $(IAPROF)
+$(SRC_DIR)/../iaprof: $(BPF_PROG_O) $(MAIN_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
 	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@ -lpthread $(PREFIX)/bpftool/lib/libbpf.a -lz -lzstd -lstdc++ $(PREFIX)/libelf/lib/libdw.a $(PREFIX)/libelf/lib/libelf.a $(PREFIX)/igc/lib/libiga64.a
-
-$(SRC_DIR)/commands/cli.o: $(CLI_VISUALS)
-
-$(SRC_DIR)/visual/cli/%.j.h: $(SRC_DIR)/visual/cli/%.j
-	$(XXD) -n $*_j -i $< > $@
-
-$(SRC_DIR)/visual/cli/%.o: $(SRC_DIR)/visual/cli/%.c $(CLI_VISUALS)
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/libbpf/include -c $< -o $@
 
 $(SRC_DIR)/drm_helpers/drm_helpers.o: $(DRIVER_HELPERS_INCL) $(SRC_DIR)/drm_helpers/drm_helpers.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR) -I$(SRC_DIR)/driver_helpers -c $(SRC_DIR)/drm_helpers/drm_helpers.c -o $@

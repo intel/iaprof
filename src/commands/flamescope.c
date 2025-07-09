@@ -21,7 +21,7 @@ limitations under the License.
 #include "utils/utils.h"
 
 /* The format for the full stack on a line of flame graph output. */
-static const char *flame_fmt =
+static const char *samp_fmt =
         "%s %u [000] %.6lf: %lu stalls:\n";
 static const char *frame_fmt        = "        00000000 %s%s ()\n";
 static const char *frame_offset_fmt = "        00000000 0x%lx%s ()\n";
@@ -35,7 +35,7 @@ void print_flamescope_sample(struct eustall_result *eresult, struct interval_res
         char *stack_str, *cursor;
         size_t size;
 
-        printf(flame_fmt, get_string(eresult->proc_name_id),
+        printf(samp_fmt, get_string(eresult->proc_name_id),
                 eresult->pid, iresult->time, eresult->samp_count);
         
         printf(frame_offset_fmt, eresult->samp_offset, "_[g]");

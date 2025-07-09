@@ -45,7 +45,7 @@ struct {
 } rb SEC(".maps");
 
 #if KERNEL_LAUNCH_COLLECTOR == COLLECTOR_uprobe
-        #include "uprobe/vulkan.bpf.c"
+        #include "uprobe/L0_NEO.bpf.c"
 #elif KERNEL_LAUNCH_COLLECTOR == COLLECTOR_driver
 
 /***************************************

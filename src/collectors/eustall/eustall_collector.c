@@ -46,6 +46,8 @@ array_t *eustall_waitlist;
 static array_t eustall_waitlist_a;
 static array_t eustall_waitlist_b;
 
+uint64_t counter = 0;
+
 uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 {
         uint64_t total;
@@ -110,7 +112,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 
         struct deferred_eustall deferred;
         struct shader *shader;
-
+        
         /* Look up this sample by the GPU address (sample->ip). If we find
                 multiple matches, that means that multiple contexts are using
                 the same virtual address, and there's no way to determine which
@@ -178,6 +180,10 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                         break;
                 }
 
+                counter++;
+                if (counter % 100 != 0) {
+                        continue;
+                }
                 handle_eustall_sample(sample, time, 0);
         }
 
@@ -197,6 +203,10 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
+                counter++;
+                if (counter % 100 != 0) {
+                        continue;
+                }
                 handle_eustall_sample(sample, time, 0);
         }
 

@@ -24,8 +24,6 @@ limitations under the License.
 #include "printers/debug/debug_printer.h"
 #include "commands/record.h"
 #include "commands/flame.h"
-#include "commands/flame_cli.h"
-#include "commands/flamescope_cli.h"
 #include "commands/flamescope.h"
 
 #ifndef GIT_COMMIT_HASH
@@ -35,23 +33,17 @@ limitations under the License.
 enum commands {
   RECORD = 0,
   FLAME,
-  FLAME_CLI,
-  FLAMESCOPE_CLI,
   FLAMESCOPE,
   COMMANDS_MAX
 };
 static char *command_strs[] = {
   [RECORD] = "record",
   [FLAME] = "flame",
-  [FLAME_CLI] = "flame-cli",
-  [FLAMESCOPE_CLI] = "flamescope-cli",
   [FLAMESCOPE] = "flamescope",
 };
 static void (*command_ptrs[]) (int, char**) = {
   [RECORD] = &record,
   [FLAME] = &flame,
-  [FLAME_CLI] = &flame_cli,
-  [FLAMESCOPE_CLI] = &flamescope_cli,
   [FLAMESCOPE] = &flamescope,
 };
 
