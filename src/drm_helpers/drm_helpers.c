@@ -122,6 +122,7 @@ int open_first_driver(device_info *devinfo)
         }
 
         /* Copy the final values into the struct */
+        devinfo->cardnum = i;
         strcpy(devinfo->name, version.name);
         devinfo->fd = fd;
 

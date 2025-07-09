@@ -35,7 +35,7 @@ limitations under the License.
 typedef struct device_info {
         uint32_t id, ctx_id;
         char name[16];
-        int fd;
+        int fd, cardnum;
         uint64_t record_size, va_bits;
         unsigned graphics_ver, graphics_rel;
 #if GPU_DRIVER == GPU_DRIVER_xe
