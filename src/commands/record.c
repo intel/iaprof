@@ -39,6 +39,7 @@ limitations under the License.
 
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
+#include "collectors/oa/oa_collector.h"
 #include "collectors/bpf/bpf_collector.h"
 #include "collectors/bpf/bpf/main.h"
 #include "collectors/bpf/bpf/main.skel.h"
@@ -70,7 +71,8 @@ enum {
     EUSTALL_DONE    = (1 << 1),
     BPF_DONE        = (1 << 2),
     DEBUG_DONE      = (1 << 3),
-    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_DONE),
+    OA_DONE         = (1 << 4),
+    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_DONE | OA_DONE),
 };
 static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
@@ -81,7 +83,7 @@ static _Atomic char eustall_deferred_attrib_thread_should_stop = 0;
 /* Intervals */
 struct timespec interval_start, interval_end, interval_diff;
 static uint64_t interval_number = 0;
-static uint64_t interval_time_ms = 500;
+static uint64_t interval_time_ms = 10;
 
 enum { NS_PER_SECOND = 1000000000 };
 void sub_timespec(struct timespec *t1, struct timespec *t2, struct timespec *td)
@@ -241,6 +243,7 @@ struct device_info devinfo = {};
 /* No thread race protection needed. Only accessed in bpf_collect_thread */
 struct bpf_info_t bpf_info = {};
 struct eustall_info_t eustall_info = {};
+struct oa_info_t oa_info = {};
 
 #define MAX_EPOLL_EVENTS 64
 
@@ -293,6 +296,19 @@ int handle_eustall_read(int fd, struct device_info *devinfo)
         return 0;
 }
 
+int handle_oa_read_fd(int fd, struct device_info *devinfo)
+{
+        int len;
+
+        /* OA collector */
+        len = read(fd, oa_info.buf, MAX_OA_BUFFER_SIZE);
+        if (len > 0) {
+                handle_oa_read(oa_info.buf, len, devinfo);
+        }
+
+        return 0;
+}
+
 void *eustall_deferred_attrib_thread_main(void *a) {
         while (!eustall_deferred_attrib_thread_should_stop && !collect_threads_should_stop) {
                 pthread_mutex_lock(&eustall_deferred_attrib_cond_mtx);
@@ -307,7 +323,7 @@ void *eustall_deferred_attrib_thread_main(void *a) {
 
 void *eustall_collect_thread_main(void *a) {
         sigset_t      mask;
-        struct pollfd pollfd;
+        struct pollfd pollfd[2];
         int           n_ready;
         int           flags;
         uint64_t      target_time_ms, cur_time_ms;
@@ -329,14 +345,29 @@ void *eustall_collect_thread_main(void *a) {
         if (debug) {
                 fprintf(stderr, "Initialized EU stall collector.\n");
         }
+        
+        /* OA collector */
+        if (init_oa(&devinfo)) {
+                ERR("Failed to configure OA collector.\n");
+        }
+
+        if (debug) {
+                fprintf(stderr, "Initialized OA collector.\n");
+        }
 
         collect_threads_profiling += 1;
 
-        pollfd.fd     = eustall_info.perf_fd;
-        pollfd.events = POLLIN;
-
-        flags = fcntl(pollfd.fd, F_GETFL, 0);
-        fcntl(pollfd.fd, F_SETFL, flags | O_NONBLOCK);
+        /* Set up the eustall fd */
+        pollfd[0].fd     = eustall_info.perf_fd;
+        pollfd[0].events = POLLIN;
+        flags = fcntl(pollfd[0].fd, F_GETFL, 0);
+        fcntl(pollfd[0].fd, F_SETFL, flags | O_NONBLOCK);
+        
+        /* Set up the OA fd */
+        pollfd[1].fd     = oa_info.fd;
+        pollfd[1].events = POLLIN;
+        flags = fcntl(pollfd[1].fd, F_GETFL, 0);
+        fcntl(pollfd[1].fd, F_SETFL, flags | O_NONBLOCK);
         
         /* Initialize the time */
         while (collect_threads_should_stop == 0) {
@@ -344,7 +375,7 @@ void *eustall_collect_thread_main(void *a) {
                 clock_gettime(CLOCK_MONOTONIC, &interval_start);
                 target_time_ms = interval_time_ms + timespec_to_ms(&interval_start);
                 
-                n_ready = poll(&pollfd, 1, interval_time_ms / 2);
+                n_ready = poll(pollfd, 2, interval_time_ms / 2);
 
                 if (n_ready < 0) {
                         switch (errno) {
@@ -359,12 +390,21 @@ void *eustall_collect_thread_main(void *a) {
 
                 if (n_ready) {
                         if (main_thread_should_stop != STOP_NOW) {
-                                main_thread_should_stop &= ~EUSTALL_DONE;
+                                main_thread_should_stop &= ~(EUSTALL_DONE | OA_DONE);
                         }
-                        handle_eustall_read(pollfd.fd, &devinfo);
+                        
+                        /* Handle eustall events */
+                        if (pollfd[0].revents & POLLIN) {
+                                handle_eustall_read(pollfd[0].fd, &devinfo);
+                        }
+                        
+                        /* Handle OA events */
+                        if (pollfd[1].revents & POLLIN) {
+                                handle_oa_read_fd(pollfd[1].fd, &devinfo);
+                        }
                 } else {
                         if (main_thread_should_stop) {
-                                main_thread_should_stop |= EUSTALL_DONE;
+                                main_thread_should_stop |= (EUSTALL_DONE | OA_DONE);
                         }
                 }
 

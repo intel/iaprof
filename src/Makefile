@@ -69,7 +69,8 @@ BPF_HELPERS := $(SRC_DIR)/bpf_helpers/trace_helpers.o \
 STORES := $(SRC_DIR)/stores/gpu_kernel.o
 COLLECTORS := $(SRC_DIR)/collectors/bpf/bpf_collector.o \
 	$(SRC_DIR)/collectors/debug/debug_collector.o \
-	$(SRC_DIR)/collectors/eustall/eustall_collector.o
+	$(SRC_DIR)/collectors/eustall/eustall_collector.o \
+	$(SRC_DIR)/collectors/oa/oa_collector.o
 PRINTERS := $(SRC_DIR)/printers/debug/debug_printer.o \
 	$(SRC_DIR)/printers/stack/stack_printer.o \
 	$(SRC_DIR)/printers/interval/interval_printer.o
@@ -105,6 +106,9 @@ $(SRC_DIR)/collectors/debug/%.o: $(SRC_DIR)/collectors/debug/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(PREFIX)/libelf/include -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/collectors/eustall/%.o: $(SRC_DIR)/collectors/eustall/%.c
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+
+$(SRC_DIR)/collectors/oa/%.o: $(SRC_DIR)/collectors/oa/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/printers/debug/%.o: $(SRC_DIR)/printers/debug/%.c

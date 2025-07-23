@@ -19,6 +19,7 @@ limitations under the License.
 #include "drm_helpers/drm_helpers.h"
 
 #define PAGE_SIZE (4096)
+#define MAX_OA_BUFFER_SIZE (128 * 1024 * 1024)
 
 /*******************
 *    Utilities     *
@@ -58,4 +59,5 @@ static inline uint64_t CANONICAL(uint64_t offset);
 int xe_query_gts(int fd, struct drm_xe_query_gt_list **qg);
 int xe_query_eu_stalls(int fd, struct drm_xe_query_eu_stall **stall_info);
 int xe_init_eustall(struct device_info *devinfo);
+int xe_get_oa_unit(int fd, struct drm_xe_oa_unit *unit);
 int xe_init_oa(struct device_info *devinfo);

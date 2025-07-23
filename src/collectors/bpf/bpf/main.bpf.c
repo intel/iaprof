@@ -163,6 +163,7 @@ struct {
     #include "xe/vm_bind.bpf.c"
     #include "xe/context.bpf.c"
     #include "xe/exec.bpf.c"
+    #include "xe/device_query.bpf.c"
 #endif
 #endif
 

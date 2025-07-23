@@ -10,7 +10,6 @@
 ***************************************/
 #pragma once
 
-
 #define BB_DEBUG
 
 #define BB_PRINTK(...) ;
@@ -110,7 +109,6 @@ struct parse_cxt {
         u64 cpu_ips[4];
         u64 sip;
         u8  level;
-        u8  attempts;
         u8  bb2l;
         u8  has_ksps;
 };
@@ -129,9 +127,17 @@ struct {
         __type(value, struct parse_cxt);
 } tmp_deffered_add SEC(".maps");
 
-#ifdef BB_DEBUG
-static int n_deferred;
-#endif
+struct bpf_timer_wrapper {
+        int attempts;
+        struct bpf_timer timer;
+};
+
+struct {
+        __uint(type, BPF_MAP_TYPE_HASH);
+        __uint(max_entries, MAX_BB_DEFERRED);
+        __type(key, u64);
+        __type(value, struct bpf_timer_wrapper);
+} deferred_timers SEC(".maps");
 
 struct {
         __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
@@ -418,32 +424,6 @@ next_level_loaded:;
         return 0;
 }
 
-static void defer_batchbuffer_parse(struct parse_cxt *parse_cxt) {
-        u64 ip;
-#ifdef BB_DEBUG
-        int exists;
-#endif
-
-        ip = parse_cxt->ips[parse_cxt->level & 3];
-
-#ifdef BB_DEBUG
-        exists = bpf_map_lookup_elem(&deferred_parse, &ip) != NULL;
-#endif
-
-        if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
-                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
-                dropped_event = 1;
-        }
-
-#ifdef BB_DEBUG
-        if (!exists) {
-                __sync_fetch_and_add(&n_deferred, 1);
-        }
-#endif
-
-        BB_PRINTK("Adding 0x%lx to deferred parse map. %d entries", ip, n_deferred);
-}
-
 
 static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         u64                  initial_ip;
@@ -454,6 +434,7 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         u64                  status;
         struct ksp_info     *ksp_info;
         struct sip_info     *sip_info;
+        u32                 level;
 
         clear_ksps();
 
@@ -465,9 +446,12 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         }
         BB_PRINTK("BB Parsing @ 0x%llx (level %u)", initial_ip, cxt->level);
 
-
-        buff = bpf_map_lookup_elem(&bb_parse_buffers, &cxt->level);
-        if (buff == NULL) { return -1; }
+        level = (u32)(cxt->level);
+        buff = bpf_map_lookup_elem(&bb_parse_buffers, &level);
+        if (buff == NULL) {
+                ERR_PRINTK("Failed to look up bb_parse_buffers!");
+                return -1;
+        }
 
         /* Can we reuse a chunk from the last batch buffer? Maybe it was
          * written sequentially. Won't work for deferred parsing since we
@@ -486,13 +470,14 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
 
         if (stop == 0) {
                 stop = BB_TRY_AGAIN;
-/*                 defer_batchbuffer_parse(cxt); */
+/*                 defer_batchbuffer(cxt); */
 /*                 ERR_PRINTK("exceeded the maximum number of batch buffer commands"); */
 /*                 dropped_event = 1; */
 /*                 return -1; */
         } else if (stop < 0) {
                 /* Some error condition occurred. */
 /*                 dropped_event = 1; */
+                BB_PRINTK("stop was less than 0");
                 return -1;
         }
 
@@ -523,40 +508,102 @@ static int parse_batchbuffer(struct parse_cxt *cxt, int from_deferred) {
         return stop;
 }
 
-static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, struct address_range *range) {
+static void undefer_batchbuffer(u64 ip) {
+        bpf_map_delete_elem(&deferred_parse, &ip);
+        bpf_map_delete_elem(&deferred_timers, &ip);
+}
+
+static int parse_deferred_batchbuffer(void *map, u64 *key, struct bpf_timer_wrapper *value);
+
+int _parse_deferred_batchbuffer(u64 ip) {
+        struct parse_cxt        *parse_cxt;
         struct execbuf_end_info *end_info;
         u64                      new_ip;
         u64                      status;
-
-        if (range != NULL && (*ip < range->start || *ip >= range->end)) {
+        long                     err;
+        struct bpf_timer_wrapper *wrapper, *old_timer;
+        struct bpf_timer_wrapper new_wrapper = {};
+        
+        BB_PRINTK("parse_deferred_batchbuffer getting called from timer");
+        
+        parse_cxt = bpf_map_lookup_elem(&deferred_parse, &ip);
+        if (!parse_cxt) {
+                ERR_PRINTK("Failed to find deferred context from ip=0x%llx", ip);
                 return 0;
         }
-
-        bpf_map_delete_elem(map, ip);
-
-#ifdef BB_DEBUG
-        __sync_fetch_and_add(&n_deferred, -1);
-#endif
+        
+        old_timer = bpf_map_lookup_elem(&deferred_timers, &ip);
+        if (!old_timer) {
+                ERR_PRINTK("Failed to find deferred timer for ip=0x%llx", ip);
+                return 0;
+        }
 
         if (parse_batchbuffer(parse_cxt, 1) == BB_TRY_AGAIN) {
                 WARN_PRINTK("deferred batch buffer still not ready");
 
                 new_ip = parse_cxt->ips[parse_cxt->level & 3];
-
-                parse_cxt->attempts += 1;
-
-                if (parse_cxt->attempts == MAX_BB_ATTEMPTS) {
-                        WARN_PRINTK("dropping batch buffer after %d attempts", MAX_BB_ATTEMPTS);
-                } else {
-                        if (bpf_map_update_elem(&tmp_deffered_add, &new_ip, parse_cxt, 0) != 0) {
+                old_timer->attempts++;
+                
+                if (new_ip != ip) {
+                        undefer_batchbuffer(ip);
+                        
+                        /* Create the new timer in the map */
+                        wrapper = bpf_map_lookup_elem(&deferred_timers, &new_ip);
+                        if (!wrapper) {
+                                if (bpf_map_update_elem(&deferred_timers, &new_ip, &new_wrapper, 0) != 0) {
+                                        ERR_PRINTK("Failed to add deferred timer for ip=0x%llx", new_ip);
+                                        return 0;
+                                }
+                                wrapper = bpf_map_lookup_elem(&deferred_timers, &new_ip);
+                                if (!wrapper) {
+                                        ERR_PRINTK("Failed to find deferred timer for ip=0x%llx", new_ip);
+                                        return 0;
+                                }
+                        }
+                        
+                        if (wrapper->attempts >= MAX_BB_ATTEMPTS) {
+                                return 0;
+                        }
+                        
+                        /* Initialize the new timer */
+                        err = bpf_timer_init(&(wrapper->timer), &deferred_timers, SKB_CLOCK_MONOTONIC);
+                        if (err < 0) {
+                                ERR_PRINTK("failed to initialize bpf_timer: %d", err);
+                                return 0;
+                        }
+                        err = bpf_timer_set_callback(&(wrapper->timer), &parse_deferred_batchbuffer);
+                        if (err) {
+                                ERR_PRINTK("bpf_timer_set_callback failed: %ld", err);
+                                return 0;
+                        }
+                        err = bpf_timer_start(&(wrapper->timer), MAX_BB_NSECS, 0);
+                        if (err) {
+                                ERR_PRINTK("bpf_timer_start failed");
+                                return 0;
+                        }
+                
+                        /* Put the parse_cxt back in the map */
+                        if (bpf_map_update_elem(&deferred_parse, &new_ip, parse_cxt, 0) != 0) {
                                 ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
                                 dropped_event = 1;
                         }
+                        
+                } else {
+                        if (old_timer->attempts >= MAX_BB_ATTEMPTS) {
+                                return 0;
+                        }
+                        
+                        err = bpf_timer_start(&(old_timer->timer), MAX_BB_NSECS, 0);
+                        if (err) {
+                                ERR_PRINTK("bpf_timer_start failed");
+                                return 0;
+                        }
                 }
+                
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
                 if (!end_info) {
-                        ERR_PRINTK("_try_parse_deferred_batchbuffer failed to reserve in the ringbuffer.");
+                        ERR_PRINTK("parse_deferred_batchbuffer failed to reserve in the ringbuffer.");
                         status = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
                         DEBUG_PRINTK("Unconsumed data: %lu", status);
                         dropped_event = 1;
@@ -565,18 +612,60 @@ static __u64 _try_parse_deferred_batchbuffer(struct bpf_map *map, u64 *ip, struc
                 end_info->type  = BPF_EVENT_TYPE_EXECBUF_END;
                 end_info->eb_id = parse_cxt->eb_id;
                 bpf_ringbuf_submit(end_info, BPF_RB_FORCE_WAKEUP);
+                undefer_batchbuffer(ip);
         }
 
         return 0;
 }
 
-static __u64 _add_tmp_deferred(struct bpf_map *map, u64 *ip, struct parse_cxt *parse_cxt, void *cxt) {
-        defer_batchbuffer_parse(parse_cxt);
-        bpf_map_delete_elem(map, ip);
-        return 0;
+static int parse_deferred_batchbuffer(void *map, u64 *key, struct bpf_timer_wrapper *value) {
+        return _parse_deferred_batchbuffer(*key);
 }
 
-static void try_parse_deferred_batchbuffers(struct address_range *range) {
-        bpf_for_each_map_elem(&deferred_parse, _try_parse_deferred_batchbuffer, range, 0);
-        bpf_for_each_map_elem(&tmp_deffered_add, _add_tmp_deferred, NULL, 0);
+static void defer_batchbuffer(struct parse_cxt *parse_cxt) {
+        u64 ip;
+        struct bpf_timer_wrapper *wrapper;
+        struct bpf_timer_wrapper new_wrapper = {};
+#ifdef BB_DEBUG
+        int exists;
+#endif
+        long err;
+        
+        ip = parse_cxt->ips[parse_cxt->level & 3];
+
+        wrapper = bpf_map_lookup_elem(&deferred_timers, &ip);
+        if (!wrapper) {
+                if (bpf_map_update_elem(&deferred_timers, &ip, &new_wrapper, 0) != 0) {
+                        ERR_PRINTK("Failed to add deferred timer for ip=0x%llx", ip);
+                        return;
+                }
+                wrapper = bpf_map_lookup_elem(&deferred_timers, &ip);
+                if (!wrapper) {
+                        ERR_PRINTK("Failed to find deferred timer for ip=0x%llx", ip);
+                        return;
+                }
+        }
+        
+        err = bpf_timer_init(&(wrapper->timer), &deferred_timers, SKB_CLOCK_MONOTONIC);
+        if (err < 0) {
+                ERR_PRINTK("failed to initialize bpf_timer: %d", err);
+                return;
+        }
+        err = bpf_timer_set_callback(&(wrapper->timer), &parse_deferred_batchbuffer);
+        if (err) {
+                ERR_PRINTK("bpf_timer_set_callback failed: %ld", err);
+                return;
+        }
+        err = bpf_timer_start(&(wrapper->timer), MAX_BB_NSECS, 0);
+        if (err) {
+                ERR_PRINTK("bpf_timer_start failed");
+                return;
+        }
+
+        if (bpf_map_update_elem(&deferred_parse, &ip, parse_cxt, 0) != 0) {
+                ERR_PRINTK("unable to defer parse.. deferred batch buffer parsing piled up");
+                dropped_event = 1;
+        }
+
+        BB_PRINTK("Adding 0x%lx to deferred parse map", ip);
 }

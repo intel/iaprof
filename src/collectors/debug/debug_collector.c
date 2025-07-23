@@ -27,6 +27,7 @@ limitations under the License.
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <libelf.h>
 #include <elfutils/libdw.h>
@@ -87,14 +88,16 @@ void deinit_eudebug(int index)
 
 void init_eudebug(int fd, int pid)
 {
-        int eudebug_fd;
-        int i;
-        int flags;
+        int eudebug_fd, i, flags;
 
         /* This is called from the bpf_collect_thread when we see a new
          * PID. We must protect eudebug_info from data races when it
          * is likely to be simultaneously accessed from
          * eudebug_collect_thread. */
+        
+        if (pid == ((int)getpid())) {
+                return;
+        }
 
         pthread_rwlock_rdlock(&eudebug_info_lock);
 
@@ -108,6 +111,8 @@ void init_eudebug(int fd, int pid)
                         goto out_unlock;
                 }
         }
+        
+        kill(pid, SIGSTOP);
 
         pthread_rwlock_unlock(&eudebug_info_lock);
 
@@ -124,6 +129,7 @@ void init_eudebug(int fd, int pid)
 
         if (eudebug_fd < 0) {
                 debug_printf("Failed to open the debug interface for PID %d: %d.\n", pid, eudebug_fd);
+                kill(pid, SIGCONT);
                 goto out;
         }
 
@@ -141,6 +147,8 @@ void init_eudebug(int fd, int pid)
         eudebug_info.pollfds[eudebug_info.num_pids].events = POLLIN;
         eudebug_info.pids[eudebug_info.num_pids] = pid;
         eudebug_info.num_pids++;
+        
+        kill(pid, SIGCONT);
 
 out_unlock:;
         pthread_rwlock_unlock(&eudebug_info_lock);
@@ -151,8 +159,6 @@ void set_kernel_info(uint64_t addr, uint64_t size, uint64_t symbol_id, uint64_t 
         struct shader *shader;
 
         shader = acquire_or_create_shader(addr);
-
-        assert((size == 0 || shader->size == 0 || size == shader->size) && "shader size mismatch");
 
         size        && (shader->size        = size);
         symbol_id   && (shader->symbol_id   = symbol_id);
@@ -169,10 +175,8 @@ void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size) {
 
         shader = acquire_or_create_shader(addr);
 
-        assert(shader->binary == NULL && "shader binary already set");
-
-        if (shader->size != 0 && shader->size > size) {
-                assert(0 && "shader size mismatch");
+        if (shader->binary != NULL) {
+                free(shader->binary);
         }
 
         shader->binary = malloc(size);
@@ -189,9 +193,12 @@ static void extract_elf_shader_binary(uint64_t addr, Elf_Scn *section) {
         Elf_Data   *data;
 
         shdr   = elf64_getshdr(section);
-        saddr  = shdr->sh_addr;
+        saddr  = DRM_CANONICALIZE(shdr->sh_addr);
 
-        assert(addr >= saddr && "bad symbol/section address");
+        if (addr < saddr) {
+                WARN("extract_elf_shader_binary addr=0x%lx < saddr=0x%lx\n", addr, saddr);
+                return;
+        }
 
         offset = addr - saddr;
         data   = elf_getdata(section, NULL);
@@ -568,6 +575,7 @@ static void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *
         read_uuid.ptr = (uint64_t)malloc(uuid->len);
         read_uuid.flags = 0;
 
+again:
         errno = 0;
         retval = ioctl(debug_fd, DRM_XE_EUDEBUG_IOCTL_READ_METADATA, &read_uuid);
 
@@ -596,8 +604,12 @@ static void handle_event_uuid(int debug_fd, struct prelim_drm_i915_debug_event *
 #endif
 
         if (retval != 0) {
-                fprintf(stderr, "  Failed to read metadata: %d!\n", errno);
-                goto cleanup;
+                if (errno == EBUSY) {
+                        goto again;
+                } else {
+                        fprintf(stderr, "  Failed to read metadata: %d!\n", errno);
+                        goto cleanup;
+                }
         }
 
         /* Check for the ELF magic bytes */

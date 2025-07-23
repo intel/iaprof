@@ -21,6 +21,7 @@ limitations under the License.
 #include "stores/gpu_kernel.h"
 #include "collectors/eustall/eustall_collector.h"
 #include "collectors/debug/debug_collector.h"
+#include "collectors/oa/oa_collector.h"
 #include "utils/utils.h"
 #include "printers/interval/interval_printer.h"
 #include "gpu_parsers/shader_decoder.h"
@@ -110,7 +111,7 @@ int insert_string_id(uint64_t id, char *str)
         }
         lookup = hash_table_get_val(string_reader, id);
         if (lookup == NULL) {
-                hash_table_insert(string_reader, id, str);
+                hash_table_insert(string_reader, id, strdup(str));
                 return 1;
         }
 
@@ -758,6 +759,11 @@ void print_kernel_profile(struct shader *shader)
         }
 }
 
+void print_oa_metrics(void) {
+        printf("metric\tfrequency-MHz\t%lu\n", oa_info.metrics.avg_mhz);
+        printf("metric\tbusy-percent\t%lu\n", oa_info.metrics.busy_perc);
+}
+
 /***************************************
 * Intervals
 *
@@ -785,6 +791,8 @@ void print_interval(uint64_t interval, array_t *waitlist)
         if (waitlist != NULL) {
                 print_unknown_samples(waitlist);
         }
+        
+        print_oa_metrics();
 
         printf("interval_end\t%lu\n", interval);
         fflush(stdout);

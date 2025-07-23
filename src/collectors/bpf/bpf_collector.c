@@ -68,6 +68,18 @@ static hash_table(uint64_t, live_execbuf_struct) live_execbufs;
 * BPF Handlers
 ***************************************/
 
+int handle_device_query(void *data_arg)
+{
+        struct device_query_info *info;
+        info = (struct device_query_info *)data_arg;
+        
+        if (eudebug_collector) {
+                /* Register the PID with the eudebug collector */
+                init_eudebug(devinfo.fd, info->pid);
+        }
+        return 0;
+}
+
 int handle_execbuf(void *data_arg)
 {
         struct execbuf_info *info;
@@ -87,11 +99,6 @@ int handle_execbuf(void *data_arg)
         live.kstack_id    = print_string(store_kstack(&info->kstack));
 
         hash_table_insert(live_execbufs, info->eb_id, live);
-
-        if (eudebug_collector) {
-                /* Register the PID with the eudebug collector */
-                init_eudebug(devinfo.fd, info->pid);
-        }
 
         return 0;
 }
@@ -284,6 +291,7 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
+                case BPF_EVENT_TYPE_DEVICE_QUERY:       return handle_device_query(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF:            return handle_execbuf(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END:        return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_KSP:                return handle_ksp(data_arg);

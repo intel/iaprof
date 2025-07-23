@@ -82,9 +82,6 @@ int BPF_PROG(xe_exec_ioctl, struct drm_device *dev, void *data, struct drm_file 
                 return 0;
         }
 
-        try_parse_deferred_batchbuffers(NULL);
-
-
         DEBUG_PRINTK("execbuffer batchbuffer cpu_addr=0x%lx gpu_addr=0x%lx size=%lu", cpu_addr, offset, size);
 
         info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_info), 0);
@@ -125,7 +122,7 @@ int BPF_PROG(xe_exec_ioctl, struct drm_device *dev, void *data, struct drm_file 
         parse_cxt.cpu_ips[0] = cpu_addr + offset;
 
         if (parse_batchbuffer(&parse_cxt, 0) == BB_TRY_AGAIN) {
-                defer_batchbuffer_parse(&parse_cxt);
+                defer_batchbuffer(&parse_cxt);
         } else {
                 end_info = bpf_ringbuf_reserve(&rb, sizeof(struct execbuf_end_info), 0);
                 if (!end_info) {

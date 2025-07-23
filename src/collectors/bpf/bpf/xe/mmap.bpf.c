@@ -226,7 +226,6 @@ int BPF_PROG(ttm_bo_vm_close,
         struct gpu_mapping save_gmapping = {};
         u64 fake_offset, size, cpu_addr, status;
         char one = 1;
-        struct address_range range = {};
 
         bo = (struct ttm_buffer_object *)BPF_CORE_READ(vma, vm_private_data);
         cpu_addr = BPF_CORE_READ(vma, vm_start);
@@ -260,10 +259,6 @@ int BPF_PROG(ttm_bo_vm_close,
         save_gmapping.vm_id = 0;
         save_gmapping.file = 0;
         if (gmapping) {
-                range.start = gmapping->addr;
-                range.end   = gmapping->addr + size;
-                try_parse_deferred_batchbuffers(&range);
-
                 DEBUG_PRINTK("  removing 0x%lx from the gpu_cpu_map", gmapping->addr);
                 save_gmapping.addr = gmapping->addr;
                 save_gmapping.vm_id = gmapping->vm_id;

@@ -22,7 +22,8 @@
 #define MAX_BB_COMMANDS     (8192)
 #define MAX_BB_DEFERRED     (64)
 #define MAX_BB_KSP          (128)
-#define MAX_BB_ATTEMPTS     (4)
+#define MAX_BB_ATTEMPTS     (5)
+#define MAX_BB_NSECS        (100000000)
 
 #ifndef I915_EXEC_BATCH_FIRST
 #define I915_EXEC_BATCH_FIRST (1 << 18)
@@ -59,6 +60,7 @@ static inline void copy_comm_name(char *dst, char *src) {
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
+    BPF_EVENT_TYPE_DEVICE_QUERY,
     BPF_EVENT_TYPE_EXECBUF,
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_IBA,
@@ -70,6 +72,11 @@ enum {
     BPF_EVENT_TYPE_UPROBE_KERNEL_INFO,
     BPF_EVENT_TYPE_UPROBE_KERNEL_BIN,
     BPF_EVENT_TYPE_UPROBE_FRAME_INFO,
+};
+
+struct device_query_info {
+        __u8         type;
+        __u32        pid;
 };
 
 struct execbuf_info {
