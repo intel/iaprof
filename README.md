@@ -73,7 +73,7 @@ may need to be modified to provide shader names to the runtime.
 
 Install build dependencies:
 ```
-sudo apt install libelf-dev g++-12 llvm clang python3-mako cmake libzstd-dev
+sudo apt install libelf-dev g++-12 llvm clang python3-mako cmake libzstd-dev autopoint
 ```
 
 Clone repo and build:
