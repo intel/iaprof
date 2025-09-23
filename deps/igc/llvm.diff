@@ -1,0 +1,12 @@
+diff --git a/llvm/include/llvm/ADT/SmallVector.h b/llvm/include/llvm/ADT/SmallVector.h
+index a4a790323a6b..815606ae111d 100644
+--- a/llvm/include/llvm/ADT/SmallVector.h
++++ b/llvm/include/llvm/ADT/SmallVector.h
+@@ -20,6 +20,7 @@
+ #include <cassert>
+ #include <cstddef>
+ #include <cstdlib>
++#include <cstdint>
+ #include <cstring>
+ #include <functional>
+ #include <initializer_list>

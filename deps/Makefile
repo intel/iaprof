@@ -28,7 +28,7 @@ $(PREFIX)/libbpf/include:
 elfutils: $(PREFIX)/libelf/lib/libelf.a
 
 $(PREFIX)/libelf/lib/libelf.a:
-	cd elfutils && autoreconf -i -f && ./configure --enable-maintainer-mode --prefix=$(PREFIX)/libelf
+	cd elfutils && autoreconf -i -f && CFLAGS="-Wno-error=unterminated-string-initialization" ./configure --enable-maintainer-mode --prefix=$(PREFIX)/libelf
 	$(MAKE) -C elfutils
 	$(MAKE) -C elfutils install
 

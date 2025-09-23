@@ -46,6 +46,8 @@ clone_deps:
 		echo "Cloning llvm-project repository..."; \
 		git clone --recursive -b $(LLVM_PROJECT_BRANCH) https://github.com/llvm/llvm-project llvm-project; \
 		cd llvm-project && git checkout $(LLVM_PROJECT_VERSION); \
+  	echo "PATCHING llvm.diff"; \
+  	patch -p1 < $(BASEDIR)/llvm.diff; \
 	fi; \
 
 	if [ ! -d "llvm-project/llvm/projects/opencl-clang/.git" ]; then \
@@ -75,6 +77,7 @@ clone_deps:
 patch: $(PATCH_MARKER)
 
 $(PATCH_MARKER):
+	echo "PATCHING iga.diff"
 	cd $(IGC_DIR) && patch -p1 < $(BASEDIR)/iga.diff && touch $@
 
 build: clone_deps patch $(PREFIX)/igc/lib/libiga64.a
