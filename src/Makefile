@@ -39,7 +39,7 @@ ifeq (,$(I915_DKMS_SRC_DIR))
   IAPROF_XE_DRIVER := 1
   GPU_PLATFORM := xe2
   GPU_DRIVER := xe
-  KERNEL_LAUNCH_COLLECTOR := driver
+  KERNEL_LAUNCH_COLLECTOR := uprobe
 
   DRIVER_HELPERS := $(DRIVER_HELPERS_DIR)/xe_helpers.o
   DRIVER_H := $(GENERATED_HEADERS_DIR)/xe.h
@@ -68,14 +68,14 @@ BPF_HELPERS := $(SRC_DIR)/bpf_helpers/trace_helpers.o \
 	$(SRC_DIR)/bpf_helpers/uprobe_helpers.o
 STORES := $(SRC_DIR)/stores/gpu_kernel.o
 COLLECTORS := $(SRC_DIR)/collectors/bpf/bpf_collector.o \
-	$(SRC_DIR)/collectors/debug/debug_collector.o \
 	$(SRC_DIR)/collectors/eustall/eustall_collector.o \
 	$(SRC_DIR)/collectors/oa/oa_collector.o
 PRINTERS := $(SRC_DIR)/printers/debug/debug_printer.o \
 	$(SRC_DIR)/printers/stack/stack_printer.o \
 	$(SRC_DIR)/printers/interval/interval_printer.o
 UTILS := $(SRC_DIR)/utils/utils.o \
-	$(SRC_DIR)/utils/array.o
+	$(SRC_DIR)/utils/array.o \
+	$(SRC_DIR)/utils/elf_parser.o
 DEMANGLE := $(SRC_DIR)/utils/demangle.o
 GPU_PARSERS := $(SRC_DIR)/gpu_parsers/shader_decoder.o
 COMMANDS := $(SRC_DIR)/commands/record.o \
@@ -125,6 +125,9 @@ $(SRC_DIR)/utils/utils.o: $(SRC_DIR)/utils/utils.c
 
 $(SRC_DIR)/utils/array.o: $(SRC_DIR)/utils/array.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+
+$(SRC_DIR)/utils/elf_parser.o: $(SRC_DIR)/utils/elf_parser.c
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(DEMANGLE):
 	$(CXX) $(CFLAGS) $(CONFIG_CFLAGS) $(shell $(LLVM_CONFIG) --cppflags) -I$(SRC_DIR) -c $(SRC_DIR)/utils/demangle.cpp -o $@
