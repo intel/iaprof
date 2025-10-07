@@ -19,7 +19,6 @@ limitations under the License.
 #include "drm_helpers/drm_helpers.h"
 
 extern char bb_debug;
-extern char eudebug_collector;
 extern int g_samples_matched;
 extern int g_samples_unmatched;
 

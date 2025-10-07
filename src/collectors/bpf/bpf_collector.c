@@ -42,11 +42,11 @@ limitations under the License.
 #include "bpf/main.h"
 #include "bpf/main.skel.h"
 #include "bpf_collector.h"
-#include "collectors/debug/debug_collector.h"
 
 #include "utils/utils.h"
 #include "utils/hash_table.h"
 #include "utils/demangle.h"
+#include "utils/elf_parser.h"
 
 struct live_execbuf {
         uint64_t eb_id;
@@ -67,18 +67,6 @@ static hash_table(uint64_t, live_execbuf_struct) live_execbufs;
 /***************************************
 * BPF Handlers
 ***************************************/
-
-int handle_device_query(void *data_arg)
-{
-        struct device_query_info *info;
-        info = (struct device_query_info *)data_arg;
-        
-        if (eudebug_collector) {
-                /* Register the PID with the eudebug collector */
-                init_eudebug(devinfo.fd, info->pid);
-        }
-        return 0;
-}
 
 int handle_execbuf(void *data_arg)
 {
@@ -192,11 +180,6 @@ int handle_uprobe_ksp(void *data_arg)
         struct shader          *shader;
 
         info = (struct uprobe_ksp_info *)data_arg;
-
-        if (eudebug_collector) {
-                /* Register the PID with the eudebug collector */
-                init_eudebug(devinfo.fd, info->pid);
-        }
 
         masked_addr = info->addr & 0xFFFFFFFFFF00;
         shader      = acquire_or_create_shader(masked_addr);

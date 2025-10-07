@@ -36,6 +36,7 @@ limitations under the License.
 #include <sys/time.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 
 /* Collectors */
 #include "collectors/eustall/eustall_collector.h"
@@ -43,7 +44,6 @@ limitations under the License.
 #include "collectors/bpf/bpf_collector.h"
 #include "collectors/bpf/bpf/main.h"
 #include "collectors/bpf/bpf/main.skel.h"
-#include "collectors/debug/debug_collector.h"
 
 /* Driver helpers */
 #include "drm_helpers/drm_helpers.h"
@@ -70,13 +70,12 @@ enum {
     STOP_REQUESTED  = (1 << 0),
     EUSTALL_DONE    = (1 << 1),
     BPF_DONE        = (1 << 2),
-    DEBUG_DONE      = (1 << 3),
     OA_DONE         = (1 << 4),
-    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | DEBUG_DONE | OA_DONE),
+    STOP_NOW        = (STOP_REQUESTED | EUSTALL_DONE | BPF_DONE | OA_DONE),
 };
 static _Atomic char collect_threads_should_stop = 0;
 static _Atomic char collect_threads_profiling = 0;
-static _Atomic char collect_threads_enabled = 3;
+static _Atomic char collect_threads_enabled = 2;
 static _Atomic char main_thread_should_stop = 0;
 static _Atomic char eustall_deferred_attrib_thread_should_stop = 0;
 
@@ -111,7 +110,6 @@ uint64_t timespec_to_ms(struct timespec *t1)
 int pid = 0;
 char bb_debug = 0;
 char quiet = 0;
-char eudebug_collector = 1;
 
 static struct option long_options[] = { { "debug", no_argument, 0, 'd' },
                                         { "help", no_argument, 0, 'h' },
@@ -131,7 +129,6 @@ void usage()
         printf("\noptional arguments:\n");
         printf("        -d, --debug              debug\n");
         printf("        -b, --batchbuffer-debug  debug the parsing of batchbuffers\n");
-        printf("        -g, --no-debug-collector disable the debug interface\n");
         printf("        -h, --help               help\n");
         printf("        -v, --version            version information\n");
         printf("        -q, --quiet              quiet\n");
@@ -155,7 +152,7 @@ int read_opts(int argc, char **argv)
 
         while (1) {
                 option_index = 0;
-                c = getopt_long(argc, argv, "dbghi:qv", long_options,
+                c = getopt_long(argc, argv, "dbhi:qv", long_options,
                                 &option_index);
                 if (c == -1) {
                         break;
@@ -166,9 +163,6 @@ int read_opts(int argc, char **argv)
                         break;
                 case 'b':
                         bb_debug = 1;
-                        break;
-                case 'g':
-                        eudebug_collector = 0;
                         break;
                 case 'h':
                         usage();
@@ -250,7 +244,6 @@ struct oa_info_t oa_info = {};
 /* Thread and interval */
 
 pthread_t bpf_collect_thread_id;
-pthread_t eudebug_collect_thread_id;
 pthread_t eustall_collect_thread_id;
 pthread_t eustall_deferred_attrib_thread_id;
 timer_t interval_timer;
@@ -499,101 +492,6 @@ void *bpf_collect_thread_main(void *a) {
         return NULL;
 }
 
-void *eudebug_collect_thread_main(void *a) {
-        sigset_t       mask;
-        array_t        pollfds;
-        array_t        pollfds_indices;
-        int            n_fds;
-        int            n_ready;
-        int            i;
-        struct pollfd *pfd;
-        int            index;
-
-        /* The collect thread should block SIGINT, so that all
-           SIGINTs go to the main thread. */
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGINT);
-        if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1) {
-                ERR("Error blocking signal.\n");
-        }
-
-        pollfds         = array_make(struct pollfd);
-        pollfds_indices = array_make(int);
-
-        if (debug) {
-                fprintf(stderr, "Initialized debug collector.\n");
-        }
-
-        collect_threads_profiling += 1;
-
-        while (collect_threads_should_stop == 0) {
-                /* Copy the pollfds array from debug_info so that we don't
-                 * need to hold the lock while we poll. */
-                pthread_rwlock_rdlock(&eudebug_info_lock);
-
-                n_fds = eudebug_info.num_pids;
-
-                array_clear(pollfds);
-                array_clear(pollfds_indices);
-                for (i = 0; i < n_fds; i += 1) {
-                        if (eudebug_info.pollfds[i].fd > 0) {
-                                array_push(pollfds, eudebug_info.pollfds[i]);
-                                array_push(pollfds_indices, i);
-                        }
-                }
-
-                pthread_rwlock_unlock(&eudebug_info_lock);
-
-                n_ready = poll(array_data(pollfds), array_len(pollfds), 100);
-
-                if (n_ready < 0) {
-                        switch (errno) {
-                                case EINTR:
-                                        /* poll was interrupted. Just try again. */
-                                        n_ready = 0;
-                                        break;
-                                default:
-                                        ERR("poll failed with fatal error %d.\n", errno);
-                        }
-                        errno = 0;
-                }
-
-                if (n_ready) {
-                        if (main_thread_should_stop != STOP_NOW) {
-                                main_thread_should_stop &= ~DEBUG_DONE;
-                        }
-
-                        if (!eudebug_collector && debug) {
-                                WARN("GPU symbols were disabled, but we got an eudebug event.\n");
-                        }
-
-
-                        for (i = 0; i < array_len(pollfds); i += 1) {
-                                pfd = array_item(pollfds, i);
-                                index = *(int*)array_item(pollfds_indices, i);
-                                if (pfd->revents & POLLIN) {
-                                        /* We don't hold the debug_info_lock at
-                                         * this point going down this call stack, but
-                                         * it may get grabbed within it (e.g. by
-                                         * debug_add_sym). */
-                                        read_eudebug_events(pfd->fd, index);
-                                } else {
-                                        deinit_eudebug(index);
-                                }
-                        }
-                } else {
-                        if (main_thread_should_stop) {
-                                main_thread_should_stop |= DEBUG_DONE;
-                        }
-                }
-        }
-
-        array_free(pollfds);
-        array_free(pollfds_indices);
-
-        return NULL;
-}
-
 int start_thread(void *(*fn)(void*), pthread_t *out_pthread) {
         int retval;
 
@@ -640,9 +538,6 @@ void record(int argc, char **argv)
 
         if (start_thread(bpf_collect_thread_main, &bpf_collect_thread_id) != 0) {
                 ERR("Failed to start the BPF collection thread.\n");
-        }
-        if (start_thread(eudebug_collect_thread_main, &eudebug_collect_thread_id) != 0) {
-                ERR("Failed to start the eudebug collection thread.\n");
         }
         if (start_thread(eustall_collect_thread_main, &eustall_collect_thread_id) != 0) {
                 ERR("Failed to start the eustall collection thread.\n");
@@ -692,7 +587,6 @@ void record(int argc, char **argv)
         /* Wait for the collection thread to finish */
         stop_collect_threads();
         pthread_join(bpf_collect_thread_id, NULL);
-        pthread_join(eudebug_collect_thread_id, NULL);
         pthread_join(eustall_collect_thread_id, NULL);
         pthread_join(eustall_deferred_attrib_thread_id, NULL);
 
