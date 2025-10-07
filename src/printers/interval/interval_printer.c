@@ -20,7 +20,6 @@ limitations under the License.
 #include "printers/debug/debug_printer.h"
 #include "stores/gpu_kernel.h"
 #include "collectors/eustall/eustall_collector.h"
-#include "collectors/debug/debug_collector.h"
 #include "collectors/oa/oa_collector.h"
 #include "utils/utils.h"
 #include "printers/interval/interval_printer.h"
@@ -127,7 +126,7 @@ char *get_string(uint64_t id)
         }
 
         if (id == 0) {
-                return "<missing string>";
+                return "";
         }
 
         lookup = hash_table_get_val(string_reader, id);
@@ -686,7 +685,14 @@ static char get_insn_text(struct shader *shader, uint64_t offset,
                 }
                 goto out;
         }
-
+        
+        if (*insn_text_len == 1) {
+                free(*insn_text);
+                *insn_text = NULL;
+                *insn_text_len = 0;
+                retval = -1;
+        }
+        
 out:;
         return retval;
 }
