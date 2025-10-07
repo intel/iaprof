@@ -5,24 +5,23 @@ PREFIX ?= $(BASEDIR)/../install
 BUILD_DIR := $(BASEDIR)/build
 IGC_DIR := $(BASEDIR)/igc
 BUILD_TYPE := Release
-PATCH_MARKER := $(IGC_DIR)/.patched
 
 # NOTE: The large variety of branches/tags/commits makes this a full
 # script-like makefile instead of a submodule.
 
 # Branch names
-LLVM_PROJECT_BRANCH := release/14.x
-OPENCL_CLANG_BRANCH := ocl-open-140
-LLVM_SPIRV_BRANCH := llvm_release_140
+LLVM_PROJECT_BRANCH := llvmorg-15.0.7
+OPENCL_CLANG_BRANCH := ocl-open-150
+LLVM_SPIRV_BRANCH := llvm_release_150
 
 # Commit hashes and tags
-IGC_VERSION := igc-1.0.16510.2
-VC_INTRINSICS_VERSION := v0.18.0
-LLVM_PROJECT_VERSION := llvmorg-14.0.5
-OPENCL_CLANG_VERSION := cf95b33
-LLVM_SPIRV_VERSION := 927efdc
-SPIRV_TOOLS_VERSION := v2023.6.rc1
-SPIRV_HEADERS_VERSION := 1c6bb27
+IGC_VERSION := v2.14.1
+VC_INTRINSICS_VERSION := v0.23.1
+OPENCL_CLANG_VERSION := 7eef465
+LLVM_SPIRV_VERSION := b3d425c
+SPIRV_TOOLS_VERSION := v2025.1.rc1
+SPIRV_HEADERS_VERSION := 0e71067
+PATCH_MARKER := $(IGC_DIR)/.patched
 
 all: clone_deps patch build install
 
@@ -77,7 +76,6 @@ clone_deps:
 patch: $(PATCH_MARKER)
 
 $(PATCH_MARKER):
-	echo "PATCHING iga.diff"
 	cd $(IGC_DIR) && patch -p1 < $(BASEDIR)/iga.diff && touch $@
 
 build: clone_deps patch $(PREFIX)/igc/lib/libiga64.a
@@ -116,8 +114,8 @@ $(PREFIX)/igc/lib/libiga64.a:
 			-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 			-DIGC_OPTION__LLVM_MODE=Source \
 			-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
-			-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
 			-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
+			-DIGC_OPTION__LLVM_PREFERRED_VERSION=15.0.7 \
 			-DCCLANG_BUILD_INTREE_LLVM=True \
 			$(IGC_DIR); \
 	else \
@@ -128,8 +126,8 @@ $(PREFIX)/igc/lib/libiga64.a:
 			-DCMAKE_CXX_FLAGS="\"$${cxx_flags}\"" \
 			-DIGC_OPTION__LLVM_MODE=Source \
 			-DIGC_OPTION__LLVM_SOURCES_DIR=$(BASEDIR)/llvm-project \
-			-DIGC_OPTION__LLVM_PREFERRED_VERSION=14.0.5 \
 			-DCMAKE_INSTALL_PREFIX=$(PREFIX)/igc \
+			-DIGC_OPTION__LLVM_PREFERRED_VERSION=15.0.7 \
 			-DCCLANG_BUILD_INTREE_LLVM=True \
 			$(IGC_DIR); \
 	fi; \
