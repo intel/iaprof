@@ -34,15 +34,14 @@ void clear_interval_profiles();
 
 struct kv_t;
 
+#define SHADER_ADDRESS_MASK 0xFFFFFFFFFF00
+
 enum shader_type {
         SHADER_TYPE_UNKNOWN = 0,
         SHADER_TYPE_SHADER,
         SHADER_TYPE_SYSTEM_ROUTINE,
         SHADER_TYPE_DEBUG_AREA,
 };
-
-#define SHADER_ADDRESS_NBITS (32ull)
-#define SHADER_ADDRESS_MASK ((1ull << SHADER_ADDRESS_NBITS) - 1ull)
 
 struct shader {
         pthread_mutex_t lock;
@@ -83,6 +82,8 @@ struct shader *acquire_shader(uint64_t gpu_addr);
 struct shader *acquire_containing_shader(uint64_t gpu_addr);
 void release_shader(struct shader *shader);
 void free_profiles();
+void set_kernel_info(uint64_t addr, uint64_t size, uint64_t symbol_id, uint64_t filename_id, int linenum);
+void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size);
 
 #define FOR_SHADER(shader_ptr, ...)               \
 do {                                              \

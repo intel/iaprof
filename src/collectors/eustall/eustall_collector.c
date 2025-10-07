@@ -47,6 +47,7 @@ static array_t eustall_waitlist_a;
 static array_t eustall_waitlist_b;
 
 uint64_t counter = 0;
+uint64_t instruction_base_address = 0;
 
 uint64_t num_stalls_in_sample(struct eustall_sample *sample)
 {
@@ -119,7 +120,12 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
                 one the EU stall is associated with */
         found = 0;
 
+        /* We have to shift all stall addresses by three here. We don't know why. */
         addr = ((uint64_t)sample->ip) << 3;
+        
+        /* If applicable, add the instruction base address (IBA), which we get
+           separately in some collecting modes. */
+        addr = addr + instruction_base_address;
 
         shader = acquire_containing_shader(addr);
 
@@ -163,13 +169,15 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
 {
         struct timespec spec;
         unsigned long long time;
-        int i;
+        int i, num_matched, num_total;
         struct eustall_sample *sample;
 
         /* Get the timestamp */
         clock_gettime(CLOCK_MONOTONIC, &spec);
         time = spec.tv_sec * 1000000000UL + spec.tv_nsec;
 
+        num_matched = 0;
+        num_total = 0;
         for (i = 0; i < len; i += devinfo->record_size) {
                 sample = perf_buf + i;
 
@@ -181,11 +189,14 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                 }
 
                 counter++;
-                if (counter % 100 != 0) {
-                        continue;
-                }
-                handle_eustall_sample(sample, time, 0);
+/*                 if (counter % 100 != 0) { */
+/*                         continue; */
+/*                 } */
+                num_total += 1;
+                num_matched += handle_eustall_sample(sample, time, 0);
         }
+        
+        debug_printf("Matched %d/%d\n", num_matched, num_total);
 
         return EUSTALL_STATUS_OK;
 }
@@ -204,9 +215,9 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
         for (i = 0; i < len; i += 64) {
                 sample = perf_buf + i;
                 counter++;
-                if (counter % 100 != 0) {
-                        continue;
-                }
+/*                 if (counter % 100 != 0) { */
+/*                         continue; */
+/*                 } */
                 handle_eustall_sample(sample, time, 0);
         }
 
@@ -296,12 +307,21 @@ void wakeup_eustall_deferred_attrib_thread() {
 
 void handle_remaining_eustalls() {
         struct deferred_eustall *it;
+        uint64_t addr;
 
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
                 handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED);
+                
+                addr = ((uint64_t)it->sample.ip) << 3;
+                addr = addr + instruction_base_address;
+/*                 debug_printf("ip=0x%x stalls=%" PRIu64 "\n", it->sample.ip, num_stalls_in_sample(&it->sample)); */
 
                 eustall_info.unmatched += num_stalls_in_sample(&it->sample);
         }
         pthread_mutex_unlock(&eustall_waitlist_mtx);
+}
+
+void set_instruction_base_address(uint64_t addr) {
+        instruction_base_address = addr;
 }

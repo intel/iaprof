@@ -60,7 +60,6 @@ static inline void copy_comm_name(char *dst, char *src) {
 
 enum {
     BPF_EVENT_TYPE_UNKNOWN,
-    BPF_EVENT_TYPE_DEVICE_QUERY,
     BPF_EVENT_TYPE_EXECBUF,
     BPF_EVENT_TYPE_EXECBUF_END,
     BPF_EVENT_TYPE_IBA,
@@ -68,10 +67,10 @@ enum {
     BPF_EVENT_TYPE_SIP,
     BPF_EVENT_TYPE_UPROBE_IBA,
     BPF_EVENT_TYPE_UPROBE_KSP,
-    BPF_EVENT_TYPE_UPROBE_ELF,
     BPF_EVENT_TYPE_UPROBE_KERNEL_INFO,
     BPF_EVENT_TYPE_UPROBE_KERNEL_BIN,
     BPF_EVENT_TYPE_UPROBE_FRAME_INFO,
+    BPF_EVENT_TYPE_UPROBE_KERNEL_PATH,
 };
 
 struct device_query_info {
@@ -132,6 +131,15 @@ struct uprobe_ksp_info {
         char         name[TASK_COMM_LEN];
 };
 
+struct uprobe_iba_info {
+        __u8         type;
+
+        __u64        addr;
+
+        __u32        pid;
+        __u32        tid;
+};
+
 struct uprobe_elf_info {
         __u8          type;
 
@@ -148,6 +156,14 @@ struct uprobe_kernel_info {
         char  symbol[MAX_SYMBOL_SIZE];
         char  filename[MAX_FILENAME_SIZE];
         int   linenum;
+};
+
+struct uprobe_kernel_path {
+        __u8          type;
+
+        __u32         pid;
+        __u32         tid;
+        char filename[MAX_FILENAME_SIZE];
 };
 
 struct uprobe_kernel_bin {

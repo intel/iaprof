@@ -26,6 +26,8 @@ limitations under the License.
 #include <time.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -124,7 +126,7 @@ int handle_ksp(void *data_arg)
                 return 0;
         }
 
-        masked_addr = info->addr & 0xFFFFFFFFFF00;
+        masked_addr = info->addr & SHADER_ADDRESS_MASK;
         shader      = acquire_or_create_shader(masked_addr);
         if (shader->type == SHADER_TYPE_UNKNOWN) {
                 shader->type = SHADER_TYPE_SHADER;
@@ -181,12 +183,14 @@ int handle_uprobe_ksp(void *data_arg)
 
         info = (struct uprobe_ksp_info *)data_arg;
 
-        masked_addr = info->addr & 0xFFFFFFFFFF00;
+        masked_addr = info->addr & SHADER_ADDRESS_MASK;
         shader      = acquire_or_create_shader(masked_addr);
         if (shader->type == SHADER_TYPE_UNKNOWN) {
                 shader->type = SHADER_TYPE_SHADER;
                 debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
+        
+        debug_printf("handle_uprobe_ksp addr=0x%lx size=%llu\n", masked_addr, info->size);
 
         shader->size         = info->size;
         shader->pid          = info->pid;
@@ -200,13 +204,14 @@ int handle_uprobe_ksp(void *data_arg)
         return 0;
 }
 
-int handle_uprobe_elf(void *data_arg)
+int handle_uprobe_iba(void *data_arg)
 {
-        struct uprobe_elf_info *info;
+        struct uprobe_iba_info *info;
 
-        info = (struct uprobe_elf_info *)data_arg;
+        info = (struct uprobe_iba_info *)data_arg;
 
-        extract_elf_kernel_info(info->data, info->size);
+        debug_printf("handle_uprobe_iba addr=0x%llx\n", info->addr);
+        set_instruction_base_address(info->addr);
 
         return 0;
 }
@@ -221,7 +226,7 @@ int handle_uprobe_kernel_info(void *data_arg)
 
         info = (struct uprobe_kernel_info *)data_arg;
 
-        masked_addr = info->addr & 0xFFFFFFFFFF00;
+        masked_addr = info->addr & SHADER_ADDRESS_MASK;
 
         symbol_id = 0;
         if (info->symbol[0]) {
@@ -258,10 +263,48 @@ int handle_uprobe_kernel_bin(void *data_arg)
 
         info = (struct uprobe_kernel_bin *)data_arg;
 
-        masked_addr = info->addr & 0xFFFFFFFFFF00;
+        masked_addr = info->addr & SHADER_ADDRESS_MASK;
 
         set_kernel_binary(masked_addr, info->data, info->size);
 
+        return 0;
+}
+
+int handle_uprobe_kernel_path(void *data_arg)
+{
+        struct uprobe_kernel_path *info;
+        struct stat stat;
+        int fd, err;
+        unsigned char *addr;
+        
+        info = (struct uprobe_kernel_path *)data_arg;
+        fd = open(info->filename, O_RDONLY);
+        if (fd < 0) {
+                debug_printf("Failed to open an ELF from the USDT probes: %s\n", info->filename);
+                return 0;
+        }
+        err = fstat(fd, &stat);
+        if (err) {
+                debug_printf("Failed to fstat an ELF from the USDT probes: %s\n", info->filename);
+                close(fd);
+                return 0;
+        }
+        addr = (unsigned char *)mmap(NULL, stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (addr == MAP_FAILED) {
+                debug_printf("Failed to mmap an ELF from the USDT probes: %d\n", errno);
+                close(fd);
+                return 0;
+        }
+        close(fd);
+        
+        /* Check for the ELF magic bytes */
+        if (*((uint32_t *)addr) == 0x464c457f) {
+                extract_elf_kernel_info(addr, stat.st_size);
+        }
+        
+        munmap(addr, stat.st_size);
+        unlink(info->filename);
+        
         return 0;
 }
 
@@ -274,16 +317,16 @@ static int handle_sample(void *ctx, void *data_arg, size_t data_sz)
         type = *((uint8_t*)data_arg);
 
         switch (type) {
-                case BPF_EVENT_TYPE_DEVICE_QUERY:       return handle_device_query(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF:            return handle_execbuf(data_arg);
                 case BPF_EVENT_TYPE_EXECBUF_END:        return handle_execbuf_end(data_arg);
                 case BPF_EVENT_TYPE_KSP:                return handle_ksp(data_arg);
                 case BPF_EVENT_TYPE_SIP:                return handle_sip(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KSP:         return handle_uprobe_ksp(data_arg);
-                case BPF_EVENT_TYPE_UPROBE_ELF:         return handle_uprobe_elf(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KERNEL_INFO: return handle_uprobe_kernel_info(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_KERNEL_BIN:  return handle_uprobe_kernel_bin(data_arg);
                 case BPF_EVENT_TYPE_UPROBE_FRAME_INFO:  return handle_uprobe_frame_info(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_KERNEL_PATH: return handle_uprobe_kernel_path(data_arg);
+                case BPF_EVENT_TYPE_UPROBE_IBA:         return handle_uprobe_iba(data_arg);
         }
 
         ERR("Unknown data type when handling a sample: %u\n", type);

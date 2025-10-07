@@ -175,3 +175,42 @@ void clear_interval_profiles()
 		pthread_mutex_unlock(&shader->lock);
         );
 }
+
+/***************************************
+* Kernel Info Helpers
+***************************************/
+
+void set_kernel_info(uint64_t addr, uint64_t size, uint64_t symbol_id, uint64_t filename_id, int linenum) {
+        struct shader *shader;
+
+        shader = acquire_or_create_shader(addr);
+        debug_printf("set_kernel_info shader=%p addr=0x%lx\n", shader, addr);
+
+        size        && (shader->size        = size);
+        symbol_id   && (shader->symbol_id   = symbol_id);
+        filename_id && (shader->filename_id = filename_id);
+        linenum     && (shader->linenum     = linenum);
+
+        release_shader(shader);
+}
+
+void set_kernel_binary(uint64_t addr, unsigned char *bytes, uint64_t size) {
+        struct shader *shader;
+
+        if (bytes == NULL || size == 0) { return; }
+
+        shader = acquire_or_create_shader(addr);
+        debug_printf("set_kernel_binary shader=%p addr=0x%lx\n", shader, addr);
+
+        if (shader->binary != NULL) {
+                free(shader->binary);
+        }
+
+        shader->binary = malloc(size);
+        memcpy(shader->binary, bytes, size);
+        shader->size = size;
+        
+        debug_printf("binary=%llu size=%lu\n", *((unsigned long long *)shader->binary), shader->size);
+
+        release_shader(shader);
+}

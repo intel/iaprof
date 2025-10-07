@@ -192,3 +192,4 @@ struct deferred_eustall {
 
 
 void handle_remaining_eustalls();
+void set_instruction_base_address(uint64_t addr);
