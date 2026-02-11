@@ -17,6 +17,9 @@ limitations under the License.
 #pragma once
 
 #include <assert.h>
+
+/* IGC uses bool in C-facing headers... */
+#include <stdbool.h>
 #include <iga/iga.h>
 #include <iga/kv.h>
 
