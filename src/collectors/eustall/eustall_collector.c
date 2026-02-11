@@ -31,7 +31,6 @@ limitations under the License.
 #if GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
-#include <uapi/drm/xe_drm_eudebug.h>
 #include "driver_helpers/xe_helpers.h"
 #elif GPU_DRIVER == GPU_DRIVER_i915
 #include <drm/i915_drm_prelim.h>
@@ -113,7 +112,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 
         struct deferred_eustall deferred;
         struct shader *shader;
-        
+
         /* Look up this sample by the GPU address (sample->ip). If we find
                 multiple matches, that means that multiple contexts are using
                 the same virtual address, and there's no way to determine which
@@ -122,7 +121,7 @@ static int handle_eustall_sample(struct eustall_sample *sample, unsigned long lo
 
         /* We have to shift all stall addresses by three here. We don't know why. */
         addr = ((uint64_t)sample->ip) << 3;
-        
+
         /* If applicable, add the instruction base address (IBA), which we get
            separately in some collecting modes. */
         addr = addr + instruction_base_address;
@@ -195,7 +194,7 @@ int handle_eustall_samples(void *perf_buf, int len, struct device_info *devinfo)
                 num_total += 1;
                 num_matched += handle_eustall_sample(sample, time, 0);
         }
-        
+
         debug_printf("Matched %d/%d\n", num_matched, num_total);
 
         return EUSTALL_STATUS_OK;
@@ -312,7 +311,7 @@ void handle_remaining_eustalls() {
         pthread_mutex_lock(&eustall_waitlist_mtx);
         array_traverse(*eustall_waitlist, it) {
                 handle_eustall_sample(&it->sample, it->time, EUSTALL_SAMPLE_DEFERRED | EUSTALL_SAMPLE_SHADER_TYPE_NOT_REQUIRED);
-                
+
                 addr = ((uint64_t)it->sample.ip) << 3;
                 addr = addr + instruction_base_address;
 /*                 debug_printf("ip=0x%x stalls=%" PRIu64 "\n", it->sample.ip, num_stalls_in_sample(&it->sample)); */

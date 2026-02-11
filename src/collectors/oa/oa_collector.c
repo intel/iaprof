@@ -29,7 +29,6 @@ limitations under the License.
 #if GPU_DRIVER == GPU_DRIVER_xe
 #include <sys/capability.h>
 #include <uapi/drm/xe_drm.h>
-#include <uapi/drm/xe_drm_eudebug.h>
 #include "driver_helpers/xe_helpers.h"
 #elif GPU_DRIVER == GPU_DRIVER_i915
 #include <drm/i915_drm_prelim.h>
@@ -53,12 +52,12 @@ int handle_oa_read(void *buf, int len, struct device_info *devinfo)
         int i, num_reports;
         uint64_t diff_time, diff_ticks;
         uint32_t tile_id;
-        
+
         if (len <= 0) {
                 debug_printf("OA read: invalid buffer length %d\n", len);
                 return OA_STATUS_ERROR;
         }
-        
+
         num_reports = len / sizeof(struct pec_report_format);
         for (i = 0; i < num_reports; i++) {
                 /* Get the command streamer type (render, blit, compute) and CCS ID */
@@ -67,30 +66,30 @@ int handle_oa_read(void *buf, int len, struct device_info *devinfo)
                         fprintf(stderr, "TILE_ID is: %u\n", tile_id);
                         return -1;
                 }
-                
+
                 if (!oa_info.prev_report[tile_id].rpt_id &&
-                    !oa_info.prev_report[tile_id].time && 
+                    !oa_info.prev_report[tile_id].time &&
                     !oa_info.prev_report[tile_id].ticks) {
                         goto next;
                 }
-                
-                
+
+
                 diff_time  = ((safe_diff(report[i].time, oa_info.prev_report[tile_id].time, 56) * 100) / (oa_info.timestamp_freq / 100000)) * 100;
                 diff_ticks = safe_diff(report[i].ticks, oa_info.prev_report[tile_id].ticks, 32);
-                
+
                 oa_info.metrics.avg_mhz   = (diff_ticks * 1000) / diff_time;
                 oa_info.metrics.busy_perc = (uint64_t)((((double)safe_diff(report[i].busy, oa_info.prev_report[tile_id].busy, 64)) / diff_ticks) * 100);
-                
+
                 debug_printf("Avg MHz:    %lu\n",   oa_info.metrics.avg_mhz);
                 debug_printf("Busy:       %lu%%\n", oa_info.metrics.busy_perc);
 next:
                 memcpy(&(oa_info.prev_report[tile_id]), &(report[i]), sizeof(struct pec_report_format));
         }
-        
+
         /* Update statistics */
         oa_info.samples_read++;
         oa_info.bytes_read += len;
-        
+
         return OA_STATUS_OK;
 }
 
@@ -99,10 +98,10 @@ next:
 int init_oa(struct device_info *devinfo)
 {
         int fd;
-        
+
         /* Initialize the oa_info structure */
         memset(&oa_info, 0, sizeof(oa_info));
-        
+
 #if GPU_DRIVER == GPU_DRIVER_xe
         fd = xe_init_oa(devinfo);
 #elif GPU_DRIVER == GPU_DRIVER_i915
@@ -110,17 +109,17 @@ int init_oa(struct device_info *devinfo)
         fprintf(stderr, "OA collector not yet supported for i915 driver\n");
         return -1;
 #endif
-        
+
         if (fd <= 0) {
                 fprintf(stderr, "Failed to initialize OA collector. Aborting.\n");
                 return -1;
         }
-        
+
         /* Store the file descriptor */
         oa_info.fd = fd;
         oa_info.timestamp_freq = devinfo->oa_timestamp_freq;
-        
+
         debug_printf("OA collector initialized with fd=%d\n", fd);
-        
+
         return 0;
 }
