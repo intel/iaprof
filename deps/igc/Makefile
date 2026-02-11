@@ -102,7 +102,7 @@ $(PREFIX)/igc/lib/libiga64.a:
 		cxx_flags=; \
 	else \
 	    echo "$$version is greater than 22.04"; \
-		cxx_flags="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull"; \
+		cxx_flags="-Wno-maybe-uninitialized -Wno-uninitialized -Wno-free-nonheap-object -Wno-nonnull -include cstdint"; \
 	fi; \
   cxx_flags+="-Wno-error=free-nonheap-object"; \
 	readonly cxx_flags; \
