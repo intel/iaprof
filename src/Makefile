@@ -103,7 +103,7 @@ $(SRC_DIR)/collectors/bpf/bpf_collector.o: $(MAIN_SKEL_H) $(SRC_DIR)/collectors/
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) --std=c2x -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $(SRC_DIR)/collectors/bpf/bpf_collector.c -o $@
 
 $(SRC_DIR)/collectors/debug/%.o: $(SRC_DIR)/collectors/debug/%.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(PREFIX)/libelf/include -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(SRC_DIR)/collectors/eustall/%.o: $(SRC_DIR)/collectors/eustall/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
@@ -127,7 +127,7 @@ $(SRC_DIR)/utils/array.o: $(SRC_DIR)/utils/array.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
 $(SRC_DIR)/utils/elf_parser.o: $(SRC_DIR)/utils/elf_parser.c
-	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
+	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(PREFIX)/libelf/include -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
 $(DEMANGLE):
 	$(CXX) $(CFLAGS) $(CONFIG_CFLAGS) $(shell $(LLVM_CONFIG) --cppflags) -I$(SRC_DIR) -c $(SRC_DIR)/utils/demangle.cpp -o $@
