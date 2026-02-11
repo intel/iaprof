@@ -86,7 +86,7 @@ do {                                                     \
 
 #define INFO(_fmt, ...)                                  \
 do {                                                     \
-    fprintf(stderr, "%INFO%s: " _fmt,                    \
+    fprintf(stderr, "%sINFO%s: " _fmt,                   \
             isatty(2) ? "\e[0;36m" : "",                 \
             isatty(2) ? "\e[00m" : "",                   \
             ##__VA_ARGS__);                              \
