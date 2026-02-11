@@ -77,6 +77,8 @@ int ioctl_do(int fd, unsigned long request, void *arg)
 #define MAX_DRIVER_CHARS 16
 int open_first_driver(device_info *devinfo)
 {
+    /* @TODO: Need to handle cases where we have multiple compatible devices on the system
+       (ex. LNL integrated graphics and a BMG card). Probably want the user to be able to decide. */
         int i, fd;
         char filename[80], name[MAX_DRIVER_CHARS] = "";
         drm_version_t version;
@@ -104,14 +106,14 @@ int open_first_driver(device_info *devinfo)
                         continue;
                 }
 
-                /* If the driver name isn't "i915", go to the next one. */
-                if ((strcmp(version.name, "i915") != 0) && (strcmp(version.name, "xe") != 0)) {
+                if (strcmp(version.name, "xe") != 0) {
                         close(fd);
                         fd = -1;
                         continue;
                 }
 
                 /* Success */
+                INFO("Selected device: %s\n", filename);
                 break;
         }
 
