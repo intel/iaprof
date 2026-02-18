@@ -60,8 +60,10 @@ VMLINUX_H := $(GENERATED_HEADERS_DIR)/vmlinux.h
 DRM_H := $(GENERATED_HEADERS_DIR)/drm.h
 
 BPF_DIR := $(SRC_DIR)/collectors/bpf/bpf
-BPF_PROG_O := $(BPF_DIR)/main.bpf.o
+BPF_MAIN_O := $(BPF_DIR)/main.bpf.o
 MAIN_SKEL_H := $(BPF_DIR)/main.skel.h
+BPF_PRELOAD_O := $(BPF_DIR)/preload.bpf.o
+PRELOAD_SKEL_H := $(BPF_DIR)/preload.skel.h
 
 DRM_HELPERS := $(SRC_DIR)/drm_helpers/drm_helpers.o
 BPF_HELPERS := $(SRC_DIR)/bpf_helpers/trace_helpers.o \
@@ -87,7 +89,7 @@ OBJECTS := $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(U
 
 all: $(SRC_DIR)/../iaprof
 
-$(SRC_DIR)/../iaprof: $(BPF_PROG_O) $(MAIN_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
+$(SRC_DIR)/../iaprof: $(BPF_MAIN_O) $(BPF_PRELOAD_O) $(MAIN_SKEL_H) $(PRELOAD_SKEL_H) $(DRM_HELPERS) $(BPF_HELPERS) $(STORES) $(COLLECTORS) $(PRINTERS) $(UTILS) $(DEMANGLE) $(GPU_PARSERS) $(COMMANDS) $(DRIVER_HELPERS) $(IAPROF)
 	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@ -lpthread $(PREFIX)/bpftool/lib/libbpf.a -lz -lzstd -lstdc++ $(PREFIX)/libelf/lib/libdw.a $(PREFIX)/libelf/lib/libelf.a $(PREFIX)/igc/lib/libiga64.a
 
 $(SRC_DIR)/drm_helpers/drm_helpers.o: $(DRIVER_HELPERS_INCL) $(SRC_DIR)/drm_helpers/drm_helpers.c
@@ -99,7 +101,7 @@ $(SRC_DIR)/bpf_helpers/%.o: $(SRC_DIR)/bpf_helpers/%.c
 $(SRC_DIR)/stores/%.o: $(SRC_DIR)/stores/%.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(PREFIX)/igc/include -I$(PREFIX)/../kernel_headers -I$(SRC_DIR) -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $< -o $@
 
-$(SRC_DIR)/collectors/bpf/bpf_collector.o: $(MAIN_SKEL_H) $(SRC_DIR)/collectors/bpf/bpf_collector.c
+$(SRC_DIR)/collectors/bpf/bpf_collector.o: $(MAIN_SKEL_H) $(PRELOAD_SKEL_H) $(SRC_DIR)/collectors/bpf/bpf_collector.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) --std=c2x -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(DRIVER_HELPERS_DIR) -I$(PREFIX)/libbpf/include -I$(PREFIX)/igc/include -c $(SRC_DIR)/collectors/bpf/bpf_collector.c -o $@
 
 $(SRC_DIR)/collectors/debug/%.o: $(SRC_DIR)/collectors/debug/%.c
@@ -161,14 +163,20 @@ $(DRM_H):
 $(MAIN_SKEL_H): $(BPF_DIR)/main.bpf.o
 	$(BPFTOOL) gen skeleton $(BPF_DIR)/main.bpf.o > $@
 
+$(PRELOAD_SKEL_H): $(BPF_DIR)/preload.bpf.o
+	$(BPFTOOL) gen skeleton $(BPF_DIR)/preload.bpf.o > $@
+
 $(DRIVER_HELPERS_DIR)/xe_helpers.o: $(DRIVER_HELPERS_DIR)/xe_helpers.c
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR)/driver_helpers -c $< -o $@
 
 $(DRIVER_HELPERS_DIR)/i915_helpers.o: $(DRIVER_HELPERS_DIR)/i915_helpers.c $(DRIVER_HELPERS_INCL)
 	$(CC) $(CFLAGS) $(CONFIG_CFLAGS) -I$(SRC_DIR) -I$(PREFIX)/../kernel_headers -I$(SRC_DIR)/driver_helpers -c $< -o $@
 
-$(BPF_PROG_O): $(DRIVER_HELPERS_INCL) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
+$(BPF_MAIN_O): $(DRIVER_HELPERS_INCL) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
 	$(CC) $(BPF_CFLAGS) $(CONFIG_CFLAGS) -target bpf -D__TARGET_ARCH_x86 -g -v -Wno-pass-failed -I$(GENERATED_HEADERS_DIR) -I$(BPF_DIR) -I$(SRC_DIR) -I$(PREFIX)/libbpf/include -c $(BPF_DIR)/main.bpf.c -o $@
+
+$(BPF_PRELOAD_O): $(DRIVER_HELPERS_INCL) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
+	$(CC) $(BPF_CFLAGS) $(CONFIG_CFLAGS) -target bpf -D__TARGET_ARCH_x86 -g -v -Wno-pass-failed -I$(GENERATED_HEADERS_DIR) -I$(BPF_DIR) -I$(SRC_DIR) -I$(PREFIX)/libbpf/include -c $(BPF_DIR)/preload.bpf.c -o $@
 
 $(DRIVER_HELPERS_INCL):
 	@if [ -n "$(I915_DKMS_SRC_DIR)" ]; then \
@@ -194,5 +202,6 @@ clean:
 	rm -f $(OBJECTS) $(SRC_DIR)/../config.env
 	rm -rf $(SRC_DIR)/driver_helpers/drm
 	rm -rf $(GENERATED_HEADERS_DIR)
-	rm -f $(MAIN_SKEL_H) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
-	rm -f $(BPF_PROG_O)
+	rm -f $(MAIN_SKEL_H) $(PRELOAD_SKEL_H) $(VMLINUX_H) $(DRIVER_H) $(DRM_H)
+	rm -f $(BPF_MAIN_O)
+	rm -f $(BPF_PRELOAD_O)

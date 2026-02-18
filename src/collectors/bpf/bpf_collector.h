@@ -54,6 +54,7 @@ int init_bpf();
 
 /* Stores information about the BPF programs, ringbuffer, etc. */
 struct bpf_info_t {
+        struct preload_bpf *preload_obj;
         struct main_bpf *obj;
         struct ring_buffer *rb;
         int epoll_fd, rb_fd, stackmap_fd;

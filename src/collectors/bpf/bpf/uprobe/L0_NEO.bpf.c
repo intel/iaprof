@@ -5,13 +5,19 @@
 
 char null_symbol[MAX_SYMBOL_SIZE];
 
-SEC("usdt//data/projects/iaprof/intel-graphics-stack/install/lib/libze_intel_gpu.so.1:level_zero:instruction_base_address")
+/* The path component of the section name is 4096 (PATH_MAX) spaces.
+   We overwrite this memory prior to attachment with an actual path. */
+#define USDT_SEC_PLACEHOLDER(suffix) \
+SEC("usdt/                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                :" suffix)
+
+/* SEC("usdt/:level_zero:instruction_base_address") */
+USDT_SEC_PLACEHOLDER("level_zero:instruction_base_address")
 int BPF_USDT(instruction_base_address, __u64 base_addr) {
         struct uprobe_iba_info     *iba_info;
         long                       err;
-        
+
         ERR_PRINTK("instruction_base_address base_addr=0x%lx\n", base_addr);
-        
+
         iba_info = bpf_ringbuf_reserve(&rb, sizeof(*iba_info), 0);
         if (!iba_info) {
                 ERR_PRINTK("instruction_base_address failed to reserve in the ringbuffer.");
@@ -29,13 +35,13 @@ int BPF_USDT(instruction_base_address, __u64 base_addr) {
         return 0;
 }
 
-SEC("usdt//data/projects/iaprof/intel-graphics-stack/install/lib/libze_intel_gpu.so.1:level_zero:launch_kernel")
+USDT_SEC_PLACEHOLDER("level_zero:launch_kernel")
 int BPF_USDT(launch_kernel, __u64 gpu_addr, __u64 size, char *kernel_name) {
         struct uprobe_ksp_info     *ksp_info;
         long                       err;
-        
+
         ERR_PRINTK("launch_kernel gpu_addr=0x%lx\n", gpu_addr);
-        
+
         /* Send the KSP_INFO */
         ksp_info = bpf_ringbuf_reserve(&rb, sizeof(*ksp_info), 0);
         if (!ksp_info) {
@@ -62,11 +68,11 @@ int BPF_USDT(launch_kernel, __u64 gpu_addr, __u64 size, char *kernel_name) {
         return 0;
 }
 
-SEC("usdt//data/projects/iaprof/intel-graphics-stack/install/lib/libze_intel_gpu.so.1:level_zero:compile_kernel")
+USDT_SEC_PLACEHOLDER("level_zero:compile_kernel")
 int BPF_USDT(compile_kernel, char *file_name) {
         struct uprobe_kernel_path  *kpath;
         long                       err;
-        
+
         /* Send the KSP_INFO */
         kpath = bpf_ringbuf_reserve(&rb, sizeof(*kpath), 0);
         if (!kpath) {
@@ -80,7 +86,7 @@ int BPF_USDT(compile_kernel, char *file_name) {
         kpath->pid  = bpf_get_current_pid_tgid() >> 32;
         kpath->tid  = bpf_get_current_pid_tgid();
         bpf_probe_read_user_str(kpath->filename, sizeof(kpath->filename), file_name);
-        
+
         bpf_ringbuf_submit(kpath, BPF_RB_FORCE_WAKEUP);
 
         return 0;

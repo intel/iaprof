@@ -9,7 +9,7 @@ KERNEL_HEADERS_DIR := $(ROOT_DIR)/kernel_headers
 
 all: bpftool elfutils igc kernel_headers
 
-bpftool: $(PREFIX)/bpftool/bin/bpftool $(PREFIX)/bpftool/lib/libbpf.a $(PREFIX)/libbpf/include
+bpftool: $(PREFIX)/bpftool/bin/bpftool $(PREFIX)/bpftool/lib/libbpf.a $(PREFIX)/libbpf/include $(PREFIX)/bpftool/include
 
 $(PREFIX)/bpftool/bin/bpftool:
 	$(MAKE) -C bpftool/src bpftool

@@ -28,6 +28,7 @@ limitations under the License.
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <regex.h>
 
 #include <bpf/libbpf.h>
 #include <bpf/bpf.h>
@@ -42,6 +43,7 @@ limitations under the License.
 #include "printers/interval/interval_printer.h"
 
 #include "bpf/main.h"
+#include "bpf/preload.skel.h"
 #include "bpf/main.skel.h"
 #include "bpf_collector.h"
 
@@ -189,7 +191,7 @@ int handle_uprobe_ksp(void *data_arg)
                 shader->type = SHADER_TYPE_SHADER;
                 debug_printf("  Marked buffer as a shader: gpu_addr=0x%lx\n", shader->gpu_addr);
         }
-        
+
         debug_printf("handle_uprobe_ksp addr=0x%lx size=%llu\n", masked_addr, info->size);
 
         shader->size         = info->size;
@@ -276,7 +278,7 @@ int handle_uprobe_kernel_path(void *data_arg)
         struct stat stat;
         int fd, err;
         unsigned char *addr;
-        
+
         info = (struct uprobe_kernel_path *)data_arg;
         fd = open(info->filename, O_RDONLY);
         if (fd < 0) {
@@ -296,15 +298,15 @@ int handle_uprobe_kernel_path(void *data_arg)
                 return 0;
         }
         close(fd);
-        
+
         /* Check for the ELF magic bytes */
         if (*((uint32_t *)addr) == 0x464c457f) {
                 extract_elf_kernel_info(addr, stat.st_size);
         }
-        
+
         munmap(addr, stat.st_size);
         unlink(info->filename);
-        
+
         return 0;
 }
 
@@ -381,6 +383,21 @@ int init_bpf()
                                  "stackmap", 4, sizeof(uintptr_t) * stack_limit,
                                  1<<14, 0);
 
+        bpf_info.preload_obj = preload_bpf__open_and_load();
+        if (!bpf_info.preload_obj) {
+                ERR("Failed to get BPF object.\n"
+                    "       Most likely, one of two things are true:\n"
+                    "       1. You're not root.\n"
+                    "       2. You don't have a kernel that supports BTF type information.\n");
+                return -1;
+        }
+
+        err = preload_bpf__attach(bpf_info.preload_obj);
+        if (err) {
+                ERR("Failed to attach BPF programs.\n");
+                return -1;
+        }
+
         bpf_info.obj = main_bpf__open_and_load();
         if (!bpf_info.obj) {
                 ERR("Failed to get BPF object.\n"
@@ -388,6 +405,28 @@ int init_bpf()
                     "       1. You're not root.\n"
                     "       2. You don't have a kernel that supports BTF type information.\n");
                 return -1;
+        }
+
+        const char *replace_path = "/home/bkammerd/projects/intel/graphics-stack/install/lib/libze_intel_gpu.so.1";
+
+        regex_t reg;
+        regmatch_t match[2];
+        regcomp(&reg, "usdt/[ ]{4096}(:.*)", REG_EXTENDED);
+
+        INFO("%u progs to patch\n", bpf_info.preload_obj->bss->prog_count);
+        for (__u32 p = 0; p < bpf_info.preload_obj->bss->prog_count; p += 1) {
+            char *sec_name_ptr = NULL;
+            bpf_map__lookup_elem(bpf_info.preload_obj->maps.prog_sec_names, &p, sizeof(p), &sec_name_ptr, sizeof(sec_name_ptr), 0);
+            char *cpy = strdup(sec_name_ptr);
+            memset(sec_name_ptr, 0, strlen(sec_name_ptr));
+
+            regexec(&reg, cpy, 2, match, 0);
+
+            strcat(sec_name_ptr, "usdt/");
+            memcpy(sec_name_ptr + strlen(sec_name_ptr), replace_path, strlen(replace_path) + 1);
+            memcpy(sec_name_ptr + strlen(sec_name_ptr), cpy + match[1].rm_so, match[1].rm_eo - match[1].rm_so + 1);
+
+            INFO("%s\n", sec_name_ptr);
         }
 
         err = main_bpf__attach(bpf_info.obj);
