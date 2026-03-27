@@ -1,4 +1,5 @@
 *.o
+*.gch
 results/
 bude
 tags
@@ -21,9 +22,13 @@ reference/*.changes
 reference/pkgs
 
 .yedrc
+.rgignore
+compile_commands.json
+.cache
 
 deps/bpftool.log
 deps/igc.log
-iaprof
+build
+blazesym
 
 src/i915_helpers/i915_drm_prelim.h
