@@ -58,7 +58,6 @@ void EU_Stall_Collector::eustall_thread(EU_Stall_Collector &eustall_collector) {
                     auto *sample = (EU_Stall_Sample *)(buff + i);
                     eustall_collector.handle_sample(*sample);
                 }
-
             }
         }
     }

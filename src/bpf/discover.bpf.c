@@ -35,7 +35,7 @@ int BPF_PROG(xe_vm_bind_ioctl, struct drm_device *dev, void *data, struct drm_fi
         if (!discover_info) {
             ERR_PRINTK("xe_vm_bind_ioctl failed to reserve in the ringbuffer.");
             err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-            DEBUG_PRINTK("Unconsumed data: %lu", err);
+            DEBUG_PRINTK("Unconsumed data: %lu", err); (void)err;
             return 0;
         }
         discover_info->type = DISCOVER_LIBZE_INTEL_GPU;

@@ -18,7 +18,7 @@ mkdir -p build/bpf_obj
 mkdir -p build/generated_headers
 
 
-DEBUG="yes"
+# DEBUG="yes"
 CC=clang
 CXX=clang++
 BPFTOOL="deps/install/bpftool/bin/bpftool"
@@ -50,7 +50,7 @@ if [[ "${DEBUG}" == "yes" ]]; then
     OPT+="-g -O0"
     CFLAGS+=" -DDEBUG"
 else
-    OPT+="-O3"
+    OPT+="-O3 -march=native -mtune=native"
 fi
 
 pids=()

@@ -3,172 +3,180 @@
 
 ## Introduction
 
+> **Note:** This version targets Xe-family consumer and data center GPUs. If you
+> were using `iaprof` on the Intel® Tiber™ AI Cloud with a PVC device, see the
+> [`tiber`](https://github.com/intel/iaprof/tree/tiber) tag.
 
-This tool collects profiles of Intel AI accelerator and GPU performance based on hardware sampling,
-and generates visualizations from these results: AI flame graphs and GPU flame graphs.
+This tool collects profiles of Intel GPU performance based on hardware sampling and
+generates visualizations from the results: AI flame graphs and subsecond-offset heatmaps.
 
-Specifically, it combines [EU stalls](https://www.intel.com/content/www/us/en/docs/gpa/user-guide/2022-4/gpu-metrics.html),
-CPU stacks, and AI/GPU kernel information to provide a link between CPU code and
-GPU performance metrics. Using the resulting profile, it can create advanced
-visualizations which can greatly help AI/GPU performance analysis:
+It combines [EU stalls](https://www.intel.com/content/www/us/en/docs/gpa/user-guide/2022-4/gpu-metrics.html),
+CPU stacks, and GPU kernel information to link CPU code to GPU performance metrics.
+The resulting profile output can be consumed by external tools to generate
+visualizations such as:
 1. [Flame Graphs](https://www.brendangregg.com/blog/2024-10-29/ai-flame-graphs.html)
-2. [FlameScope](https://www.brendangregg.com/blog/2018-11-08/flamescope-pattern-recognition.html)
+2. [FlameScope](https://www.brendangregg.com/blog/2018-11-08/flamescope-pattern-recognition.html)-style subsecond-offset heatmaps
 
-The following hardware platforms are supported on Linux:
-1. Intel® Data Center GPU Max Series (code named Ponte Vecchio)
-2. Intel® Arc™ B-series graphics cards (code named Battlemage)
-3. Other Intel® Xe2-based graphics cards, including Lunar Lake's iGPU (untested)
+The following Intel Xe-family hardware is supported on Linux:
+- Intel® Arc™ B-series graphics cards (Battlemage)
+- Intel® Core™ Ultra processors with Intel® Arc™ graphics (Lunar Lake)
+- Other Intel® Xe2-based devices (untested)
 
 
 ## Prerequisites
 
 
-Specific requirements depend on your platform.
-If you are on the Intel® Tiber™ AI Cloud[^1], please see [here](docs/README.pvc.md).
-If you are on a Battlemage discrete graphics card, please see [here](docs/README.bmg.md).
+### Linux Kernel
 
-Various software stack changes may be required, including:
+You will need Linux 6.15 or later, which includes [EU stall sampling support](https://patchwork.freedesktop.org/series/145443/) for the xe driver.
 
-### Custom Kernel Driver
+[BTF type information](https://docs.kernel.org/bpf/btf.html) is required for both
+`vmlinux` and the xe driver. These are typically found at `/sys/kernel/btf/vmlinux`
+and `/sys/kernel/btf/xe` once the driver is loaded. If `/sys/kernel/btf/xe` is
+absent, your kernel may have been built without `CONFIG_DEBUG_INFO_BTF_MODULES=y`.
 
-A custom Linux kernel driver may be required depending on your platform.
-Details for supported platforms are below.
+
+### Level Zero Runtime with USDT Probes
+
+`iaprof` uses [USDT probes](https://lwn.net/Articles/753601/) in `libze_intel_gpu`
+(the Intel GPU Level Zero runtime) to observe GPU kernel launches and collect kernel
+debug information. Standard NEO releases do not yet include these probes; until they
+are upstreamed, a patched build is required.
+
+Patches against a supported NEO release are provided on the
+[Releases](https://github.com/intel/iaprof/releases) page.
+
+> **Note:** Documentation for the specific NEO version and patch instructions is coming soon.
+
 
 ### Frame Pointers
 
-In general, a profiled application’s code and all of its dependencies must be
-compiled with [frame pointers
-enabled](https://www.brendangregg.com/blog/2024-03-17/the-return-of-the-frame-pointers.html)
-in order to get reliable CPU stacks in the profiler’s output. Enabling this
-typically requires adding these flags to the C/C++ compile commands:
+The profiled application and its dependencies — including the graphics stack — must
+be compiled with frame pointers enabled in order to collect reliable CPU stacks.
+Add these flags to C/C++ compile commands:
 
 ```
 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer
 ```
 
-If you do not have control over the build process for a particular
-library/project, look for packages that build it specifically with frame
-pointers enabled (e.g. `libc-prof` on older Ubuntu). Otherwise please submit
-requests/issues with the project maintainers to add frame pointer support in
-their next release.
-
-### BTF Type Information
-
-You will need to have [BTF type
-information](https://docs.kernel.org/bpf/btf.html) for at least `vmlinux`; for
-most distributions, this is stored in `/sys/kernel/btf/vmlinux`. You may need
-additional BTF files for your kernel driver, depending on your driver and
-use-case. Please see the corresponding README in `docs/` for more details.
-
-### Application and Runtime Configuration
-
-Collection of enhanced GPU kernel information might require the modification of
-applications and runtimes. For example, applications that use the Vulkan API
-may need to be modified to provide shader names to the runtime.
+Work is in progress to have frame pointer support integrated into official graphics
+stack packages. In the meantime, you will need to rebuild relevant libraries from
+source with the flags above.
 
 
-## Building `iaprof`
-
-*Note: customers of the Intel® Tiber™ AI Cloud[^1] may choose to use a prebuilt binary release.*
+## Building
 
 Install build dependencies:
 ```
-sudo apt install libelf-dev g++-12 llvm clang python3-mako cmake libzstd-dev
+sudo apt install libelf-dev clang llvm python3-mako cmake libzstd-dev
 ```
 
-Clone repo and build:
+A Rust toolchain is also required. The recommended way to install one is via
+[rustup](https://rustup.rs) rather than the `cargo` package from apt, which is
+often out of date:
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Clone the repo and build:
 ```
 git clone --recursive https://github.com/intel/iaprof
 cd iaprof
 make deps
-make
+./build.sh
 ```
-NOTE: if the `make deps` step fails, ensure that you have `user.name` and `user.email` set in your `git` config.
 
-## Running `iaprof`
+NOTE: if the `make deps` step fails, ensure that `user.name` and `user.email` are
+set in your git config.
 
-A helper script is provided to run `iaprof` and generate SVG flame graphs for you:
-- Run the script, `aiflamegraph.sh` and wait for initialization (can take up to a minute in some cases) e.g.:
-  
-  ```
-  sudo ./scripts/aiflamegraph.sh
-  ```
-- Run a GPU based workload, e.g. an example from the [oneAPI samples](https://github.com/oneapi-src/oneAPI-samples)
-- Interrupt the `aiflamegraph.sh` script with `ctrl-C` at any time to stop profiling.
-- Open the generated flame graph SVG file in a browser or other image viewer.
+The built binary is placed at `build/iaprof`.
 
 
-## Interpreting the Output
+## Running
 
-The output of this tool is a flame graph (see [Brendan Gregg's
-page](https://www.brendangregg.com/flamegraphs.html)) SVG file. You can view
-this file in any browser or some other preferred image viewer. It is interactive
-and allows you to zoom in on stack frames of interest and search around for a
-symbol or pattern.
+Start the profiler (requires root):
+```
+sudo build/iaprof > profile.txt
+```
 
-The top frames in blue of each stack indicate the GPU instruction being executed
-for a collected EU stall sample. The yellow/orange/red/pink frames below them
-are the CPU stack frames that launched the sampled GPU kernel. Each frame’s
-rectangle’s width represents how often it appeared in the stack below, giving an
-indication of how “heavy” a particular stack was.
+Run your GPU workload. When done, interrupt `iaprof` with `ctrl-C`.
 
-The example below shows a simple program for SYCL (a high-level C++ language for
-accelerators) that tests three implementations of matrix multiply, running them
-with the same input workload. The flame graph is dominated by the slowest
-implementation, multiply\_basic(), which doesn't use any optimizations and
-consumes at 72% of stall samples and is shown as the widest tower. On the right
-are two thin towers for multiply\_local\_access() at 21% which replaces the
-accessor with a local variable, and multiply\_local\_access\_and\_tiling() at 6%
-which also adds matrix tiling. The towers are getting smaller as optimizations
-are added.
-
-![PyTorch Example](docs/example_sycl_matmul.png)
-
-This is a useful visualization of the performance of your AI workload because it
-allows you to correlate CPU code from several layers including Python
-frameworks, runtime libraries, and the OS kernel to a meaningful measurement of
-GPU execution.
+You can tune collection with the following options:
+- `--interval=MS` — output interval in milliseconds (default: 10)
+- `--eu-stall-subsample=N` — process one out of every N EU stall samples (default: 100)
 
 
-# Troubleshooting / FAQ
+## Workload-specific Requirements
 
-### What about other hardware including NVIDIA?
+> **Note:** This section is incomplete. More detailed per-framework guidance is coming once frame pointer support is available in official graphics stack packages.
 
-This is a new project that currently only supports limited Intel hardware listed in the Introduction.
+### Python
+
+Python added perf support (and frame pointer support through trampolines) in version
+3.12. This is the minimum required version for profiling with this tool. The CPython
+interpreter itself must also be compiled with frame pointers enabled.
+
+Set this environment variable before running a Python workload to enable perf support:
+
+```
+export PYTHONPERFSUPPORT=1
+```
+
+### PyTorch
+
+PyTorch workloads typically use a mix of SYCL, oneDNN, and oneMKL kernels. Frame
+pointers must be enabled for the following components:
+
+- PyTorch itself
+- IPEX (Intel Extension for PyTorch)
+- oneCCL and its PyTorch bindings (a dependency of IPEX)
+- The SYCL runtime
+- oneMKL
+- oneDNN
+
+> **Note:** Guidance on which of these components may already ship with frame pointers on supported distributions is coming soon.
+
+
+## Visualizing
+
+The `iaprof` output format is a tab-separated text stream that can be consumed by
+external tools. [ProVis](https://github.com/kammerdienerb/proviz) is one such tool
+that reads this format and generates flame graphs and subsecond-offset heatmaps. A
+conversion script for producing standard
+[stackcollapse](https://github.com/BrendanGregg/FlameGraph) output (compatible with
+`flamegraph.pl` and other tools) is also planned.
+
+> **Note:** The stackcollapse conversion script is not yet available.
+
+
+## Troubleshooting / FAQ
 
 ### Can I use iaprof as a continuous profiler?
 
-Our aim is to have overhead less than 5% (CPU footprint), however, the current overhead is expected to be larger, and for i915 workloads much larger. This makes the current version unsuitable for continuous profiling, however, we aim to change that in the future. Additional work is also needed to support multiple transient workloads (such as with a multi-tenant environment) as would be seen by a continuous profiler, rather than the current version that profiles a single active workload. To be clear: If you turn this into a continuous profiler without first addressing these issues you will produce invalid and costly profiles, giving people a bad experience.
+The overhead of `iaprof` is low, but the current version is not designed for
+continuous profiling. It profiles a single active workload and does not handle
+multiple transient workloads as would be seen in a multi-tenant environment.
 
-### **CPU stacks don’t go all the way back to \_start/main:**
+### CPU stacks don't go all the way back to `_start`/`main`
 
-Ensure that all code is compiled to include frame pointers as described above.
-If your CPU stack ends in one frame of libfoo.so, it libfoo.so is likely not
-compiled with frame pointers.
-    
-### **My code has frame pointers enabled and some CPU stacks are *still* incomplete:**  
-  	
-One reason that stacks can be incomplete is that they are simply deeper than the
-maximum stack depth that the linux kernel will collect. This limit can be set as
-follows:
+Ensure all code is compiled with frame pointers as described above. If your CPU
+stack ends in one frame of `libfoo.so`, that library is likely missing frame pointers.
+
+### Some CPU stacks are incomplete even with frame pointers enabled
+
+Stacks can be truncated if they exceed the kernel's collection limit. Raise it with:
 
 ```
 sudo sysctl kernel.perf_event_max_stack=512
 sudo sysctl kernel.perf_event_max_contexts_per_stack=64
 ```
 
-If your stack ends prematurely, but is below the max stack depth, it could be
-related to the kernel’s intolerance for page faults in the stack collection
-code. The Linux kernel routine that collects FP stack traces will stop
-prematurely if it encounters a non-resident stack page, resulting in an
-incomplete stack. This is unlikely to be the case, but we’ve seen it happen with
-NUMA balancing. Memory pressure could also be causing parts of the stack to get
-swapped out.
+If stacks are still truncated below that depth, it may be due to the kernel stopping
+early on encountering a non-resident stack page. This can occur under memory pressure
+or with NUMA balancing enabled.
 
-### **My workload runs slowly when the profiler is enabled.**
+### My workload runs slower with the profiler enabled
 
-This tool can introduce a moderate amount of overhead for many workloads.
-Efforts are being made to reduce overhead in the future. For now, this is not an
-“always on” profiling tool.
-
-[^1]: *Intel, the Intel logo and Intel Tiber are trademarks of Intel Corporation or its subsidiaries.*
+`iaprof` is designed to have low overhead, but some slowdown may still be
+noticeable depending on the workload. If `iaprof` itself is consuming significant
+CPU, the `--eu-stall-subsample` option can reduce its processing load.

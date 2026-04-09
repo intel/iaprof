@@ -64,7 +64,7 @@ int BPF_USDT(compile_kernel, char *file_name) {
     if (!kernel_path_event) {
         ERR_PRINTK("compile_kernel failed to reserve in the ringbuffer.");
         err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
-        DEBUG_PRINTK("Unconsumed data: %lu", err);
+        DEBUG_PRINTK("Unconsumed data: %lu", err); (void)err;
         return 0;
     }
     kernel_path_event->type = PROBE_EVENT_KERNEL_PATH;
