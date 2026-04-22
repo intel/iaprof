@@ -1,0 +1,50 @@
+diff --git a/level_zero/core/source/module/module_imp.cpp b/level_zero/core/source/module/module_imp.cpp
+index 3e0ea86c05..fd65c3ba0d 100644
+--- a/level_zero/core/source/module/module_imp.cpp
++++ b/level_zero/core/source/module/module_imp.cpp
+@@ -1616,7 +1616,7 @@ ze_result_t ModuleImp::destroy() {
+ void ModuleImp::registerElfInDebuggerL0() {
+     auto debuggerL0 = device->getL0Debugger();
+ 
+-    if (this->type != ModuleType::user || !debuggerL0) {
++    if (!debuggerL0) {
+         return;
+     }
+ 
+@@ -1645,7 +1645,10 @@ void ModuleImp::registerElfInDebuggerL0() {
+             segmentAllocs.push_back(translationUnit->globalConstBuffer);
+         }
+ 
+-        debuggerL0->attachZebinModuleToSegmentAllocations(segmentAllocs, this->debugModuleHandle, this->debugElfHandle);
++
++        if (this->type == ModuleType::user) {
++            debuggerL0->attachZebinModuleToSegmentAllocations(segmentAllocs, this->debugModuleHandle, this->debugElfHandle);
++        }
+     } else {
+         for (auto &kernImmData : kernelImmDatas) {
+             if (kernImmData->getKernelInfo()->kernelDescriptor.external.debugData.get()) {
+diff --git a/opencl/source/program/build.cpp b/opencl/source/program/build.cpp
+index 9ee3b0fbef..e0f94074c7 100644
+--- a/opencl/source/program/build.cpp
++++ b/opencl/source/program/build.cpp
+@@ -65,6 +65,8 @@ cl_int Program::build(
+                 }
+             }
+ 
++            options.append(" -g");
++
+             const bool shouldSuppressRebuildWarning{CompilerOptions::extract(CompilerOptions::noRecompiledFromIr, options)};
+             extractInternalOptions(options, internalOptions);
+             CompilerOptions::applyAdditionalApiOptions(options);
+diff --git a/shared/source/built_ins/kernels/CMakeLists.txt b/shared/source/built_ins/kernels/CMakeLists.txt
+index b86efe3a01..717f01c863 100644
+--- a/shared/source/built_ins/kernels/CMakeLists.txt
++++ b/shared/source/built_ins/kernels/CMakeLists.txt
+@@ -77,6 +77,7 @@ function(compile_builtin core_type platform_it builtin bits builtin_options mode
+   endif()
+ 
+   list(APPEND __ocloc__options__ "-cl-kernel-arg-info")
++  list(APPEND __ocloc__options__ "-g")
+   set(INTERNAL_OPTIONS "${${mode}_INTERNAL_OPTIONS}")
+   add_custom_command(
+                      OUTPUT ${OUTPUT_FILE_SPV}
