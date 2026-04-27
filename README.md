@@ -144,10 +144,7 @@ external tools. [ProVis](https://github.com/kammerdienerb/proviz) is one such to
 that reads this format and generates flame graphs and subsecond-offset heatmaps. A
 conversion script for producing standard
 [stackcollapse](https://github.com/BrendanGregg/FlameGraph) output (compatible with
-`flamegraph.pl` and other tools) is also planned.
-
-> **Note:** The stackcollapse conversion script is not yet available.
-
+`flamegraph.pl` and other tools) can be found in `scripts/iaprof_to_stack_collapse.sh`.
 
 ## Troubleshooting / FAQ
 
