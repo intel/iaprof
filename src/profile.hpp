@@ -95,6 +95,7 @@ class Profile {
     std::unordered_map<stack, u64, Stack_Hash, Stack_Equal>            cpu_stack_string_ids;
     std::map<u64, std::unique_ptr<GPU_Kernel>>                         kernels;
     std::shared_mutex                                                  kernels_mtx;
+    EU_Stall_Profile                                                   all_stalls;
     std::mutex                                                         output_mtx;
 
     template <typename... Args>
@@ -111,11 +112,11 @@ class Profile {
     std::pair<u64, std::reference_wrapper<const std::string>> get_string_id(const struct stack &cpu_stack);
 
     GPU_Kernel *get_or_create_kernel(u64 addr);
+    std::optional<Locked_GPU_Kernel> find_kernel_at(u64 addr);
 
 public:
-
     Locked_GPU_Kernel set_kernel_launch_info(u64 addr, u64 size, char command_name[TASK_COMM_LEN], u32 pid, struct stack &cpu_stack);
     Locked_GPU_Kernel set_kernel_debug_info(u64 addr, std::string symbol, std::string filename, int line, std::vector<char> binary);
-    std::optional<Locked_GPU_Kernel> find_kernel_at(u64 addr);
+    bool add_eustall_sample(u64 gpu_addr, const EU_Stall_Sample &sample);
     void output_interval();
 };

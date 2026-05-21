@@ -264,10 +264,7 @@ function apply_patch_to_compute_runtime() {
 }
 
 if [[ "${NO_PATCHES}" != true ]]; then
-#     apply_patch_to_compute_runtime ${BASEDIR}/compute-runtime-usdt.diff
-#     apply_patch_to_compute_runtime ${BASEDIR}/compute-runtime-kernel-debug-info.diff
-    apply_patch_to_compute_runtime ${BASEDIR}/compute-runtime-usdt-25.18.33578.6.diff
-    apply_patch_to_compute_runtime ${BASEDIR}/compute-runtime-kernel-debug-info-25.18.33578.6.diff
+    apply_patch_to_compute_runtime ${BASEDIR}/compute-runtime-25.18.33578.6.diff
 fi
 
 if [[ "${NO_FP}" != true ]]; then

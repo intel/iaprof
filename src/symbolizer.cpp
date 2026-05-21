@@ -146,32 +146,19 @@ static void extract_dwarf_debug_info(Elf *elf, std::vector<Elf_Symbol> &syms) {
     dwarf_end(dwarf);
 }
 
-std::vector<Elf_Symbol> Symbolizer::parse_elf(const char *path) {
+std::vector<Elf_Symbol> Symbolizer::parse_elf(Elf *elf) {
     std::vector<Elf_Symbol> results;
-
-    int fd = open(path, O_RDONLY);
-
-    if (fd < 0) {
-        WARN("failed to open ELF file {}\n", path);
-        return {};
-    }
-
-    Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
-    if (elf == NULL) {
-        WARN("{} is not a valid ELF file\n", path);
-        return {};
-    }
 
     Elf64_Ehdr *elf_header = elf64_getehdr(elf);
     if (elf_header == NULL) {
-        WARN("Failed to get the ELF header for {}.\n", path);
-        goto cleanup;
+        WARN("Failed to get the ELF header.\n");
+        return {};
     }
 
     size_t string_table_index;
     if (elf_getshdrstrndx(elf, &string_table_index) != 0) {
-        WARN("Failed to get the index of the ELF string table for {}.\n", path);
-        goto cleanup;
+        WARN("Failed to get the index of the ELF string table.\n");
+        return {};
     }
 
     {
@@ -180,9 +167,9 @@ std::vector<Elf_Symbol> Symbolizer::parse_elf(const char *path) {
         while (section != NULL) {
             Elf64_Shdr *section_header = elf64_getshdr(section);
             if (section_header == NULL) {
-                WARN("There was an error reading the ELF section headers for {}.\n", path);
+                WARN("There was an error reading the ELF section headers.\n");
                 results.clear();
-                goto cleanup;
+                return {};
             }
 
             if (section_header->sh_type == SHT_SYMTAB) {
@@ -209,12 +196,50 @@ std::vector<Elf_Symbol> Symbolizer::parse_elf(const char *path) {
 
     extract_dwarf_debug_info(elf, results);
 
-cleanup:
+    return results;
+}
+
+std::vector<Elf_Symbol> Symbolizer::parse_elf(char *image, size_t size) {
+    Elf *elf = elf_memory(image, size);
+    if (elf == NULL) {
+        WARN("Invalid ELF file\n");
+        return {};
+    }
+
+    auto results = this->parse_elf(elf);
+
     elf_end(elf);
+
+    return results;
+}
+
+std::vector<Elf_Symbol> Symbolizer::parse_elf(const char *path) {
+    int fd = open(path, O_RDONLY);
+
+    if (fd < 0) {
+        WARN("failed to open ELF file {}\n", path);
+        return {};
+    }
+
+    Elf *elf = elf_begin(fd, ELF_C_READ, NULL);
+    if (elf == NULL) {
+        WARN("{} is not a valid ELF file\n", path);
+        return {};
+    }
+
+    auto results = this->parse_elf(elf);
+
+    elf_end(elf);
+
+    close(fd);
 
     return results;
 }
 
 std::vector<Elf_Symbol> Symbolizer::get_elf_symbols(const char *path) {
     return this->parse_elf(path);
+}
+
+std::vector<Elf_Symbol> Symbolizer::get_elf_symbols(char *elf_data, size_t elf_size) {
+    return this->parse_elf(elf_data, elf_size);
 }

@@ -95,8 +95,49 @@ int BPF_Collector::handle_probe_event_iba(probe_event_iba *iba_event) {
     return 0;
 }
 
+std::vector<char> read_process_memory(pid_t pid, u64 addr, size_t size) {
+    std::string path = "/proc/" + std::to_string(pid) + "/mem";
+
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd < 0) {
+        WARN("Failed to open {}\n", path);
+        return {};
+    }
+
+    std::vector<char> buf(size);
+
+    size_t total = 0;
+
+    while (total < size) {
+        ssize_t n = pread(fd, buf.data() + total, size - total, addr + total);
+        if (n <= 0) { break; }
+        total += n;
+    }
+
+    close(fd);
+
+    buf.resize(total);
+
+    return buf;
+}
+
 int BPF_Collector::handle_probe_event_kernel_launch(probe_event_kernel_launch *kernel_launch_event) {
+    static std::unordered_set<u64> seen_elf_hashes;
+
     u64 addr = device_info.canonicalize(kernel_launch_event->addr);
+
+    if (!seen_elf_hashes.contains(kernel_launch_event->elf_hash)) {
+        INFO("new ELF image\n");
+        std::vector<char> elf_image = read_process_memory(kernel_launch_event->pid, kernel_launch_event->elf_addr, kernel_launch_event->elf_size);
+        if (elf_image.size() > 0) {
+            auto syms = symbolizer.get_elf_symbols(elf_image.data(), elf_image.size());
+
+            for (auto &sym : syms) {
+                profile.set_kernel_debug_info(device_info.canonicalize(sym.addr), sym.symbol, sym.filename, sym.line, sym.binary);
+            }
+        }
+        seen_elf_hashes.insert(kernel_launch_event->elf_hash);
+    }
 
     profile.set_kernel_launch_info(addr, kernel_launch_event->size, kernel_launch_event->name, kernel_launch_event->pid, kernel_launch_event->stack);
 

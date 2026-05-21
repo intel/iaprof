@@ -43,6 +43,10 @@ struct probe_event_kernel_launch {
     __u64        addr;
     __u64        size;
 
+    __u64        elf_addr;
+    __u64        elf_size;
+    __u64        elf_hash;
+
     struct stack stack;
 
     __u64        time;

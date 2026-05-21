@@ -27,6 +27,7 @@ limitations under the License.
 #include <vector>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <format>
 #include <print>
 #include <filesystem>

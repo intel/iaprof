@@ -72,29 +72,15 @@ EU_Stall_Collector::~EU_Stall_Collector() {
 bool EU_Stall_Collector::handle_sample(const EU_Stall_Sample &sample) {
     u64 addr = ((u64)sample.ip << 3) + this->iba;
 
-    if (auto locked_kernel = profile.find_kernel_at(addr)) {
-        u64 offset = addr - (*locked_kernel)->gpu_addr;
+    bool matched = profile.add_eustall_sample(addr, sample);
 
-        auto &oprof = (*locked_kernel)->offset_profile[offset];
-
-        oprof.active     += sample.active;
-        oprof.control    += sample.control;
-        oprof.pipestall  += sample.pipestall;
-        oprof.send       += sample.send;
-        oprof.dist_acc   += sample.dist_acc;
-        oprof.sbid       += sample.sbid;
-        oprof.sync       += sample.sync;
-        oprof.inst_fetch += sample.inst_fetch;
-        oprof.other      += sample.other;
-        oprof.tdr        += sample.tdr;
-
+    if (matched) {
         this->matched += 1;
     } else {
         this->unmatched += 1;
-        return false;
     }
 
-    return true;
+    return matched;
 }
 
 bool EU_Stall_Collector::init() {

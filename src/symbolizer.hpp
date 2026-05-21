@@ -28,14 +28,20 @@ struct Elf_Symbol {
     std::vector<char> binary;
 };
 
+struct Elf;
+
 class Symbolizer {
     blaze_symbolizer *bsym =  nullptr;
 
+
+    std::vector<Elf_Symbol> parse_elf(Elf *elf);
     std::vector<Elf_Symbol> parse_elf(const char *path);
+    std::vector<Elf_Symbol> parse_elf(char *image, size_t size);
 
 public:
     Symbolizer();
 
     std::optional<std::string> get_sym(u32 pid, u64 addr);
     std::vector<Elf_Symbol> get_elf_symbols(const char *path);
+    std::vector<Elf_Symbol> get_elf_symbols(char *elf_data, size_t elf_size);
 };

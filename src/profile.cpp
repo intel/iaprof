@@ -140,6 +140,24 @@ GPU_Kernel *Profile::get_or_create_kernel(u64 addr) {
     return inserted->second.get();
 }
 
+std::optional<Locked_GPU_Kernel> Profile::find_kernel_at(u64 addr) {
+    std::shared_lock lock(this->kernels_mtx);
+
+    auto it = this->kernels.upper_bound(addr);
+    if (it == this->kernels.begin()) {
+        return {};
+    }
+
+    --it;
+    GPU_Kernel *kernel = it->second.get();
+
+    if (addr >= kernel->gpu_addr + kernel->size) {
+        return {};
+    }
+
+    return Locked_GPU_Kernel(*kernel);
+}
+
 Locked_GPU_Kernel Profile::set_kernel_launch_info(u64 addr, u64 size, char command_name[TASK_COMM_LEN], u32 pid, struct stack &cpu_stack) {
     GPU_Kernel *kernel = this->get_or_create_kernel(addr);
 
@@ -193,22 +211,38 @@ Locked_GPU_Kernel Profile::set_kernel_debug_info(u64 addr, std::string symbol, s
     return Locked_GPU_Kernel(*kernel);
 }
 
-std::optional<Locked_GPU_Kernel> Profile::find_kernel_at(u64 addr) {
-    std::shared_lock lock(this->kernels_mtx);
+bool Profile::add_eustall_sample(u64 gpu_addr, const EU_Stall_Sample &sample) {
+    this->all_stalls.active     += sample.active;
+    this->all_stalls.control    += sample.control;
+    this->all_stalls.pipestall  += sample.pipestall;
+    this->all_stalls.send       += sample.send;
+    this->all_stalls.dist_acc   += sample.dist_acc;
+    this->all_stalls.sbid       += sample.sbid;
+    this->all_stalls.sync       += sample.sync;
+    this->all_stalls.inst_fetch += sample.inst_fetch;
+    this->all_stalls.other      += sample.other;
+    this->all_stalls.tdr        += sample.tdr;
 
-    auto it = this->kernels.upper_bound(addr);
-    if (it == this->kernels.begin()) {
-        return {};
+    if (auto locked_kernel = this->find_kernel_at(gpu_addr)) {
+        u64 offset = gpu_addr - (*locked_kernel)->gpu_addr;
+
+        auto &oprof = (*locked_kernel)->offset_profile[offset];
+
+        oprof.active     += sample.active;
+        oprof.control    += sample.control;
+        oprof.pipestall  += sample.pipestall;
+        oprof.send       += sample.send;
+        oprof.dist_acc   += sample.dist_acc;
+        oprof.sbid       += sample.sbid;
+        oprof.sync       += sample.sync;
+        oprof.inst_fetch += sample.inst_fetch;
+        oprof.other      += sample.other;
+        oprof.tdr        += sample.tdr;
+
+        return true;
     }
 
-    --it;
-    GPU_Kernel *kernel = it->second.get();
-
-    if (addr >= kernel->gpu_addr + kernel->size) {
-        return {};
-    }
-
-    return Locked_GPU_Kernel(*kernel);
+    return false;
 }
 
 static std::string iga_disassemble(GPU_Kernel &kernel, u64 offset) {
@@ -295,6 +329,18 @@ void Profile::output_interval() {
 
             kernel_ptr->offset_profile.clear();
         }
+
+        this->output("metric\teu-stall-active\t{}\n",     this->all_stalls.active);
+        this->output("metric\teu-stall-control\t{}\n",    this->all_stalls.control);
+        this->output("metric\teu-stall-pipestall\t{}\n",  this->all_stalls.pipestall);
+        this->output("metric\teu-stall-send\t{}\n",       this->all_stalls.send);
+        this->output("metric\teu-stall-dist-acc\t{}\n",   this->all_stalls.dist_acc);
+        this->output("metric\teu-stall-sbid\t{}\n",       this->all_stalls.sbid);
+        this->output("metric\teu-stall-sync\t{}\n",       this->all_stalls.sync);
+        this->output("metric\teu-stall-inst-fetch\t{}\n", this->all_stalls.inst_fetch);
+        this->output("metric\teu-stall-tdr\t{}\n",        this->all_stalls.tdr);
+        this->output("metric\teu-stall-other\t{}\n",      this->all_stalls.other);
+        memset(&this->all_stalls, 0, sizeof(this->all_stalls));
 
         OA_Metrics metrics = OA_Collector::get().get_metrics();
         this->output("metric\tfrequency-MHz\t{}\n",   metrics.avg_mhz);

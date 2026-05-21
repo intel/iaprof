@@ -1,0 +1,388 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a11f884feb..f2bd03f11c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -76,6 +76,9 @@ endif()
+ 
+ include(GNUInstallDirs)
+ 
++option(NEO_ENABLE_USDT_PROBES "Emit USDT (SystemTap/DTrace) probes from the Level Zero command list. Linux only. Requires the dtrace wrapper from systemtap-sdt-dev and sys/sdt.h." OFF)
++option(NEO_ENABLE_KERNEL_DEBUG_INFO "Compile both built-in and runtime user kernels with debug info." OFF)
++
+ if(USE_SANITIZE_UB AND WIN32)
+   add_definitions(-D_ITERATOR_DEBUG_LEVEL=0)
+   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Xlinker /NODEFAULTLIB:clang_rt.ubsan_standalone_cxx-x86_64.lib")
+diff --git a/level_zero/core/source/cmdlist/CMakeLists.txt b/level_zero/core/source/cmdlist/CMakeLists.txt
+index f98011f559..c38537a70f 100644
+--- a/level_zero/core/source/cmdlist/CMakeLists.txt
++++ b/level_zero/core/source/cmdlist/CMakeLists.txt
+@@ -17,6 +17,8 @@ target_sources(${L0_STATIC_LIB_NAME}
+                ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist_hw_immediate.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist_hw_immediate.inl
+                ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist_launch_params.h
++               ${CMAKE_CURRENT_SOURCE_DIR}/launch_kernel_probe.cpp
++               ${CMAKE_CURRENT_SOURCE_DIR}/launch_kernel_probe.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist_extended${BRANCH_DIR_SUFFIX}cmdlist_extended.inl
+                ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}cmdlist_additional_args.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}mcl_cmdlist.h
+diff --git a/level_zero/core/source/cmdlist/cmdlist_hw_skl_to_tgllp.inl b/level_zero/core/source/cmdlist/cmdlist_hw_skl_to_tgllp.inl
+index ea503ff7b3..ac350cb31f 100644
+--- a/level_zero/core/source/cmdlist/cmdlist_hw_skl_to_tgllp.inl
++++ b/level_zero/core/source/cmdlist/cmdlist_hw_skl_to_tgllp.inl
+@@ -19,6 +19,7 @@
+ #include "shared/source/unified_memory/unified_memory.h"
+ #include "shared/source/utilities/software_tags_manager.h"
+ 
++#include "level_zero/core/source/cmdlist/launch_kernel_probe.h"
+ #include "level_zero/core/source/driver/driver_handle_imp.h"
+ #include "level_zero/core/source/kernel/kernel_imp.h"
+ 
+@@ -109,6 +110,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(K
+ 
+     appendEventForProfiling(event, nullptr, true, false, false, false);
+ 
++    emitLaunchKernelProbe(kernel, device);
++
+     auto perThreadScratchSize = std::max<std::uint32_t>(this->getCommandListPerThreadScratchSize(0u),
+                                                         kernel->getImmutableData()->getDescriptor().kernelAttributes.perThreadScratchSize[0]);
+     this->setCommandListPerThreadScratchSize(0u, perThreadScratchSize);
+diff --git a/level_zero/core/source/cmdlist/cmdlist_hw_xehp_and_later.inl b/level_zero/core/source/cmdlist/cmdlist_hw_xehp_and_later.inl
+index 710be73210..e932c303cd 100644
+--- a/level_zero/core/source/cmdlist/cmdlist_hw_xehp_and_later.inl
++++ b/level_zero/core/source/cmdlist/cmdlist_hw_xehp_and_later.inl
+@@ -22,6 +22,7 @@
+ #include "shared/source/utilities/software_tags_manager.h"
+ 
+ #include "level_zero/core/source/cmdlist/cmdlist_hw.h"
++#include "level_zero/core/source/cmdlist/launch_kernel_probe.h"
+ #include "level_zero/core/source/device/device.h"
+ #include "level_zero/core/source/driver/driver_handle_imp.h"
+ #include "level_zero/core/source/event/event.h"
+@@ -317,6 +318,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(K
+         appendEventForProfilingAllWalkers(compactEvent, nullptr, launchParams.outListCommands, true, true, launchParams.omitAddingEventResidency, false);
+     }
+ 
++    emitLaunchKernelProbe(kernel, device);
++
+     bool inOrderExecSignalRequired = false;
+     bool inOrderNonWalkerSignalling = false;
+ 
+diff --git a/level_zero/core/source/cmdlist/launch_kernel_probe.cpp b/level_zero/core/source/cmdlist/launch_kernel_probe.cpp
+new file mode 100644
+index 0000000000..132da2c738
+--- /dev/null
++++ b/level_zero/core/source/cmdlist/launch_kernel_probe.cpp
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (C) 2025 Intel Corporation
++ *
++ * SPDX-License-Identifier: MIT
++ *
++ */
++
++#include "level_zero/core/source/cmdlist/launch_kernel_probe.h"
++
++#include "shared/source/device/device.h"
++#include "shared/source/helpers/usdt_probes.h"
++#include "shared/source/kernel/kernel_descriptor.h"
++#include "shared/source/memory_manager/gfx_partition.h"
++#include "shared/source/memory_manager/graphics_allocation.h"
++#include "shared/source/memory_manager/memory_manager.h"
++
++#include "level_zero/core/source/device/device.h"
++#include "level_zero/core/source/kernel/kernel.h"
++#include "level_zero/core/source/module/module_imp.h"
++
++namespace L0 {
++
++void emitLaunchKernelProbe(Kernel *kernel, Device *device) {
++    if (!LEVEL_ZERO_LAUNCH_KERNEL_ENABLED()) {
++        return;
++    }
++
++    auto module = static_cast<ModuleImp *>(kernel->getModule());
++    auto isaAllocation = kernel->getIsaAllocation();
++    if (module == nullptr || isaAllocation == nullptr) {
++        return;
++    }
++
++    const uint64_t kernelStart = isaAllocation->getGpuAddress() + kernel->getIsaOffsetInParentAllocation();
++    const uint64_t kernelSize = kernel->getImmutableData()->getIsaSize();
++    const auto &kernelName = kernel->getKernelDescriptor().kernelMetadata.kernelName;
++
++    auto *neoDevice = device->getNEODevice();
++    const uint64_t iba = neoDevice->getMemoryManager()
++                             ->getGfxPartition(neoDevice->getRootDeviceIndex())
++                             ->getHeapBase(NEO::HeapIndex::heapInternalDeviceMemory);
++
++    LEVEL_ZERO_LAUNCH_KERNEL(iba,
++                             kernelStart,
++                             kernelSize,
++                             reinterpret_cast<uintptr_t>(kernelName.c_str()),
++                             module->getModuleDebugHash(),
++                             reinterpret_cast<uintptr_t>(module->getModuleDebugElfPtr()),
++                             static_cast<uint64_t>(module->getModuleDebugElfSize()));
++}
++
++} // namespace L0
+diff --git a/level_zero/core/source/cmdlist/launch_kernel_probe.h b/level_zero/core/source/cmdlist/launch_kernel_probe.h
+new file mode 100644
+index 0000000000..df53fd9dd7
+--- /dev/null
++++ b/level_zero/core/source/cmdlist/launch_kernel_probe.h
+@@ -0,0 +1,15 @@
++/*
++ * Copyright (C) 2025 Intel Corporation
++ *
++ * SPDX-License-Identifier: MIT
++ *
++ */
++
++#pragma once
++
++namespace L0 {
++struct Device;
++struct Kernel;
++
++void emitLaunchKernelProbe(Kernel *kernel, Device *device);
++} // namespace L0
+diff --git a/level_zero/core/source/kernel/kernel.h b/level_zero/core/source/kernel/kernel.h
+index 1daefe2aa9..0ccec57fd1 100644
+--- a/level_zero/core/source/kernel/kernel.h
++++ b/level_zero/core/source/kernel/kernel.h
+@@ -150,6 +150,8 @@ struct Kernel : _ze_kernel_handle_t, virtual NEO::DispatchKernelEncoderI, NEO::N
+ 
+     virtual const KernelImmutableData *getImmutableData() const = 0;
+ 
++    virtual Module *getModule() const = 0;
++
+     virtual const std::vector<NEO::GraphicsAllocation *> &getArgumentsResidencyContainer() const = 0;
+     virtual const std::vector<NEO::GraphicsAllocation *> &getInternalResidencyContainer() const = 0;
+ 
+diff --git a/level_zero/core/source/kernel/kernel_imp.h b/level_zero/core/source/kernel/kernel_imp.h
+index 10321a6658..0abacbf774 100644
+--- a/level_zero/core/source/kernel/kernel_imp.h
++++ b/level_zero/core/source/kernel/kernel_imp.h
+@@ -136,6 +136,8 @@ struct KernelImp : Kernel {
+ 
+     const KernelImmutableData *getImmutableData() const override { return kernelImmData; }
+ 
++    Module *getModule() const override { return module; }
++
+     UnifiedMemoryControls getUnifiedMemoryControls() const override { return unifiedMemoryControls; }
+     bool hasIndirectAllocationsAllowed() const override;
+ 
+diff --git a/level_zero/core/source/module/module_imp.cpp b/level_zero/core/source/module/module_imp.cpp
+index e72cec9128..bf4feba3a8 100644
+--- a/level_zero/core/source/module/module_imp.cpp
++++ b/level_zero/core/source/module/module_imp.cpp
+@@ -32,6 +32,7 @@
+ #include "shared/source/helpers/constants.h"
+ #include "shared/source/helpers/file_io.h"
+ #include "shared/source/helpers/gfx_core_helper.h"
++#include "shared/source/helpers/hash.h"
+ #include "shared/source/helpers/hw_info.h"
+ #include "shared/source/helpers/kernel_helpers.h"
+ #include "shared/source/helpers/string.h"
+@@ -598,9 +599,26 @@ ze_result_t ModuleImp::initialize(const ze_module_desc_t *desc, NEO::Device *neo
+     if (linkageSuccessful == false) {
+         result = ZE_RESULT_ERROR_MODULE_LINK_FAILURE;
+     }
++#ifdef NEO_ENABLE_USDT_PROBES
++    else if (this->isZebinBinary) {
++        if (this->translationUnit->debugDataSize == 0) {
++            createDebugZebin();
++        }
++        this->moduleDebugHash = NEO::Hash::hash(this->translationUnit->debugData.get(),
++                                                this->translationUnit->debugDataSize);
++    }
++#endif
+     return result;
+ }
+ 
++const char *ModuleImp::getModuleDebugElfPtr() const {
++    return this->translationUnit->debugData.get();
++}
++
++size_t ModuleImp::getModuleDebugElfSize() const {
++    return this->translationUnit->debugDataSize;
++}
++
+ void ModuleImp::transferIsaSegmentsToAllocation(NEO::Device *neoDevice, const NEO::Linker::PatchableSegments *isaSegmentsForPatching) {
+     const auto &productHelper = neoDevice->getProductHelper();
+     auto &rootDeviceEnvironment = neoDevice->getRootDeviceEnvironment();
+@@ -747,6 +765,10 @@ inline ze_result_t ModuleImp::initializeTranslationUnit(const ze_module_desc_t *
+             if (NEO::debugManager.flags.InjectApiBuildOptions.get() != "unk") {
+                 NEO::CompilerOptions::concatenateAppend(buildOptions, NEO::debugManager.flags.InjectApiBuildOptions.get());
+             }
++
++#ifdef NEO_ENABLE_KERNEL_DEBUG_INFO
++            NEO::CompilerOptions::concatenateAppend(buildOptions, "-g");
++#endif
+         }
+ 
+         if (desc->format == ZE_MODULE_FORMAT_NATIVE) {
+diff --git a/level_zero/core/source/module/module_imp.h b/level_zero/core/source/module/module_imp.h
+index 988ab73dba..3d370a9e54 100644
+--- a/level_zero/core/source/module/module_imp.h
++++ b/level_zero/core/source/module/module_imp.h
+@@ -175,6 +175,10 @@ struct ModuleImp : public Module {
+         return this->type;
+     }
+ 
++    uint64_t getModuleDebugHash() const { return moduleDebugHash; }
++    const char *getModuleDebugElfPtr() const;
++    size_t getModuleDebugElfSize() const;
++
+   protected:
+     MOCKABLE_VIRTUAL ze_result_t initializeTranslationUnit(const ze_module_desc_t *desc, NEO::Device *neoDevice);
+     bool shouldBuildBeFailed(NEO::Device *neoDevice);
+@@ -226,6 +230,7 @@ struct ModuleImp : public Module {
+     uint32_t debugElfHandle = 0;
+     uint32_t profileFlags = 0;
+     uint64_t moduleLoadAddress = std::numeric_limits<uint64_t>::max();
++    uint64_t moduleDebugHash = 0;
+     size_t isaAllocationPageSize = 0;
+ 
+     NEO::Linker::PatchableSegments isaSegmentsForPatching;
+diff --git a/opencl/source/program/build.cpp b/opencl/source/program/build.cpp
+index 9ee3b0fbef..d9ced966d1 100644
+--- a/opencl/source/program/build.cpp
++++ b/opencl/source/program/build.cpp
+@@ -106,6 +106,12 @@ cl_int Program::build(
+                 NEO::CompilerOptions::concatenateAppend(internalOptions, NEO::debugManager.flags.InjectInternalBuildOptions.get());
+             }
+ 
++#ifdef NEO_ENABLE_KERNEL_DEBUG_INFO
++            if (!this->getIsBuiltIn()) {
++                NEO::CompilerOptions::concatenateAppend(options, "-g");
++            }
++#endif
++
+             if (nullptr != this->getContextPtr()) {
+                 if (this->getContext().checkIfContextIsNonZebin()) {
+                     const auto &rootDevice = defaultDevice.getRootDevice();
+diff --git a/shared/source/CMakeLists.txt b/shared/source/CMakeLists.txt
+index 70e2590d62..2cb68b9b6c 100644
+--- a/shared/source/CMakeLists.txt
++++ b/shared/source/CMakeLists.txt
+@@ -74,10 +74,58 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
+     endif()
+   endif()
+ 
++  if(NEO_HAVE_USDT_PROBES)
++    target_compile_definitions(${LIB_NAME} PUBLIC NEO_HAVE_USDT)
++  endif()
++
++  if(NEO_ENABLE_KERNEL_DEBUG_INFO)
++    target_compile_definitions(${LIB_NAME} PUBLIC NEO_ENABLE_KERNEL_DEBUG_INFO)
++  endif()
++
+ endfunction()
+ 
++# USDT probes via SystemTap's dtrace wrapper, Linux only, opt-in.
++# Generates probes_generated.{h,o} from probes.d; the .o is linked into the
++# shared lib so the probe semaphores and SDT notes end up in the final image.
++if(NEO_ENABLE_USDT_PROBES)
++  if(NOT UNIX)
++    message(FATAL_ERROR "NEO_ENABLE_USDT_PROBES is only supported on Linux.")
++  endif()
++  find_program(NEO_DTRACE_EXECUTABLE dtrace)
++  include(CheckIncludeFile)
++  check_include_file(sys/sdt.h NEO_HAVE_SYS_SDT_H)
++  if(NOT NEO_DTRACE_EXECUTABLE OR NOT NEO_HAVE_SYS_SDT_H)
++    message(FATAL_ERROR
++      "NEO_ENABLE_USDT_PROBES=ON but required tooling is missing "
++      "(dtrace=${NEO_DTRACE_EXECUTABLE}, sys/sdt.h=${NEO_HAVE_SYS_SDT_H}). "
++      "Install systemtap-sdt-dev (Debian/Ubuntu) or systemtap-sdt-devel (RHEL/Fedora).")
++  endif()
++  set(NEO_HAVE_USDT_PROBES TRUE)
++  set(NEO_USDT_PROBES_D ${CMAKE_CURRENT_SOURCE_DIR}/os_interface/linux/probes.d)
++  set(NEO_USDT_PROBES_GEN_DIR ${NEO_BUILD_DIR}/shared/source/os_interface/linux)
++  set(NEO_USDT_PROBES_GEN_H ${NEO_USDT_PROBES_GEN_DIR}/probes_generated.h)
++  set(NEO_USDT_PROBES_GEN_O ${NEO_USDT_PROBES_GEN_DIR}/probes_generated.o)
++  add_custom_command(
++    OUTPUT ${NEO_USDT_PROBES_GEN_H} ${NEO_USDT_PROBES_GEN_O}
++    COMMAND ${CMAKE_COMMAND} -E make_directory ${NEO_USDT_PROBES_GEN_DIR}
++    COMMAND ${NEO_DTRACE_EXECUTABLE} -h -s ${NEO_USDT_PROBES_D} -o ${NEO_USDT_PROBES_GEN_H}
++    COMMAND ${NEO_DTRACE_EXECUTABLE} -G -s ${NEO_USDT_PROBES_D} -o ${NEO_USDT_PROBES_GEN_O}
++    DEPENDS ${NEO_USDT_PROBES_D}
++    COMMENT "Generating USDT probes from probes.d"
++    VERBATIM
++  )
++  set_source_files_properties(
++    ${NEO_USDT_PROBES_GEN_H} ${NEO_USDT_PROBES_GEN_O}
++    PROPERTIES GENERATED TRUE EXTERNAL_OBJECT TRUE
++  )
++  message(STATUS "USDT probes enabled (${NEO_DTRACE_EXECUTABLE})")
++endif()
++
+ set(NEO_CORE_COMPILE_DEFS "")
+ set(CORE_SOURCES ${CORE_SRCS_COREX_ALL_BASE})
++if(NEO_HAVE_USDT_PROBES)
++  list(APPEND CORE_SOURCES ${NEO_USDT_PROBES_D} ${NEO_USDT_PROBES_GEN_H} ${NEO_USDT_PROBES_GEN_O})
++endif()
+ 
+ add_subdirectories()
+ 
+diff --git a/shared/source/built_ins/kernels/CMakeLists.txt b/shared/source/built_ins/kernels/CMakeLists.txt
+index b86efe3a01..a2e1a98364 100644
+--- a/shared/source/built_ins/kernels/CMakeLists.txt
++++ b/shared/source/built_ins/kernels/CMakeLists.txt
+@@ -77,6 +77,9 @@ function(compile_builtin core_type platform_it builtin bits builtin_options mode
+   endif()
+ 
+   list(APPEND __ocloc__options__ "-cl-kernel-arg-info")
++  if(NEO_ENABLE_KERNEL_DEBUG_INFO)
++    list(APPEND __ocloc__options__ "-g")
++  endif()
+   set(INTERNAL_OPTIONS "${${mode}_INTERNAL_OPTIONS}")
+   add_custom_command(
+                      OUTPUT ${OUTPUT_FILE_SPV}
+diff --git a/shared/source/helpers/usdt_probes.h b/shared/source/helpers/usdt_probes.h
+new file mode 100644
+index 0000000000..1be9dcabcc
+--- /dev/null
++++ b/shared/source/helpers/usdt_probes.h
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (C) 2025 Intel Corporation
++ *
++ * SPDX-License-Identifier: MIT
++ *
++ */
++
++#pragma once
++
++#if defined(NEO_HAVE_USDT)
++#include "shared/source/os_interface/linux/probes_generated.h"
++#else
++namespace NEO {
++template <typename... Ts>
++constexpr inline void usdtProbeNoop(const Ts &...) {}
++} // namespace NEO
++#define LEVEL_ZERO_LAUNCH_KERNEL_ENABLED() 0
++#define LEVEL_ZERO_LAUNCH_KERNEL(...) ::NEO::usdtProbeNoop(__VA_ARGS__)
++#endif
+diff --git a/shared/source/os_interface/linux/probes.d b/shared/source/os_interface/linux/probes.d
+new file mode 100644
+index 0000000000..eccb259036
+--- /dev/null
++++ b/shared/source/os_interface/linux/probes.d
+@@ -0,0 +1,16 @@
++/*
++ * Copyright (C) 2025 Intel Corporation
++ *
++ * SPDX-License-Identifier: MIT
++ *
++ */
++
++provider level_zero {
++  probe launch_kernel(uint64_t iba,
++                      uint64_t kernelStart,
++                      uint64_t kernelSize,
++                      uintptr_t kernelName,
++                      uint64_t moduleDebugHash,
++                      uintptr_t moduleDebugElf,
++                      uint64_t moduleDebugElfSize);
++};

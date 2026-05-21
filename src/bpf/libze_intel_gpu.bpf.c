@@ -10,6 +10,56 @@ struct {
 } rb SEC(".maps");
 
 USDT_SEC_PLACEHOLDER("level_zero:launch_kernel")
+int BPF_USDT(launch_kernel, __u64 iba, __u64 gpu_addr, __u64 size, char *kernel_name, __u64 module_hash, __u64 elf_data, __u64 elf_size) {
+    struct probe_event_iba *iba_event;
+    long                    err;
+    struct probe_event_kernel_launch *kernel_launch_event;
+
+    iba_event = bpf_ringbuf_reserve(&rb, sizeof(*iba_event), 0);
+    if (!iba_event) {
+        ERR_PRINTK("launch_kernel failed to reserve in the ringbuffer.");
+        err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+        DEBUG_PRINTK("Unconsumed data: %lu", err);
+        return 0;
+    }
+    iba_event->type = PROBE_EVENT_IBA;
+    iba_event->addr = iba;
+    iba_event->pid  = bpf_get_current_pid_tgid() >> 32;
+    iba_event->tid  = bpf_get_current_pid_tgid();
+    bpf_ringbuf_submit(iba_event, BPF_RB_FORCE_WAKEUP);
+
+    kernel_launch_event = bpf_ringbuf_reserve(&rb, sizeof(*kernel_launch_event), 0);
+    if (!kernel_launch_event) {
+        ERR_PRINTK("launch_kernel failed to reserve in the ringbuffer.");
+        err = bpf_ringbuf_query(&rb, BPF_RB_AVAIL_DATA);
+        DEBUG_PRINTK("Unconsumed data: %lu", err);
+        return 0;
+    }
+    err = bpf_get_stack(ctx, &(kernel_launch_event->stack.addrs), sizeof(kernel_launch_event->stack.addrs), BPF_F_USER_STACK);
+    if (err < 0) {
+        WARN_PRINTK("launch_kernel failed to get a user stack: %ld", err);
+    } else {
+        kernel_launch_event->stack.len = err / sizeof(kernel_launch_event->stack.addrs[0]);
+        kernel_launch_event->stack.pid = bpf_get_current_pid_tgid() >> 32;
+    }
+    kernel_launch_event->type     = PROBE_EVENT_KERNEL_LAUNCH;
+    kernel_launch_event->addr     = gpu_addr;
+    kernel_launch_event->pid      = bpf_get_current_pid_tgid() >> 32;
+    kernel_launch_event->tid      = bpf_get_current_pid_tgid();
+    kernel_launch_event->cpu      = bpf_get_smp_processor_id();
+    kernel_launch_event->time     = bpf_ktime_get_ns();
+    kernel_launch_event->size     = size;
+    kernel_launch_event->elf_addr = elf_data;
+    kernel_launch_event->elf_size = elf_size;
+    kernel_launch_event->elf_hash = module_hash;
+    bpf_get_current_comm(kernel_launch_event->name, sizeof(kernel_launch_event->name));
+    bpf_ringbuf_submit(kernel_launch_event, BPF_RB_FORCE_WAKEUP);
+
+    return 0;
+}
+
+#if 0
+USDT_SEC_PLACEHOLDER("level_zero:launch_kernel")
 int BPF_USDT(launch_kernel, __u64 iba, __u64 gpu_addr, __u64 size, char *kernel_name) {
     struct probe_event_iba *iba_event;
     long                    err;
@@ -76,5 +126,7 @@ int BPF_USDT(compile_kernel, char *file_name) {
 
     return 0;
 }
+
+#endif
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
