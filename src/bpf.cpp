@@ -127,7 +127,7 @@ int BPF_Collector::handle_probe_event_kernel_launch(probe_event_kernel_launch *k
     u64 addr = device_info.canonicalize(kernel_launch_event->addr);
 
     if (!seen_elf_hashes.contains(kernel_launch_event->elf_hash)) {
-        INFO("new ELF image\n");
+        INFO("new ELF image pid={}, addr={}, size={}, hash={}\n", kernel_launch_event->pid, kernel_launch_event->elf_addr, kernel_launch_event->elf_size, kernel_launch_event->elf_hash);
         std::vector<char> elf_image = read_process_memory(kernel_launch_event->pid, kernel_launch_event->elf_addr, kernel_launch_event->elf_size);
         if (elf_image.size() > 0) {
             auto syms = symbolizer.get_elf_symbols(elf_image.data(), elf_image.size());
@@ -135,6 +135,8 @@ int BPF_Collector::handle_probe_event_kernel_launch(probe_event_kernel_launch *k
             for (auto &sym : syms) {
                 profile.set_kernel_debug_info(device_info.canonicalize(sym.addr), sym.symbol, sym.filename, sym.line, sym.binary);
             }
+        } else {
+            WARN("no symbols from ELF image\n");
         }
         seen_elf_hashes.insert(kernel_launch_event->elf_hash);
     }
