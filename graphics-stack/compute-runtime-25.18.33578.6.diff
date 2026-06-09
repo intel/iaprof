@@ -173,7 +173,7 @@ index 10321a6658..0abacbf774 100644
      bool hasIndirectAllocationsAllowed() const override;
  
 diff --git a/level_zero/core/source/module/module_imp.cpp b/level_zero/core/source/module/module_imp.cpp
-index e72cec9128..bf4feba3a8 100644
+index e72cec9128..7cfc27d839 100644
 --- a/level_zero/core/source/module/module_imp.cpp
 +++ b/level_zero/core/source/module/module_imp.cpp
 @@ -32,6 +32,7 @@
@@ -188,7 +188,7 @@ index e72cec9128..bf4feba3a8 100644
      if (linkageSuccessful == false) {
          result = ZE_RESULT_ERROR_MODULE_LINK_FAILURE;
      }
-+#ifdef NEO_ENABLE_USDT_PROBES
++#ifdef NEO_HAVE_USDT
 +    else if (this->isZebinBinary) {
 +        if (this->translationUnit->debugDataSize == 0) {
 +            createDebugZebin();
