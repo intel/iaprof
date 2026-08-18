@@ -87,7 +87,7 @@ void OA_Collector::handle_report(const pec_report_format &report) {
     u64 diff_time  = ((safe_diff(report.time,  this->prev_report.time,  56) * 100) / (device_info.oa_timestamp_freq / 100000)) * 100;
     u64 diff_ticks = safe_diff(report.ticks, this->prev_report.ticks, 32);
 
-    if (diff_ticks > 0) {
+    if (diff_time > 0 && diff_ticks > 0) {
         this->metrics.avg_mhz   = (diff_ticks * 1000) / diff_time;
         this->metrics.busy_perc = (u64)(((double)safe_diff(report.busy, this->prev_report.busy, 64) / diff_ticks) * 100);
     }
