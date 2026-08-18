@@ -4,11 +4,15 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 cd ${DIR}
 
-if ! [ -f blazesym/target/debug/libblazesym_c.a ]; then
-    git clone https://github.com/libbpf/blazesym || exit $?
+if ! [ -f blazesym/target/release/libblazesym_c.a ]; then
+    if ! [ -d blazesym ]; then
+        git clone https://github.com/libbpf/blazesym || exit $?
+        cd blazesym
+        git checkout v0.2.3 || exit $?
+        cd ${DIR}
+    fi
     cd blazesym
-    git checkout v0.2.3 || exit $?
-    cargo build -p blazesym-c || exit $?
+    cargo build --release -p blazesym-c || exit $?
 fi
 cd ${DIR}
 
@@ -27,7 +31,7 @@ BPFTOOL="deps/install/bpftool/bin/bpftool"
 ${BPFTOOL} btf dump file /sys/kernel/btf/vmlinux format c > build/generated_headers/vmlinux.h || exit $?
 ${BPFTOOL} btf dump file /sys/kernel/btf/xe      format c > build/generated_headers/xe.h      || exit $?
 
-BPF_CFLAGS="-Wall -Werror -g -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -target bpf -D__TARGET_ARCH_x86 -Wno-pass-failed"
+BPF_CFLAGS="-Wall -Werror -Wno-missing-declarations -g -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -target bpf -D__TARGET_ARCH_x86 -Wno-pass-failed"
 BPF_INC="-Ibuild/generated_headers -Ideps/install/libbpf/include"
 BPF_OPT="-O2"
 
@@ -44,7 +48,7 @@ done
 CFLAGS="-std=c++23 -Wall -Werror -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer"
 INC="-Isrc/bpf -Ibuild/generated_headers -Ideps/kernel_headers -Ideps/install/libbpf/include -Ideps/install/libelf/include -Iblazesym/capi/include -I$(llvm-config --includedir) -Ideps/install/igc/include"
 OPT=""
-LDFLAGS="deps/install/bpftool/lib/libbpf.a deps/install/libelf/lib/libdw.a deps/install/libelf/lib/libelf.a blazesym/target/debug/libblazesym_c.a deps/install/igc/lib/libiga64.a -ldl -lrt -lpthread -lm -lz -lzstd $(llvm-config --libs demangle)"
+LDFLAGS="deps/install/bpftool/lib/libbpf.a deps/install/libelf/lib/libdw.a deps/install/libelf/lib/libelf.a blazesym/target/release/libblazesym_c.a deps/install/igc/lib/libiga64.a -ldl -lrt -lpthread -lm -lz -lzstd $(llvm-config --libs demangle)"
 
 if [[ "${DEBUG}" == "yes" ]]; then
     OPT+="-g -O0"
