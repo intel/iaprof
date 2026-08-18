@@ -78,6 +78,7 @@ bool EU_Stall_Collector::handle_sample(const EU_Stall_Sample &sample) {
         this->matched += 1;
     } else {
         this->unmatched += 1;
+//         WARN("Could not find kernel for stall at {:x}\n", addr);
     }
 
     return matched;

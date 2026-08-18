@@ -107,12 +107,17 @@ std::pair<u64, std::reference_wrapper<const std::string>> Profile::get_string_id
         return std::pair{ it->second, this->ids_to_string.at(it->second) };
     }
 
+    size_t len = cpu_stack.len < 0 ? 0 : (size_t)cpu_stack.len;
+    if (len > MAX_STACK_DEPTH) { len = MAX_STACK_DEPTH; }
+
+    auto syms = symbolizer.get_syms(cpu_stack.pid, (const u64 *)cpu_stack.addrs, len);
+
     std::string stack_str = "";
     std::string lazy_semicolon = "";
-    for (int i = cpu_stack.len; i > 0; i -= 1) {
+    for (size_t i = len; i > 0; i -= 1) {
         stack_str += lazy_semicolon;
-        if (auto sym = symbolizer.get_sym(cpu_stack.pid, cpu_stack.addrs[i - 1])) {
-            stack_str += *sym;
+        if (syms[i - 1]) {
+            stack_str += *syms[i - 1];
         } else {
             stack_str += std::format("{:#x}", cpu_stack.addrs[i - 1]);
         }
@@ -161,7 +166,7 @@ std::optional<Locked_GPU_Kernel> Profile::find_kernel_at(u64 addr) {
 Locked_GPU_Kernel Profile::set_kernel_launch_info(u64 addr, u64 size, char command_name[TASK_COMM_LEN], u32 pid, struct stack &cpu_stack) {
     GPU_Kernel *kernel = this->get_or_create_kernel(addr);
 
-    if (size != 0 && size != kernel->binary.size()) {
+    if (size != 0 && size < kernel->binary.size()) {
         WARN("reported kernel size at launch differs from provided binary size ({} vs {})\n", size, kernel->binary.size());
     }
 

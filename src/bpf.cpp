@@ -133,6 +133,7 @@ int BPF_Collector::handle_probe_event_kernel_launch(probe_event_kernel_launch *k
             auto syms = symbolizer.get_elf_symbols(elf_image.data(), elf_image.size());
 
             for (auto &sym : syms) {
+//                 INFO("SYM {:x} name: {} file: {} line: {}\n", sym.addr, sym.symbol, sym.filename, sym.line);
                 profile.set_kernel_debug_info(device_info.canonicalize(sym.addr), sym.symbol, sym.filename, sym.line, sym.binary);
             }
         } else {
@@ -143,7 +144,7 @@ int BPF_Collector::handle_probe_event_kernel_launch(probe_event_kernel_launch *k
 
     profile.set_kernel_launch_info(addr, kernel_launch_event->size, kernel_launch_event->name, kernel_launch_event->pid, kernel_launch_event->stack);
 
-    INFO("new kernel {:x}\n", addr);
+    INFO("new kernel {:x}-{:x}\n", addr, addr + kernel_launch_event->size);
 
 //     auto kernel = profile.get_or_create_kernel(addr);
 

@@ -21,23 +21,74 @@ limitations under the License.
 #include <llvm/Demangle/Demangle.h>
 
 Symbolizer::Symbolizer() {
-    this->bsym = blaze_symbolizer_new();
-}
-
-std::optional<std::string> Symbolizer::get_sym(u32 pid, u64 addr) {
-    blaze_symbolize_src_process src = {
-        .type_size = sizeof(src),
-        .pid       = pid,
+    blaze_symbolizer_opts opts = {
+        .type_size   = sizeof(opts),
+        .auto_reload = true,
+        .code_info   = false,
+        .inlined_fns = false,
+        .demangle    = true,
     };
 
-    const blaze_syms *syms = blaze_symbolize_process_abs_addrs(this->bsym, &src, &addr, 1);
-    if (syms == nullptr || syms->cnt < 1 || syms->syms[0].name == nullptr) { return {}; }
+    this->bsym = blaze_symbolizer_new_opts(&opts);
+}
 
-    std::string ret = syms->syms[0].name;
+bool Symbolizer::cache_process_vmas(u32 pid) {
+    blaze_cache_src_process cache = {
+        .type_size  = sizeof(cache),
+        .pid        = pid,
+        .cache_vmas = true,
+    };
 
-    blaze_syms_free(syms);
+    blaze_symbolize_cache_process(this->bsym, &cache);
 
-    return ret;
+    blaze_err err = blaze_err_last();
+    if (err != BLAZE_ERR_OK) {
+        WARN("failed to cache the VMAs of pid {}: {}\n", pid, blaze_err_str(err));
+        return false;
+    }
+
+    return true;
+}
+
+std::vector<std::optional<std::string>> Symbolizer::get_syms(u32 pid, const u64 *addrs, size_t n) {
+    std::vector<std::optional<std::string>> result(n);
+
+    if (n == 0) { return result; }
+
+    blaze_symbolize_src_process src = {
+        .type_size  = sizeof(src),
+        .pid        = pid,
+        .debug_syms = true,
+        .perf_map   = true,
+    };
+
+    bool fresh_vmas = this->vma_cached_pids.insert(pid).second && this->cache_process_vmas(pid);
+
+    for (;;) {
+        const blaze_syms *syms = blaze_symbolize_process_abs_addrs(this->bsym, &src, addrs, n);
+        if (syms == nullptr) {
+            WARN("failed to symbolize {} addresses in pid {}: {}\n", n, pid, blaze_err_str(blaze_err_last()));
+            return result;
+        }
+
+        bool unresolved = false;
+        for (size_t i = 0; i < n; i += 1) {
+            if (i < syms->cnt && syms->syms[i].name != nullptr) {
+                result[i] = syms->syms[i].name;
+            } else {
+                unresolved = true;
+            }
+        }
+
+        blaze_syms_free(syms);
+
+        if (!unresolved || fresh_vmas) { break; }
+
+        if (!this->cache_process_vmas(pid)) { break; }
+        fresh_vmas = true;
+    }
+
+    return result;
 }
 
 static void extract_elf_symbol_binary(Elf_Symbol &sym, Elf_Scn *section) {

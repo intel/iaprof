@@ -33,6 +33,9 @@ struct Elf;
 class Symbolizer {
     blaze_symbolizer *bsym =  nullptr;
 
+    std::unordered_set<u32> vma_cached_pids;
+
+    bool cache_process_vmas(u32 pid);
 
     std::vector<Elf_Symbol> parse_elf(Elf *elf);
     std::vector<Elf_Symbol> parse_elf(const char *path);
@@ -41,7 +44,7 @@ class Symbolizer {
 public:
     Symbolizer();
 
-    std::optional<std::string> get_sym(u32 pid, u64 addr);
-    std::vector<Elf_Symbol> get_elf_symbols(const char *path);
-    std::vector<Elf_Symbol> get_elf_symbols(char *elf_data, size_t elf_size);
+    std::vector<std::optional<std::string>> get_syms(u32 pid, const u64 *addrs, size_t n);
+    std::vector<Elf_Symbol>                 get_elf_symbols(const char *path);
+    std::vector<Elf_Symbol>                 get_elf_symbols(char *elf_data, size_t elf_size);
 };
