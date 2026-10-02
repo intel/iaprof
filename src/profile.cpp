@@ -77,6 +77,9 @@ void Profile::output_string_id(u64 id, const std::string &string) {
     this->output("string\t{}\t{}\n", id, string);
 }
 
+void Profile::flush() {
+    fflush(stdout);
+}
 
 std::pair<u64, std::reference_wrapper<const std::string>> Profile::get_string_id(const std::string &string) {
     auto it = this->string_ids.find(string);
@@ -353,4 +356,6 @@ void Profile::output_interval() {
     }
 
     this->interval += 1;
+
+    this->flush();
 }

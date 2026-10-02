@@ -107,6 +107,8 @@ class Profile {
 
     void output_string_id(u64 id, const std::string &string);
 
+    void flush();
+
     std::pair<u64, std::reference_wrapper<const std::string>> get_string_id(const std::string &string);
     std::pair<u64, std::reference_wrapper<const std::string>> get_string_id(const char *cstring);
     std::pair<u64, std::reference_wrapper<const std::string>> get_string_id(const struct stack &cpu_stack);

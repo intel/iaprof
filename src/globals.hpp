@@ -21,7 +21,7 @@ limitations under the License.
 #include "symbolizer.hpp"
 #include "profile.hpp"
 
-#define IAPROF_VERSION             "2026.2"
+#define IAPROF_VERSION             "2026.3"
 #define DEFAULT_INTERVAL           (10)
 #define DEFAULT_EU_STALL_SUBSAMPLE (100)
 
